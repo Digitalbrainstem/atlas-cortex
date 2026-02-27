@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  # ── Atlas Cortex main server ──────────────────────────────────
+  atlas-cortex:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: atlas-cortex:latest
+    container_name: atlas-cortex
+    restart: unless-stopped
+    ports:
+      - "5100:5100"
+    volumes:
+      - atlas-data:/data
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - LLM_URL=${LLM_URL:-http://host.docker.internal:11434}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - MODEL_FAST=${MODEL_FAST:-qwen2.5:14b}
+      - MODEL_THINKING=${MODEL_THINKING:-qwen3:30b-a3b}
+      - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
+      - CORTEX_DATA_DIR=/data
+      - CORTEX_PORT=5100
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Speaker ID sidecar (optional, Part 1 C3a) ─────────────────
+  # atlas-speaker-id:
+  #   image: atlas-speaker-id:latest
+  #   container_name: atlas-speaker-id
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8890:8890"
+  #   volumes:
+  #     - atlas-data:/data
+
+  # ── Avatar sidecar (optional, Part 1 C7) ─────────────────────
+  # atlas-avatar:
+  #   image: atlas-avatar:latest
+  #   container_name: atlas-avatar
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8891:8891"
+
+  # ── Nightly evolution job (optional, Part 2) ─────────────────
+  # atlas-evolution:
+  #   image: atlas-cortex:latest
+  #   container_name: atlas-evolution
+  #   restart: "no"
+  #   volumes:
+  #     - atlas-data:/data
+  #   environment:
+  #     - CORTEX_DATA_DIR=/data
+  #   command: ["python", "-m", "cortex.evolution"]
+
+volumes:
+  atlas-data:
+    driver: local

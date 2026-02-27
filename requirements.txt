@@ -1,0 +1,17 @@
+# Atlas Cortex — Python dependencies (Part 1: Core Engine)
+
+# ── Core ──────────────────────────────────────────────────────────
+fastapi>=0.100.0
+uvicorn>=0.22.0
+httpx>=0.24.0
+pydantic>=2.0
+
+# ── Sentiment Analysis ────────────────────────────────────────────
+vaderSentiment>=3.3.2
+
+# ── Database ─────────────────────────────────────────────────────
+# sqlite3 is included in the Python standard library
+
+# ── Testing ──────────────────────────────────────────────────────
+pytest>=7.0
+pytest-asyncio>=0.21
