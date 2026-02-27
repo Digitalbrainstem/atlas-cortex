@@ -489,6 +489,46 @@ CREATE INDEX idx_guardrail_category ON guardrail_events(category);
 CREATE INDEX idx_guardrail_user ON guardrail_events(user_id);
 ```
 
+### jailbreak_patterns
+
+Learned regex patterns from blocked jailbreak attempts. See [safety-guardrails.md](safety-guardrails.md).
+
+```sql
+CREATE TABLE jailbreak_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern TEXT NOT NULL,
+    source_event_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_matched_at TIMESTAMP,
+    match_count INTEGER DEFAULT 0,
+    false_positive_count INTEGER DEFAULT 0,
+    active BOOLEAN DEFAULT TRUE,
+    reviewed BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    FOREIGN KEY (source_event_id) REFERENCES guardrail_events(id)
+);
+
+CREATE INDEX idx_jb_active ON jailbreak_patterns(active);
+```
+
+### jailbreak_exemplars
+
+Semantic exemplar embeddings for detecting novel jailbreak phrasing.
+
+```sql
+CREATE TABLE jailbreak_exemplars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    embedding BLOB,
+    source_event_id INTEGER,
+    cluster_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_event_id) REFERENCES guardrail_events(id)
+);
+
+CREATE INDEX idx_jb_cluster ON jailbreak_exemplars(cluster_id);
+```
+
 ### list_registry
 
 `backend_config` stays as JSON (opaque, varies per backend). Permissions normalized to `list_permissions`. Aliases normalized to `list_aliases`.
@@ -850,9 +890,9 @@ memory_metrics (standalone)
 | Knowledge | 3 | knowledge_docs, knowledge_shared_with, knowledge_fts |
 | Memory | 2 | memory_fts, memory_metrics |
 | Learning | 3 | mistake_log, mistake_tags, evolution_log |
-| Safety | 1 | guardrail_events |
+| Safety | 3 | guardrail_events, jailbreak_patterns, jailbreak_exemplars |
 | Backup | 1 | backup_log |
 | Context & Hardware | 5 | hardware_profile, hardware_gpu, model_config, context_checkpoints, context_metrics |
 | Discovery & Plugins | 3 | discovered_services, service_config, plugin_registry |
 | TTS | 1 | tts_voices |
-| **Total** | **~40 tables** | (including FTS5 virtual tables and junction tables) |
+| **Total** | **~42 tables** | (including FTS5 virtual tables and junction tables) |
