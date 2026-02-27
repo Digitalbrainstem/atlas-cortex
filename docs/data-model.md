@@ -466,6 +466,29 @@ WHERE ml.created_at > datetime('now', '-30 days')
 GROUP BY tag ORDER BY mistakes DESC;
 ```
 
+### guardrail_events
+
+Safety guardrail trigger log. See [safety-guardrails.md](safety-guardrails.md).
+
+```sql
+CREATE TABLE guardrail_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id TEXT,
+    direction TEXT NOT NULL,         -- 'input' | 'output'
+    category TEXT NOT NULL,          -- 'self_harm' | 'explicit' | 'injection' | 'pii' | ...
+    severity TEXT NOT NULL,          -- 'pass' | 'warn' | 'soft_block' | 'hard_block'
+    trigger_text TEXT,               -- the text that triggered (redacted if PII)
+    action_taken TEXT,               -- 'passed' | 'warned' | 'replaced' | 'blocked'
+    content_tier TEXT,               -- tier at time of event
+    FOREIGN KEY (user_id) REFERENCES user_profiles(user_id)
+);
+
+CREATE INDEX idx_guardrail_severity ON guardrail_events(severity);
+CREATE INDEX idx_guardrail_category ON guardrail_events(category);
+CREATE INDEX idx_guardrail_user ON guardrail_events(user_id);
+```
+
 ### list_registry
 
 `backend_config` stays as JSON (opaque, varies per backend). Permissions normalized to `list_permissions`. Aliases normalized to `list_aliases`.
@@ -827,7 +850,9 @@ memory_metrics (standalone)
 | Knowledge | 3 | knowledge_docs, knowledge_shared_with, knowledge_fts |
 | Memory | 2 | memory_fts, memory_metrics |
 | Learning | 3 | mistake_log, mistake_tags, evolution_log |
+| Safety | 1 | guardrail_events |
 | Backup | 1 | backup_log |
-| Context & Hardware | 4 | hardware_profile, model_config, context_checkpoints, context_metrics |
+| Context & Hardware | 5 | hardware_profile, hardware_gpu, model_config, context_checkpoints, context_metrics |
 | Discovery & Plugins | 3 | discovered_services, service_config, plugin_registry |
-| **Total** | **~37 tables** | (including FTS5 virtual tables and junction tables) |
+| TTS | 1 | tts_voices |
+| **Total** | **~40 tables** | (including FTS5 virtual tables and junction tables) |
