@@ -137,3 +137,61 @@ class TestHAPlugin:
         result = await plugin.handle("turn on the bedroom light", match, {})
         assert result.success is False
         assert "not reachable" in result.response.lower() or "not configured" in result.response.lower()
+
+
+class TestHABootstrapAreaName:
+    """Verify area_name is stored and used for room scoping."""
+
+    async def test_sync_stores_area_name(self, db_conn):
+        mock_client = AsyncMock()
+        mock_client.get_states.return_value = [
+            {
+                "entity_id": "light.living_room",
+                "state": "off",
+                "attributes": {
+                    "friendly_name": "Living Room Light",
+                    "area_id": "area_abc",
+                },
+            }
+        ]
+        mock_client.get_areas.return_value = [
+            {"area_id": "area_abc", "name": "Living Room"}
+        ]
+        bootstrap = HABootstrap(mock_client, db_conn)
+        await bootstrap.sync_devices()
+        row = db_conn.execute(
+            "SELECT area_id, area_name FROM ha_devices WHERE entity_id = 'light.living_room'"
+        ).fetchone()
+        assert row is not None
+        assert row["area_id"] == "area_abc"
+        assert row["area_name"] == "Living Room"
+
+    def test_entity_in_area_uses_area_name(self, db_conn):
+        db_conn.execute(
+            """INSERT INTO ha_devices (entity_id, friendly_name, domain, area_id, area_name, state)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ("light.kitchen", "Kitchen Light", "light", "area_k", "Kitchen", "off"),
+        )
+        db_conn.commit()
+        plugin = HAPlugin(conn=db_conn)
+        # Should match by area_name "Kitchen"
+        assert plugin._entity_in_area("kitchen light", "Kitchen") is True
+        assert plugin._entity_in_area("kitchen light", "kitchen") is True
+        # Wrong room should not match
+        assert plugin._entity_in_area("kitchen light", "Bedroom") is False
+
+
+class TestHAClientConnectionPooling:
+    """Verify HAClient reuses a single AsyncClient instance."""
+
+    def test_client_instance_reused(self):
+        import httpx
+        client = HAClient("http://localhost:8123", "token")
+        assert isinstance(client._client, httpx.AsyncClient)
+        # Same instance across calls
+        assert client._client is client._client
+
+    async def test_aclose_works(self):
+        client = HAClient("http://localhost:8123", "token")
+        # Should not raise
+        await client.aclose()

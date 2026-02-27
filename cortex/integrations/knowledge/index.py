@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,13 @@ _TRIGGER_PHRASES = [
     "from my email",
     "in my calendar",
 ]
+
+
+def _fts_query(text: str) -> str:
+    """Sanitize free text into a safe FTS5 MATCH expression (avoids syntax errors)."""
+    clean = re.sub(r"[^\w\s]", " ", text)
+    tokens = clean.split()[:10]
+    return " ".join(tokens) if tokens else '""'
 
 
 class KnowledgeIndex:
@@ -92,20 +100,24 @@ class KnowledgeIndex:
         where, params = self._gate.filter_query(user_id, identity_confidence)
         sql = (
             f"SELECT doc_id, title, text, access_level, "
-            f"rank AS score "
+            f"bm25(knowledge_fts) AS score "
             f"FROM knowledge_fts "
             f"WHERE knowledge_fts MATCH ? AND {where} "
-            f"ORDER BY rank "
+            f"ORDER BY score "
             f"LIMIT ?"
         )
-        rows = self._conn.execute(sql, [query] + params + [top_k]).fetchall()
+        try:
+            rows = self._conn.execute(sql, [_fts_query(query)] + params + [top_k]).fetchall()
+        except Exception as exc:
+            logger.warning("knowledge search error: %s", exc)
+            return []
         return [
             {
                 "doc_id": r["doc_id"],
                 "title": r["title"],
                 "text": r["text"],
                 "access_level": r["access_level"],
-                "score": r["score"],
+                "score": abs(float(r["score"])),
             }
             for r in rows
         ]

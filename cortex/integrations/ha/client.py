@@ -27,12 +27,31 @@ class HAAuthError(HAClientError):
 
 
 class HAClient:
-    """Thin async wrapper around the Home Assistant REST API."""
+    """Thin async wrapper around the Home Assistant REST API.
+
+    A single :class:`httpx.AsyncClient` is reused across calls for connection
+    pooling and keep-alive.  Call :meth:`aclose` (or use as an async context
+    manager) when done.
+    """
 
     def __init__(self, base_url: str, token: str, timeout: float = 10.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self._client: httpx.AsyncClient = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=self._headers(),
+        )
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client and free resources."""
+        await self._client.aclose()
+
+    async def __aenter__(self) -> "HAClient":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.aclose()
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -68,8 +87,7 @@ class HAClient:
     async def _get(self, path: str) -> Any:
         url = f"{self.base_url}{path}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, headers=self._headers())
+            response = await self._client.get(url)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
             raise HAConnectionError(f"Cannot reach HA at {url}: {exc}") from exc
         self._raise_for_auth(response)
@@ -79,8 +97,7 @@ class HAClient:
     async def _post(self, path: str, data: dict) -> Any:
         url = f"{self.base_url}{path}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=data, headers=self._headers())
+            response = await self._client.post(url, json=data)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
             raise HAConnectionError(f"Cannot reach HA at {url}: {exc}") from exc
         self._raise_for_auth(response)

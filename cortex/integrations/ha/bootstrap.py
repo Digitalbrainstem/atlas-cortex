@@ -136,6 +136,7 @@ class HABootstrap:
             attrs: dict = state.get("attributes", {})
             friendly_name: str = attrs.get("friendly_name") or entity_id
             area_id: str | None = attrs.get("area_id") or state.get("area_id")
+            area_name: str | None = area_by_id.get(area_id) if area_id else None
             current_state: str = state.get("state", "unknown")
 
             seen.add(entity_id)
@@ -147,18 +148,18 @@ class HABootstrap:
             if existing:
                 self._conn.execute(
                     """UPDATE ha_devices
-                       SET friendly_name=?, domain=?, area_id=?, state=?,
-                           last_seen=CURRENT_TIMESTAMP
+                       SET friendly_name=?, domain=?, area_id=?, area_name=?,
+                           state=?, last_seen=CURRENT_TIMESTAMP
                        WHERE entity_id=?""",
-                    (friendly_name, domain, area_id, current_state, entity_id),
+                    (friendly_name, domain, area_id, area_name, current_state, entity_id),
                 )
                 updated += 1
             else:
                 self._conn.execute(
                     """INSERT INTO ha_devices
-                       (entity_id, friendly_name, domain, area_id, state)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (entity_id, friendly_name, domain, area_id, current_state),
+                       (entity_id, friendly_name, domain, area_id, area_name, state)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (entity_id, friendly_name, domain, area_id, area_name, current_state),
                 )
                 added += 1
 
