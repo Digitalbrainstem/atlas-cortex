@@ -29,7 +29,7 @@ _REMOVE_PATTERNS = re.compile(
 class ListRegistry:
     def __init__(self, conn: Any, default_backend: ListBackend | None = None) -> None:
         self._conn = conn
-        self._backend = default_backend or SQLiteListBackend(conn)
+        self.backend: ListBackend = default_backend or SQLiteListBackend(conn)
 
     def create_list(
         self,
@@ -151,7 +151,7 @@ class ListPlugin(CortexPlugin):
     def __init__(self, conn: Any) -> None:
         self._conn = conn
         self._registry = ListRegistry(conn)
-        self._backend = self._registry._backend
+        self._backend = self._registry.backend
 
     async def setup(self, config: dict) -> bool:
         return True
@@ -199,6 +199,11 @@ class ListPlugin(CortexPlugin):
                 list_id = self._registry.create_list(list_name, owner_id=user_id)
             else:
                 list_id = lst["id"]
+                if not self._registry.check_permission(list_id, user_id, "add"):
+                    return CommandResult(
+                        success=False,
+                        response=f"You don't have permission to add items to the {list_name} list.",
+                    )
             await self._backend.add_item(list_id, item_text, user_id)
             return CommandResult(
                 success=True,
@@ -233,6 +238,11 @@ class ListPlugin(CortexPlugin):
             lst = self._registry.resolve(list_name, user_id)
             if lst is None:
                 return CommandResult(success=False, response=f"No {list_name} list found.")
+            if not self._registry.check_permission(lst["id"], user_id, "remove"):
+                return CommandResult(
+                    success=False,
+                    response=f"You don't have permission to remove items from the {list_name} list.",
+                )
             items = await self._backend.get_items(lst["id"])
             target = next((i for i in items if item_text in i.content.lower()), None)
             if target is None:

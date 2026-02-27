@@ -23,18 +23,27 @@ _HA_PHRASE_RULES: list[tuple[re.Pattern, str, float]] = [
 
 
 def _build_candidate_pattern(message: str, intent: str) -> str | None:
-    """Build a simple regex pattern from a message string."""
+    """Build a simple regex pattern from a message string.
+
+    Digit sequences are generalized to ``(\\d+)`` capture groups; all other
+    tokens are regex-escaped so the pattern matches literally.
+    """
     # Lowercase and strip punctuation (preserve apostrophes for contractions/possessives)
     cleaned = re.sub(r"[^\w\s']", "", message.lower()).strip()
     if not cleaned:
         return None
-    # Escape the cleaned message to make a literal-ish pattern
-    # Replace specific tokens with generic capture groups
-    pattern = re.sub(r"\b\d+\b", r"(\\d+)", cleaned)
-    pattern = f"(?i){re.escape(pattern)}"
-    # Un-escape the capture groups we inserted
-    pattern = pattern.replace(r"\(\\d\+\)", r"(\d+)")
-    return pattern
+    # Build the pattern token-wise so we can generalize numbers while escaping literals.
+    parts: list[str] = []
+    for segment in re.split(r"(\d+)", cleaned):
+        if not segment:
+            continue
+        if segment.isdigit():
+            parts.append(r"(\d+)")
+        else:
+            parts.append(re.escape(segment))
+    if not parts:
+        return None
+    return "(?i)" + "".join(parts)
 
 
 class FallthroughAnalyzer:

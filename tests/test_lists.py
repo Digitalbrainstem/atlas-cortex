@@ -200,3 +200,62 @@ class TestListPlugin:
         result = await plugin.handle("what's on my grocery list", match, {"user_id": "user1"})
         assert result.success is True
         assert "eggs" in result.response
+
+
+class TestListPluginPermissions:
+    """Verify that add_item and remove_item enforce permissions."""
+
+    async def test_add_item_denied_without_permission(self, db_conn):
+        registry = ListRegistry(db_conn)
+        list_id = registry.create_list("grocery", owner_id="owner")
+        # Give user2 view-only permission (no add)
+        registry.grant_permission(list_id, "user2", can_add=False, can_view=True, can_remove=False)
+
+        plugin = ListPlugin(db_conn)
+        match = CommandMatch(
+            matched=True,
+            intent="add_item",
+            confidence=0.9,
+            metadata={"item": "milk", "list_name": "grocery"},
+        )
+        result = await plugin.handle("add milk to my grocery list", match, {"user_id": "user2"})
+        assert result.success is False
+        assert "permission" in result.response.lower()
+
+    async def test_remove_item_denied_without_permission(self, db_conn):
+        registry = ListRegistry(db_conn)
+        list_id = registry.create_list("grocery", owner_id="owner")
+        backend = SQLiteListBackend(db_conn)
+        await backend.add_item(list_id, "eggs", "owner")
+        # Give user2 view-only (no remove)
+        registry.grant_permission(list_id, "user2", can_add=False, can_view=True, can_remove=False)
+
+        plugin = ListPlugin(db_conn)
+        match = CommandMatch(
+            matched=True,
+            intent="remove_item",
+            confidence=0.9,
+            metadata={"item": "eggs", "list_name": "grocery"},
+        )
+        result = await plugin.handle("remove eggs from my grocery list", match, {"user_id": "user2"})
+        assert result.success is False
+        assert "permission" in result.response.lower()
+
+    async def test_owner_can_add_and_remove(self, db_conn):
+        registry = ListRegistry(db_conn)
+        list_id = registry.create_list("grocery", owner_id="owner")
+        backend = SQLiteListBackend(db_conn)
+        await backend.add_item(list_id, "bread", "owner")
+
+        plugin = ListPlugin(db_conn)
+        # Owner can add
+        add_match = CommandMatch(matched=True, intent="add_item", confidence=0.9,
+                                  metadata={"item": "milk", "list_name": "grocery"})
+        add_result = await plugin.handle("add milk", add_match, {"user_id": "owner"})
+        assert add_result.success is True
+
+        # Owner can remove
+        remove_match = CommandMatch(matched=True, intent="remove_item", confidence=0.9,
+                                     metadata={"item": "bread", "list_name": "grocery"})
+        remove_result = await plugin.handle("remove bread", remove_match, {"user_id": "owner"})
+        assert remove_result.success is True

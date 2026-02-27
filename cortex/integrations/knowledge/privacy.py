@@ -29,7 +29,8 @@ class AccessGate:
         self._conn = conn
 
     def allowed_levels(self, user_id: str, identity_confidence: str = "high") -> list[str]:
-        return IDENTITY_LEVELS.get(identity_confidence, IDENTITY_LEVELS["high"])
+        # Fail closed: unknown/invalid values default to the most restrictive tier
+        return IDENTITY_LEVELS.get(identity_confidence, IDENTITY_LEVELS["unknown"])
 
     def filter_query(
         self,

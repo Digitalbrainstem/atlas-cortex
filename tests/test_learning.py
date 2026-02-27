@@ -205,3 +205,38 @@ class TestNightlyEvolution:
         await evolution.run()
         row = db_conn.execute("SELECT * FROM evolution_log").fetchone()
         assert row is not None
+
+
+class TestBuildCandidatePattern:
+    """Tests for the fixed _build_candidate_pattern helper."""
+
+    def test_numeric_generalization(self):
+        from cortex.integrations.learning.analyzer import _build_candidate_pattern
+        pattern = _build_candidate_pattern("set the lights to 50%", "set_value")
+        assert pattern is not None
+        import re
+        # Pattern should match a different number too
+        assert re.search(pattern, "set the lights to 75%")
+        assert re.search(pattern, "set the lights to 50%")
+
+    def test_literal_text_escaped(self):
+        from cortex.integrations.learning.analyzer import _build_candidate_pattern
+        import re
+        pattern = _build_candidate_pattern("turn on the bedroom lights", "toggle")
+        assert pattern is not None
+        # Should match the original
+        assert re.search(pattern, "turn on the bedroom lights")
+        # Should not match unrelated text
+        assert not re.search(pattern, "close the garage door")
+
+    def test_empty_message_returns_none(self):
+        from cortex.integrations.learning.analyzer import _build_candidate_pattern
+        assert _build_candidate_pattern("", "toggle") is None
+
+    def test_no_double_escaped_placeholder(self):
+        from cortex.integrations.learning.analyzer import _build_candidate_pattern
+        pattern = _build_candidate_pattern("set thermostat to 72 degrees", "set_temperature")
+        assert pattern is not None
+        # The literal string r"\d+" should NOT appear in the final pattern
+        assert r"\d\+" not in pattern
+        assert r"(\d+)" in pattern
