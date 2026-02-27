@@ -521,7 +521,8 @@ CREATE TABLE IF NOT EXISTS discovered_services (
     last_health_check TIMESTAMP,
     health_status    TEXT DEFAULT 'unknown',
     discovered_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(service_type, url)
 );
 
 CREATE TABLE IF NOT EXISTS service_config (
