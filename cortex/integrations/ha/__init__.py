@@ -180,7 +180,7 @@ class HAPlugin(CortexPlugin):
         if self._conn is None:
             return []
         rows = self._conn.execute(
-            "SELECT entity_id, friendly_name, domain, area_id, state FROM ha_devices"
+            "SELECT entity_id, friendly_name, domain, area_id, area_name, state FROM ha_devices"
         ).fetchall()
         return [
             {
@@ -188,7 +188,8 @@ class HAPlugin(CortexPlugin):
                 "friendly_name": r[1],
                 "domain": r[2],
                 "area_id": r[3],
-                "state": r[4],
+                "area_name": r[4],
+                "state": r[5],
             }
             for r in rows
         ]
@@ -272,11 +273,11 @@ class HAPlugin(CortexPlugin):
         return "", fragment
 
     def _entity_in_area(self, entity_fragment: str, room: str) -> bool:
-        """Return True if a device matching fragment is in the given area."""
+        """Return True if a device matching fragment is in the given area (by name)."""
         if self._conn is None:
             return False
         row = self._conn.execute(
-            """SELECT d.area_id FROM ha_devices d
+            """SELECT d.area_name FROM ha_devices d
                WHERE lower(d.friendly_name) LIKE ?
                LIMIT 1""",
             (f"%{entity_fragment.lower()}%",),

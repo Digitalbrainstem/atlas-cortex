@@ -1,6 +1,6 @@
 """Document processor — extracts and chunks text from files (Phase I5.3).
 
-Supports: plain text, markdown, CSV, JSON.
+Supports: plain text, markdown, CSV, JSON, Python files, YAML, and TOML.
 Intentionally minimal — external parsers (PDF, DOCX) are optional future extensions.
 """
 

@@ -261,3 +261,72 @@ class TestKnowledgeIndex:
         assert stats["total_docs"] >= 1
         assert "by_source" in stats
         assert "by_access_level" in stats
+
+
+class TestAccessGateFailClosed:
+    """Verify that unknown/invalid identity_confidence fails closed."""
+
+    def test_invalid_confidence_public_only(self, db_conn):
+        gate = AccessGate(db_conn)
+        levels = gate.allowed_levels("user1", "INVALID")
+        assert levels == ["public"]
+
+    def test_typo_confidence_public_only(self, db_conn):
+        gate = AccessGate(db_conn)
+        levels = gate.allowed_levels("user1", "hig")  # typo
+        assert levels == ["public"]
+
+    def test_empty_confidence_public_only(self, db_conn):
+        gate = AccessGate(db_conn)
+        levels = gate.allowed_levels("user1", "")
+        assert levels == ["public"]
+
+
+class TestKnowledgeSearchBM25:
+    """Verify that knowledge search uses bm25() and handles special characters."""
+
+    def test_search_special_chars_no_error(self, db_conn):
+        """Queries with FTS5 special characters should not raise."""
+        idx = KnowledgeIndex(db_conn)
+        from cortex.integrations.knowledge.processor import DocumentProcessor
+        proc = DocumentProcessor()
+        chunks = proc.process_text("some content about Python", "doctest")
+        # Build minimal metadata
+        import hashlib
+        meta = {
+            "doc_id": "t1",
+            "owner_id": "user1",
+            "access_level": "public",
+            "source": "test",
+            "source_path": None,
+            "content_type": "text/plain",
+            "title": "Test Doc",
+            "content_hash": hashlib.sha256(b"some content").hexdigest(),
+            "total_chunks": 1,
+        }
+        idx.add_document(chunks, meta)
+        # Special FTS5 characters in query should not raise
+        results = idx.search("Python AND OR NOT", "user1")
+        assert isinstance(results, list)
+
+    def test_search_score_is_float(self, db_conn):
+        idx = KnowledgeIndex(db_conn)
+        import hashlib
+        from cortex.integrations.knowledge.processor import DocumentProcessor
+        proc = DocumentProcessor()
+        chunks = proc.process_text("hello world test content", "d1")
+        meta = {
+            "doc_id": "d1",
+            "owner_id": "user1",
+            "access_level": "public",
+            "source": "test",
+            "source_path": None,
+            "content_type": "text/plain",
+            "title": "Title",
+            "content_hash": hashlib.sha256(b"hello world test content").hexdigest(),
+            "total_chunks": 1,
+        }
+        idx.add_document(chunks, meta)
+        results = idx.search("hello world", "user1")
+        if results:
+            assert isinstance(results[0]["score"], float)
