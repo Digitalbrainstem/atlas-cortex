@@ -1,4 +1,4 @@
-# Atlas Cortex — Python dependencies (Part 1: Core Engine)
+# Atlas Cortex — Python dependencies
 
 # ── Core ──────────────────────────────────────────────────────────
 fastapi>=0.100.0
@@ -11,6 +11,13 @@ vaderSentiment>=3.3.2
 
 # ── Database ─────────────────────────────────────────────────────
 # sqlite3 is included in the Python standard library
+
+# ── Part 2: Integration Layer ─────────────────────────────────────
+# Service discovery — mDNS/Zeroconf (optional, falls back to HTTP probes)
+# zeroconf>=0.131.0      # uncomment to enable mDNS scanning
+
+# Vector memory — ChromaDB (optional, falls back to FTS5)
+# chromadb>=0.4.0        # uncomment to enable vector search
 
 # ── Testing ──────────────────────────────────────────────────────
 pytest>=7.0

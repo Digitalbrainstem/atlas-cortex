@@ -24,8 +24,8 @@ _HA_PHRASE_RULES: list[tuple[re.Pattern, str, float]] = [
 
 def _build_candidate_pattern(message: str, intent: str) -> str | None:
     """Build a simple regex pattern from a message string."""
-    # Lowercase and strip punctuation
-    cleaned = re.sub(r"[^\w\s]", "", message.lower()).strip()
+    # Lowercase and strip punctuation (preserve apostrophes for contractions/possessives)
+    cleaned = re.sub(r"[^\w\s']", "", message.lower()).strip()
     if not cleaned:
         return None
     # Escape the cleaned message to make a literal-ish pattern

@@ -70,15 +70,18 @@ class TestFallthroughAnalyzer:
         assert len(candidates) == 0
 
     def test_save_learned_patterns(self, db_conn):
-        # Disable FK enforcement so we don't need a real interaction row
-        db_conn.execute("PRAGMA foreign_keys=OFF")
+        # Insert a real interaction row so FK is satisfied
+        db_conn.execute(
+            "INSERT INTO interactions (id, user_id, message, matched_layer) VALUES (1, 'u1', 'turn on bedroom lights', 'llm')",
+        )
+        db_conn.commit()
         analyzer = FallthroughAnalyzer(db_conn)
         candidates = [
             {
                 "pattern": "(?i)turn on bedroom lights test",
                 "intent": "toggle",
                 "confidence": 0.8,
-                "source_interaction_id": 0,
+                "source_interaction_id": 1,
             }
         ]
         saved = analyzer.save_learned_patterns(candidates)

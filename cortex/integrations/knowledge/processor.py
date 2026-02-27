@@ -62,7 +62,11 @@ class DocumentProcessor:
         if content_type is None:
             raise ValueError(f"Unsupported file type: {suffix!r}")
 
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            raw = path.read_text(encoding="utf-8", errors="replace")
+            logger.warning("File %s had encoding errors — replaced invalid bytes", path)
 
         if suffix == ".json":
             try:
@@ -75,7 +79,7 @@ class DocumentProcessor:
         else:
             text = raw
 
-        content_hash = hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
+        content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         doc_id = content_hash[:16]
         title = path.stem
 
