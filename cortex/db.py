@@ -377,6 +377,17 @@ CREATE TABLE IF NOT EXISTS list_permissions (
 );
 CREATE INDEX IF NOT EXISTS idx_list_perms_user ON list_permissions(user_id);
 
+CREATE TABLE IF NOT EXISTS list_items (
+    id         TEXT PRIMARY KEY,
+    list_id    TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    done       BOOLEAN DEFAULT FALSE,
+    added_by   TEXT DEFAULT '',
+    added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (list_id) REFERENCES list_registry(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_list_items_list ON list_items(list_id);
+
 -- ───────── Learning ─────────
 
 CREATE TABLE IF NOT EXISTS learned_patterns (
