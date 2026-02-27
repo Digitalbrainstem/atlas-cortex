@@ -208,8 +208,8 @@ class HABootstrap:
             if domain not in target_domains:
                 continue
             templates = _DOMAIN_PATTERN_TEMPLATES.get(domain, [])
-            # Use a sanitised name for the regex (escape regex metacharacters)
-            name_escaped = re.escape(friendly_name.lower())
+            # Escape regex metacharacters in the device name (pattern uses (?i) for case-insensitivity)
+            name_escaped = re.escape(friendly_name)
             for tmpl_pattern, intent, response_tmpl in templates:
                 pattern = tmpl_pattern.replace("{name}", name_escaped)
                 # Skip if identical pattern already exists
