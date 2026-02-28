@@ -49,12 +49,42 @@ def compute_limits(hw):
     
     limits = {}
     
-    # Find best GPU (largest VRAM, prefer discrete over iGPU)
-    gpus = sorted(hw['gpus'], key=lambda g: (not g['is_igpu'], g['vram_mb']), reverse=True)
-    best_gpu = gpus[0] if gpus else None
+    # Separate discrete GPUs from iGPUs
+    discrete = [g for g in hw['gpus'] if not g['is_igpu']]
+    igpus = [g for g in hw['gpus'] if g['is_igpu']]
     
-    if best_gpu:
-        vram = best_gpu['vram_mb']
+    # Sort discrete GPUs by VRAM (largest first)
+    discrete.sort(key=lambda g: g['vram_mb'], reverse=True)
+    
+    # --- Multi-GPU Assignment ---
+    # If multiple discrete GPUs, assign each a role based on VRAM and capabilities.
+    # Goal: eliminate model-switching latency by dedicating GPUs to workloads.
+    
+    if len(discrete) >= 2:
+        limits['gpu_mode'] = 'multi'
+        limits['gpu_assignments'] = assign_gpus(discrete)
+    elif len(discrete) == 1:
+        limits['gpu_mode'] = 'single'
+        limits['gpu_assignments'] = {
+            'llm': {'gpu_index': 0, 'gpu': discrete[0]},
+            'tts': {'gpu_index': 0, 'gpu': discrete[0], 'shared': True},
+            'stt': {'device': 'cpu'},
+            'embedding': {'device': 'cpu'},
+        }
+    else:
+        limits['gpu_mode'] = 'cpu_only'
+        limits['gpu_assignments'] = {
+            'llm': {'device': 'cpu'},
+            'tts': {'device': 'cpu'},  # Piper fallback
+            'stt': {'device': 'cpu'},
+            'embedding': {'device': 'cpu'},
+        }
+    
+    # Use the LLM GPU (or best available) for context/model sizing
+    llm_gpu = limits['gpu_assignments'].get('llm', {}).get('gpu')
+    
+    if llm_gpu:
+        vram = llm_gpu['vram_mb']
         
         # Reserve 10% VRAM for OS/display, 5% for embeddings
         usable_vram = int(vram * 0.85)
@@ -99,19 +129,129 @@ def compute_limits(hw):
         limits['thinking_context'] = 8192
         limits['recommended_model_class'] = '3B-7B (Q4)'
     
-    # Embedding model selection
-    if best_gpu and best_gpu['vram_mb'] >= 8000:
+    # Embedding model selection (always CPU to keep GPUs free)
+    if llm_gpu and llm_gpu['vram_mb'] >= 8000:
         limits['embedding_model'] = 'nomic-embed-text'    # 768-dim, 274MB
         limits['embedding_device'] = 'cpu'                 # keep GPU free for LLM
     else:
         limits['embedding_model'] = 'all-minilm'           # 384-dim, 46MB, faster
         limits['embedding_device'] = 'cpu'
     
-    # Concurrent model limit
-    limits['max_loaded_models'] = 1 if (best_gpu and best_gpu['vram_mb'] < 16000) else 2
+    # Concurrent model limit (per-GPU, not global, in multi-GPU mode)
+    if limits['gpu_mode'] == 'multi':
+        limits['max_loaded_models_per_gpu'] = 1  # each GPU runs its own workload
+    else:
+        limits['max_loaded_models'] = 1 if (llm_gpu and llm_gpu['vram_mb'] < 16000) else 2
     
     return limits
+
+
+def assign_gpus(gpus):
+    """Assign workloads to GPUs based on VRAM and capabilities.
+    
+    Strategy:
+      - Largest VRAM GPU → LLM (needs the most memory)
+      - Second GPU → TTS + STT + speaker-id (voice workloads)
+      - If 3+ GPUs → third handles STT/embedding, second is TTS-only
+      - Mixed vendors are fine — each GPU runs its own container/runtime
+    
+    Scoring heuristic for each role:
+      - LLM: maximize VRAM (bigger model = better reasoning)
+      - TTS: needs 6-12GB for Orpheus; prefer GPU with good compute
+      - STT: lighter workload, can share with TTS GPU or run on CPU
+    """
+    assignments = {}
+    
+    # GPU 0 (largest VRAM) → always LLM
+    assignments['llm'] = {
+        'gpu_index': 0,
+        'gpu': gpus[0],
+        'env': _gpu_env(gpus[0], 0),
+    }
+    
+    # GPU 1 → voice workloads (TTS primary, STT secondary)
+    assignments['tts'] = {
+        'gpu_index': 1,
+        'gpu': gpus[1],
+        'shared': False,  # dedicated — no model switching needed
+        'env': _gpu_env(gpus[1], 1),
+    }
+    assignments['stt'] = {
+        'gpu_index': 1,
+        'gpu': gpus[1],
+        'shared_with': 'tts',
+        'env': _gpu_env(gpus[1], 1),
+    }
+    
+    # GPU 2+ → spread remaining workloads
+    if len(gpus) >= 3:
+        assignments['stt'] = {
+            'gpu_index': 2,
+            'gpu': gpus[2],
+            'env': _gpu_env(gpus[2], 2),
+        }
+        assignments['embedding'] = {
+            'gpu_index': 2,
+            'gpu': gpus[2],
+            'shared_with': 'stt',
+            'env': _gpu_env(gpus[2], 2),
+        }
+    else:
+        assignments['embedding'] = {'device': 'cpu'}
+    
+    return assignments
+
+
+def _gpu_env(gpu, index):
+    """Generate environment variables to isolate a workload to a specific GPU."""
+    vendor = gpu.get('vendor', '').lower()
+    if vendor == 'amd':
+        return {
+            'HIP_VISIBLE_DEVICES': str(index),
+            'HSA_OVERRIDE_GFX_VERSION': gpu.get('gfx_version', ''),
+        }
+    elif vendor == 'nvidia':
+        return {
+            'CUDA_VISIBLE_DEVICES': str(index),
+        }
+    elif vendor == 'intel':
+        return {
+            'ONEAPI_DEVICE_SELECTOR': f'level_zero:{index}',
+            'ZE_AFFINITY_MASK': str(index),
+        }
+    else:
+        return {}
 ```
+
+### Multi-GPU Architecture
+
+When multiple discrete GPUs are detected, Atlas assigns each a dedicated role:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Multi-GPU Assignment                        │
+│                                                               │
+│  GPU 0 (largest VRAM)          GPU 1 (second GPU)            │
+│  ┌─────────────────────┐      ┌──────────────────────────┐   │
+│  │  LLM Instance        │      │  Voice Instance           │   │
+│  │  • Ollama :11434     │      │  • Ollama/IPEX :11435     │   │
+│  │  • HIP_VISIBLE=0     │      │  • HIP/CUDA/ONEAPI=1     │   │
+│  │  • Full VRAM for LLM │      │  • Orpheus TTS            │   │
+│  │  • No model switching │      │  • faster-whisper STT     │   │
+│  │                      │      │  • speaker-id             │   │
+│  └─────────────────────┘      └──────────────────────────┘   │
+│                                                               │
+│  Benefits:                                                    │
+│  • Zero model-switching latency (LLM stays loaded)           │
+│  • TTS runs simultaneously with LLM                          │
+│  • Mixed GPU vendors supported (separate containers)         │
+│  • LLM gets 100% of its VRAM (no TTS competition)           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Single-GPU Fallback**: If only one GPU is detected, the system reverts to time-multiplexed sharing (LLM unloads → TTS loads → TTS unloads → LLM reloads). This adds ~2-3 seconds of switching latency but works correctly.
+
+**Mixed Vendor Support**: Each GPU runs in its own container or process with vendor-specific isolation (`HIP_VISIBLE_DEVICES` for AMD, `CUDA_VISIBLE_DEVICES` for NVIDIA, `ONEAPI_DEVICE_SELECTOR` for Intel). They never conflict because they use separate driver stacks.
 
 ### Hardware Profile Storage
 
@@ -119,21 +259,36 @@ def compute_limits(hw):
 CREATE TABLE hardware_profile (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    gpu_vendor TEXT,             -- 'amd' | 'nvidia' | 'intel' | 'apple' | 'none'
-    gpu_name TEXT,
-    vram_mb INTEGER,
-    is_igpu BOOLEAN DEFAULT FALSE,
+    gpu_mode TEXT,               -- 'multi' | 'single' | 'cpu_only'
+    gpu_count INTEGER DEFAULT 0,
     cpu_model TEXT,
     cpu_cores INTEGER,
     ram_mb INTEGER,
     disk_free_gb REAL,
     os_name TEXT,
     limits_json TEXT,            -- computed limits (JSON blob — diagnostic, not queried)
+    assignments_json TEXT,       -- GPU role assignments (JSON blob)
     is_current BOOLEAN DEFAULT TRUE
+);
+
+-- One row per GPU detected
+CREATE TABLE hardware_gpu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER REFERENCES hardware_profile(id),
+    gpu_index INTEGER,           -- 0, 1, 2...
+    vendor TEXT,                  -- 'amd' | 'nvidia' | 'intel' | 'apple'
+    name TEXT,
+    vram_mb INTEGER,
+    is_igpu BOOLEAN DEFAULT FALSE,
+    compute_api TEXT,             -- 'rocm' | 'cuda' | 'oneapi' | 'metal'
+    driver_version TEXT,
+    assigned_role TEXT,           -- 'llm' | 'voice' | 'stt' | null
+    env_json TEXT                 -- isolation env vars (JSON blob)
 );
 
 -- Only one profile is current at a time
 CREATE UNIQUE INDEX idx_hw_current ON hardware_profile(is_current) WHERE is_current = TRUE;
+CREATE INDEX idx_hw_gpu_profile ON hardware_gpu(profile_id);
 ```
 
 Re-detection can be triggered:

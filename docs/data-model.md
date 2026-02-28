@@ -466,6 +466,69 @@ WHERE ml.created_at > datetime('now', '-30 days')
 GROUP BY tag ORDER BY mistakes DESC;
 ```
 
+### guardrail_events
+
+Safety guardrail trigger log. See [safety-guardrails.md](safety-guardrails.md).
+
+```sql
+CREATE TABLE guardrail_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id TEXT,
+    direction TEXT NOT NULL,         -- 'input' | 'output'
+    category TEXT NOT NULL,          -- 'self_harm' | 'explicit' | 'injection' | 'pii' | ...
+    severity TEXT NOT NULL,          -- 'pass' | 'warn' | 'soft_block' | 'hard_block'
+    trigger_text TEXT,               -- the text that triggered (redacted if PII)
+    action_taken TEXT,               -- 'passed' | 'warned' | 'replaced' | 'blocked'
+    content_tier TEXT,               -- tier at time of event
+    FOREIGN KEY (user_id) REFERENCES user_profiles(user_id)
+);
+
+CREATE INDEX idx_guardrail_severity ON guardrail_events(severity);
+CREATE INDEX idx_guardrail_category ON guardrail_events(category);
+CREATE INDEX idx_guardrail_user ON guardrail_events(user_id);
+```
+
+### jailbreak_patterns
+
+Learned regex patterns from blocked jailbreak attempts. See [safety-guardrails.md](safety-guardrails.md).
+
+```sql
+CREATE TABLE jailbreak_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern TEXT NOT NULL,
+    source_event_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_matched_at TIMESTAMP,
+    match_count INTEGER DEFAULT 0,
+    false_positive_count INTEGER DEFAULT 0,
+    active BOOLEAN DEFAULT TRUE,
+    reviewed BOOLEAN DEFAULT FALSE,
+    notes TEXT,
+    FOREIGN KEY (source_event_id) REFERENCES guardrail_events(id)
+);
+
+CREATE INDEX idx_jb_active ON jailbreak_patterns(active);
+```
+
+### jailbreak_exemplars
+
+Semantic exemplar embeddings for detecting novel jailbreak phrasing.
+
+```sql
+CREATE TABLE jailbreak_exemplars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    embedding BLOB,
+    source_event_id INTEGER,
+    cluster_id TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_event_id) REFERENCES guardrail_events(id)
+);
+
+CREATE INDEX idx_jb_cluster ON jailbreak_exemplars(cluster_id);
+```
+
 ### list_registry
 
 `backend_config` stays as JSON (opaque, varies per backend). Permissions normalized to `list_permissions`. Aliases normalized to `list_aliases`.
@@ -694,20 +757,41 @@ Detected hardware capabilities. See [context-management.md](context-management.m
 CREATE TABLE hardware_profile (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    gpu_vendor TEXT,
-    gpu_name TEXT,
-    vram_mb INTEGER,
-    is_igpu BOOLEAN DEFAULT FALSE,
+    gpu_mode TEXT,               -- 'multi' | 'single' | 'cpu_only'
+    gpu_count INTEGER DEFAULT 0,
     cpu_model TEXT,
     cpu_cores INTEGER,
     ram_mb INTEGER,
     disk_free_gb REAL,
     os_name TEXT,
     limits_json TEXT,
+    assignments_json TEXT,       -- GPU role assignments
     is_current BOOLEAN DEFAULT TRUE
 );
 
 CREATE UNIQUE INDEX idx_hw_current ON hardware_profile(is_current) WHERE is_current = TRUE;
+```
+
+### hardware_gpu
+
+One row per detected GPU. Links to `hardware_profile`.
+
+```sql
+CREATE TABLE hardware_gpu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER REFERENCES hardware_profile(id),
+    gpu_index INTEGER,           -- 0, 1, 2...
+    vendor TEXT,                  -- 'amd' | 'nvidia' | 'intel' | 'apple'
+    name TEXT,
+    vram_mb INTEGER,
+    is_igpu BOOLEAN DEFAULT FALSE,
+    compute_api TEXT,             -- 'rocm' | 'cuda' | 'oneapi' | 'metal'
+    driver_version TEXT,
+    assigned_role TEXT,           -- 'llm' | 'voice' | 'stt' | null
+    env_json TEXT                 -- isolation env vars
+);
+
+CREATE INDEX idx_hw_gpu_profile ON hardware_gpu(profile_id);
 ```
 
 ### model_config
@@ -827,7 +911,10 @@ memory_metrics (standalone)
 | Knowledge | 3 | knowledge_docs, knowledge_shared_with, knowledge_fts |
 | Memory | 2 | memory_fts, memory_metrics |
 | Learning | 3 | mistake_log, mistake_tags, evolution_log |
+| Safety | 3 | guardrail_events, jailbreak_patterns, jailbreak_exemplars |
 | Backup | 1 | backup_log |
-| Context & Hardware | 4 | hardware_profile, model_config, context_checkpoints, context_metrics |
+| Context & Hardware | 5 | hardware_profile, hardware_gpu, model_config, context_checkpoints, context_metrics |
 | Discovery & Plugins | 3 | discovered_services, service_config, plugin_registry |
-| **Total** | **~37 tables** | (including FTS5 virtual tables and junction tables) |
+| Safety | 3 | guardrail_events, jailbreak_patterns, jailbreak_exemplars |
+| Voice | 1 | tts_voices |
+| **Total** | **~42 tables** | (including FTS5 virtual tables and junction tables) |
