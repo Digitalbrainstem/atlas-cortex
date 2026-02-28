@@ -561,6 +561,61 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
     health_status    TEXT DEFAULT 'unknown',
     activated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ── Safety Guardrails ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS guardrail_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       TEXT,
+    direction     TEXT NOT NULL CHECK (direction IN ('input', 'output')),
+    category      TEXT NOT NULL,
+    severity      TEXT NOT NULL,
+    trigger_text  TEXT,
+    action_taken  TEXT NOT NULL,
+    content_tier  TEXT DEFAULT 'unknown',
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS jailbreak_patterns (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern       TEXT NOT NULL UNIQUE,
+    source        TEXT DEFAULT 'learned',
+    hit_count     INTEGER DEFAULT 0,
+    false_positive_rate REAL DEFAULT 0.0,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS jailbreak_exemplars (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    text          TEXT NOT NULL,
+    embedding     BLOB,
+    source        TEXT DEFAULT 'seed',
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Voice / TTS ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tts_voices (
+    id            TEXT PRIMARY KEY,
+    provider      TEXT NOT NULL,
+    display_name  TEXT NOT NULL,
+    language      TEXT DEFAULT 'en',
+    gender        TEXT,
+    style         TEXT,
+    is_default    BOOLEAN DEFAULT FALSE,
+    sample_url    TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Hardware / GPU ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS hardware_gpu (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    gpu_index     INTEGER NOT NULL,
+    vendor        TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    vram_mb       INTEGER NOT NULL,
+    driver        TEXT,
+    role          TEXT,
+    detected_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
