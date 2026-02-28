@@ -33,6 +33,7 @@ from cortex.admin_api import router as admin_router
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
+from cortex.satellite.websocket import satellite_ws_handler
 from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,9 @@ app.add_middleware(
 
 # Mount admin API router
 app.include_router(admin_router)
+
+# Mount satellite WebSocket endpoint
+app.add_api_websocket_route("/ws/satellite", satellite_ws_handler)
 
 _provider = None
 _db_conn = None

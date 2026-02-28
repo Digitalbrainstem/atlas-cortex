@@ -626,6 +626,58 @@ CREATE TABLE IF NOT EXISTS admin_users (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_login    TIMESTAMP
 );
+
+-- ── Satellites ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS satellites (
+    id              TEXT PRIMARY KEY,
+    display_name    TEXT NOT NULL,
+    hostname        TEXT,
+    room            TEXT,
+    ip_address      TEXT,
+    mac_address     TEXT,
+    mode            TEXT DEFAULT 'dedicated' CHECK (mode IN ('dedicated', 'shared')),
+    platform        TEXT,
+    hardware_info   TEXT,
+    capabilities    TEXT,
+    features        TEXT,
+    wake_word       TEXT DEFAULT 'hey atlas',
+    volume          REAL DEFAULT 0.7,
+    mic_gain        REAL DEFAULT 0.8,
+    vad_sensitivity REAL DEFAULT 0.5,
+    status          TEXT DEFAULT 'new' CHECK (status IN (
+        'new', 'announced', 'detecting', 'provisioning', 'online', 'offline', 'error'
+    )),
+    provision_state TEXT,
+    ssh_username    TEXT,
+    ssh_key_installed BOOLEAN DEFAULT FALSE,
+    service_port    INTEGER DEFAULT 5110,
+    filler_enabled  BOOLEAN DEFAULT TRUE,
+    filler_threshold_ms INTEGER DEFAULT 1500,
+    is_active       BOOLEAN DEFAULT TRUE,
+    last_seen       TIMESTAMP,
+    last_audio      TIMESTAMP,
+    uptime_seconds  INTEGER,
+    wifi_rssi       INTEGER,
+    cpu_temp        REAL,
+    registered_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    provisioned_at  TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_satellites_status ON satellites(status);
+CREATE INDEX IF NOT EXISTS idx_satellites_room   ON satellites(room);
+CREATE INDEX IF NOT EXISTS idx_satellites_mode   ON satellites(mode);
+
+CREATE TABLE IF NOT EXISTS satellite_audio_sessions (
+    id              TEXT PRIMARY KEY,
+    satellite_id    TEXT NOT NULL REFERENCES satellites(id) ON DELETE CASCADE,
+    started_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ended_at        TIMESTAMP,
+    audio_length_ms INTEGER,
+    transcription   TEXT,
+    response_text   TEXT,
+    latency_ms      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_sat_audio_satellite ON satellite_audio_sessions(satellite_id);
+CREATE INDEX IF NOT EXISTS idx_sat_audio_started   ON satellite_audio_sessions(started_at);
 """
 
 
