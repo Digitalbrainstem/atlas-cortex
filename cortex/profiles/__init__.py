@@ -197,3 +197,187 @@ def record_topic(conn: Any, user_id: str, topic: str) -> None:
         (user_id, topic, now, now),
     )
     conn.commit()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Parental controls
+# ──────────────────────────────────────────────────────────────────
+
+def get_parental_controls(conn: Any, child_user_id: str) -> dict | None:
+    """Get parental control settings for a child user.
+
+    Returns dict with content_filter_level, allowed_hours, restricted_topics,
+    or None if no controls set.
+    """
+    row = conn.execute(
+        "SELECT * FROM parental_controls WHERE child_user_id = ?",
+        (child_user_id,),
+    ).fetchone()
+    if not row:
+        return None
+
+    result = dict(row)
+
+    # Fetch restricted actions as topics
+    actions = conn.execute(
+        "SELECT action FROM parental_restricted_actions WHERE child_user_id = ?",
+        (child_user_id,),
+    ).fetchall()
+    result["restricted_topics"] = [r["action"] for r in actions]
+
+    return result
+
+
+def check_parental_allowed(conn: Any, user_id: str, hour: int | None = None) -> dict:
+    """Check if current interaction is allowed by parental controls.
+
+    Returns {allowed: bool, reason: str, filter_level: str}.
+    """
+    controls = get_parental_controls(conn, user_id)
+    if controls is None:
+        return {"allowed": True, "reason": "no parental controls", "filter_level": "none"}
+
+    filter_level = controls.get("content_filter_level", "strict")
+
+    if hour is not None:
+        start_str = controls.get("allowed_hours_start", "07:00")
+        end_str = controls.get("allowed_hours_end", "21:00")
+        start_h = int(start_str.split(":")[0])
+        end_h = int(end_str.split(":")[0])
+        if start_h <= end_h:
+            if hour < start_h or hour >= end_h:
+                return {
+                    "allowed": False,
+                    "reason": f"outside allowed hours ({start_str}-{end_str})",
+                    "filter_level": filter_level,
+                }
+        else:
+            # Wraps midnight (e.g. 22:00-06:00)
+            if end_h <= hour < start_h:
+                return {
+                    "allowed": False,
+                    "reason": f"outside allowed hours ({start_str}-{end_str})",
+                    "filter_level": filter_level,
+                }
+
+    return {"allowed": True, "reason": "allowed", "filter_level": filter_level}
+
+
+def set_parental_controls(
+    conn: Any,
+    child_user_id: str,
+    parent_user_id: str,
+    content_filter_level: str = "strict",
+    allowed_hours: str | None = None,
+    restricted_topics: str | None = None,
+) -> None:
+    """Set or update parental controls for a child."""
+    start = "07:00"
+    end = "21:00"
+    if allowed_hours:
+        parts = allowed_hours.split("-")
+        if len(parts) == 2:
+            start = parts[0].strip()
+            end = parts[1].strip()
+
+    conn.execute(
+        """
+        INSERT INTO parental_controls
+            (child_user_id, parent_user_id, content_filter_level,
+             allowed_hours_start, allowed_hours_end)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(child_user_id) DO UPDATE SET
+            parent_user_id       = excluded.parent_user_id,
+            content_filter_level = excluded.content_filter_level,
+            allowed_hours_start  = excluded.allowed_hours_start,
+            allowed_hours_end    = excluded.allowed_hours_end
+        """,
+        (child_user_id, parent_user_id, content_filter_level, start, end),
+    )
+
+    if restricted_topics:
+        # Clear existing and insert new
+        conn.execute(
+            "DELETE FROM parental_restricted_actions WHERE child_user_id = ?",
+            (child_user_id,),
+        )
+        for topic in restricted_topics.split(","):
+            topic = topic.strip()
+            if topic:
+                conn.execute(
+                    "INSERT INTO parental_restricted_actions (child_user_id, action) VALUES (?, ?)",
+                    (child_user_id, topic),
+                )
+
+    conn.commit()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Conversational onboarding
+# ──────────────────────────────────────────────────────────────────
+
+def get_onboarding_state(conn: Any, user_id: str) -> dict:
+    """Get onboarding progress for a user.
+
+    Returns {is_new: bool, name_known: bool, age_known: bool,
+             preferences_collected: int, suggested_question: str | None}.
+    """
+    profile = get_or_create_user_profile(conn, user_id)
+
+    name_known = bool(
+        profile.get("display_name")
+        and profile["display_name"] != user_id
+    )
+    age_known = profile.get("age") is not None
+    onboarding_complete = bool(profile.get("onboarding_complete"))
+
+    # Count collected preferences
+    prefs = 0
+    if name_known:
+        prefs += 1
+    if age_known:
+        prefs += 1
+    if profile.get("preferred_tone") and profile["preferred_tone"] != "neutral":
+        prefs += 1
+    if profile.get("communication_style") and profile["communication_style"] != "moderate":
+        prefs += 1
+
+    suggested = get_onboarding_prompt(user_id, profile)
+
+    return {
+        "is_new": not onboarding_complete and prefs == 0,
+        "name_known": name_known,
+        "age_known": age_known,
+        "preferences_collected": prefs,
+        "suggested_question": suggested,
+    }
+
+
+def get_onboarding_prompt(user_id: str, profile: dict) -> str | None:
+    """Generate the next onboarding question based on what we don't know yet.
+
+    Returns a natural question string, or None if onboarding is complete.
+    Priority: name > age > preferences > communication style.
+    Never interrogates — phrases as natural conversation.
+    """
+    if bool(profile.get("onboarding_complete")):
+        return None
+
+    name_known = bool(
+        profile.get("display_name")
+        and profile["display_name"] != user_id
+    )
+    if not name_known:
+        return "By the way, what should I call you?"
+
+    name = profile.get("display_name", "")
+    if profile.get("age") is None:
+        return f"Nice to meet you, {name}! How old are you, if you don't mind me asking?"
+
+    if profile.get("preferred_tone", "neutral") == "neutral":
+        return f"Hey {name}, do you prefer me to be more casual or more formal when we chat?"
+
+    if profile.get("communication_style", "moderate") == "moderate":
+        return f"{name}, would you like me to give you detailed explanations or keep things short and sweet?"
+
+    return None

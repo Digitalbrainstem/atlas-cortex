@@ -149,3 +149,123 @@ def limits_from_hardware(hardware: dict[str, Any]) -> ContextLimits:
         limits.recommended_model_class = "3B-7B (Q4)"
 
     return limits
+
+
+# ──────────────────────────────────────────────────────────────────
+# Checkpoint summarization
+# ──────────────────────────────────────────────────────────────────
+
+async def summarize_checkpoint(
+    history: list[dict],
+    provider: Any = None,
+    max_turns: int = 10,
+) -> str:
+    """Summarize older conversation turns into a compact checkpoint.
+
+    If no LLM provider available, falls back to extractive summary
+    (first sentence of each assistant turn).
+    """
+    if not history:
+        return ""
+
+    turns = history[:max_turns]
+
+    if provider is not None:
+        combined = "\n".join(
+            f"{m.get('role', 'unknown')}: {m.get('content', '')}" for m in turns
+        )
+        prompt = (
+            "Summarize the following conversation into a brief paragraph "
+            "capturing the key topics and conclusions:\n\n" + combined
+        )
+        try:
+            return await provider.generate(prompt)
+        except Exception:
+            logger.warning("LLM summarization failed, falling back to extractive summary")
+
+    # Extractive fallback: first sentence of each assistant turn
+    sentences: list[str] = []
+    for m in turns:
+        if m.get("role") == "assistant":
+            content = m.get("content", "").strip()
+            if content:
+                first = content.split(".")[0].strip()
+                if first:
+                    sentences.append(first + ".")
+    return " ".join(sentences) if sentences else ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context compaction
+# ──────────────────────────────────────────────────────────────────
+
+def compact_context(
+    history: list[dict],
+    limits: ContextLimits,
+    checkpoints: list[str] | None = None,
+) -> tuple[list[dict], str]:
+    """Compact conversation history to fit within token limits.
+
+    Returns (trimmed_history, checkpoint_summary).
+    Strategy:
+    1. If history fits in budget, return as-is
+    2. Split: keep recent N turns, summarize older into checkpoint
+    3. Inject checkpoint as system context
+    """
+    if not history:
+        return history, ""
+
+    max_tokens = limits.default_context
+    total = sum(estimate_tokens(m.get("content", "")) for m in history)
+    existing_checkpoint = " ".join(checkpoints) if checkpoints else ""
+
+    if total <= max_tokens:
+        return history, existing_checkpoint
+
+    # Keep recent turns that fit in budget
+    budget = max_tokens // 2  # reserve half for recent turns
+    recent: list[dict] = []
+    used = 0
+    for m in reversed(history):
+        t = estimate_tokens(m.get("content", ""))
+        if used + t > budget and recent:
+            break
+        recent.insert(0, m)
+        used += t
+
+    # Summarize the older turns we're dropping
+    older = history[: len(history) - len(recent)]
+    sentences: list[str] = []
+    for m in older:
+        if m.get("role") == "assistant":
+            content = m.get("content", "").strip()
+            if content:
+                first = content.split(".")[0].strip()
+                if first:
+                    sentences.append(first + ".")
+    new_checkpoint = " ".join(sentences)
+
+    if existing_checkpoint:
+        new_checkpoint = existing_checkpoint + " " + new_checkpoint if new_checkpoint else existing_checkpoint
+
+    return recent, new_checkpoint.strip()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Overflow recovery
+# ──────────────────────────────────────────────────────────────────
+
+def recover_overflow(
+    history: list[dict],
+    limits: ContextLimits,
+) -> list[dict]:
+    """Emergency context recovery when we exceed hard limits.
+
+    Aggressively trims to 50% of context window, keeping only
+    the most recent turns. Used as last resort.
+    """
+    if not history:
+        return history
+
+    target = limits.default_context // 2
+    return trim_history(history, target)
