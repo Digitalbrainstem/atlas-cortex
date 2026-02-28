@@ -43,6 +43,7 @@ See [installation.md](installation.md) for the full installer design.
 | C9 | Backup & Restore | 🔲 Planned | None |
 | C10 | Context Management & Hardware | 🔲 Planned | C0 |
 | C11 | Voice & Speech Engine | 🔲 Planned | C0 |
+| C12 | Safety Guardrails & Content Policy | 🔲 Planned | C6 |
 
 ### Part 2: Integration Layer (discovered at install)
 
@@ -462,6 +463,55 @@ See [voice-engine.md](voice-engine.md) for full design.
 
 ---
 
+## Phase C12: Safety Guardrails & Content Policy
+
+See [safety-guardrails.md](safety-guardrails.md).
+
+### C12.1 — Content Tier Resolution
+- Resolve content tier from user profile (age_group + age_confidence)
+- Default to strict when age unknown (confidence < 0.6)
+- Parental control override support
+- Store tier in pipeline context for all downstream layers
+
+### C12.2 — Input Guardrails
+- Pre-pipeline checks: self-harm detection, illegal content, PII detection, prompt injection
+- GuardrailResult severity levels: PASS, WARN, SOFT_BLOCK, HARD_BLOCK
+- PII redaction before logging
+- Crisis response protocol with pre-written empathetic responses + resources
+- Input deobfuscation: decode base64, leetspeak, Unicode homoglyphs, ROT13, zero-width chars before analysis
+
+### C12.3 — Output Guardrails
+- Post-LLM checks: explicit content scan, language appropriateness, harmful instructions, data leakage
+- Content tier enforcement on vocabulary and tone
+- Response replacement/rewriting when guardrails trigger
+- Cross-user data isolation verification
+- Output behavioral analysis: persona break, system prompt leak, tone shift, instruction echo
+
+### C12.4 — Safety System Prompt Injection
+- Build age-appropriate system prompt prefix per content tier
+- Educational mode: scientific terminology for bodies/biology at all tiers
+- Profanity handling rules per tier
+- Honest challenge mode: push back on bad ideas, admit uncertainty
+- Anti-jailbreak instructions hardened into system prompt
+
+### C12.5 — Guardrail Event Logging & Review
+- `guardrail_events` table for all triggers
+- Severity-based alerting (parent notification on crisis for minors)
+- Nightly evolution review of guardrail patterns to reduce false positives
+- Hard limits that cannot be overridden (explicit content, CSAM, self-harm methods)
+
+### C12.6 — Adaptive Jailbreak Defense
+- 5-layer defense: static regex, semantic intent, system prompt, output analysis, adaptive learning
+- `jailbreak_patterns` table: learned regex patterns from blocked attempts
+- `jailbreak_exemplars` table: semantic embeddings of novel attacks
+- Auto-extract patterns from blocked attacks, validate against known-good messages (<1% FPR)
+- Hot-reload detectors when new patterns are learned
+- Conversation drift monitor: track safety temperature across multi-turn escalation attempts
+- Nightly clustering of attack families, meta-pattern generation, stale pattern pruning
+- Attack taxonomy classification: direct override, persona swap, roleplay wrap, encoding, gradual escalation
+
+---
+
 # Part 2: Integration Layer
 
 Everything below connects Atlas to the outside world. Designed as **discovery-based plugins** so anyone can install Atlas and it adapts to whatever services are available.
@@ -684,6 +734,15 @@ C5.5 + C3a.3 ──▶ C6.1 (Profiles) ──▶ C6.2 ──▶ C6.3 ──▶ C
                                                                 │
                    C4.1 (Emotion) ◀────────────────────────────┘
                         └──▶ C4.2 ──▶ C4.3 ──▶ C4.4
+
+C6.4 (Parental) ──▶ C12.1 (Content Tier) ──▶ C12.2 (Input Guards)
+                                                      │
+                          C12.4 (Safety Prompt) ◀─────┤
+                                                      ▼
+                    C12.3 (Output Guards) ──▶ C12.5 (Logging & Review)
+                                                      │
+                                                      ▼
+                                               C12.6 (Adaptive Jailbreak)
 
 C7.1 (Avatar Server) ──▶ C7.2 → C7.3 → C7.4 → C7.5/C7.6/C7.7/C7.8 → C7.9
 
