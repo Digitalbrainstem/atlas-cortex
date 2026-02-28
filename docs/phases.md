@@ -32,29 +32,29 @@ See [installation.md](installation.md) for the full installer design.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| C0 | Installer & Backend Abstraction | 🔲 Planned | None |
-| C1 | Core Pipe & Logging | 🔲 Planned | C0 |
-| C3a | Voice Identity (generic) | 🔲 Planned | None |
-| C4 | Emotional Evolution | 🔲 Planned | C3a + C5 + C6 |
-| C5 | Memory System (HOT/COLD) | 🔲 Planned | None |
-| C6 | User Profiles & Age-Awareness | 🔲 Planned | C3a + C5 |
-| C7 | Avatar System | 🔲 Planned | None |
-| C9 | Backup & Restore | 🔲 Planned | None |
-| C10 | Context Management & Hardware | 🔲 Planned | C0 |
-| C11 | Voice & Speech Engine | 🔲 Planned | C0 |
-| C12 | Safety Guardrails & Content Policy | 🔲 Planned | C6 |
+| C0 | Installer & Backend Abstraction | ✅ Complete | None |
+| C1 | Core Pipe & Logging | ✅ Complete | C0 |
+| C3a | Voice Identity (generic) | ✅ Complete | None |
+| C4 | Emotional Evolution | ✅ Complete | C3a + C5 + C6 |
+| C5 | Memory System (HOT/COLD) | ✅ Complete | None |
+| C6 | User Profiles & Age-Awareness | ✅ Complete | C3a + C5 |
+| C7 | Avatar System | ✅ Complete | None |
+| C9 | Backup & Restore | ✅ Complete | None |
+| C10 | Context Management & Hardware | ✅ Complete | C0 |
+| C11 | Voice & Speech Engine | ✅ Complete | C0 |
+| C12 | Safety Guardrails & Content Policy | ✅ Complete | C6 |
 
 ### Part 2: Integration Layer (discovered at install)
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| I1 | Service Discovery & Setup | 🔲 Planned | Part 1 C1 operational |
-| I2 | Home Assistant Integration | 🔲 Planned | I1 + HA discovered |
-| I3 | Voice Pipeline & Spatial | 🔲 Planned | I1 + I2 + C3a |
-| I4 | Self-Learning Engine | 🔲 Planned | I2 + C1 logging |
-| I5 | Knowledge Source Connectors | 🔲 Planned | I1 + C5 memory + C6 profiles |
-| I6 | List Management | 🔲 Planned | I1 + I5 |
-| I7 | Offsite Backup | 🔲 Planned | I1 + C9 |
+| I1 | Service Discovery & Setup | ✅ Complete | Part 1 C1 operational |
+| I2 | Home Assistant Integration | ✅ Complete | I1 + HA discovered |
+| I3 | Voice Pipeline & Spatial | ✅ Complete | I1 + I2 + C3a |
+| I4 | Self-Learning Engine | ✅ Complete | I2 + C1 logging |
+| I5 | Knowledge Source Connectors | ✅ Complete | I1 + C5 memory + C6 profiles |
+| I6 | List Management | ✅ Complete | I1 + I5 |
+| I7 | Offsite Backup | ✅ Complete | I1 + C9 |
 
 ### Part 2.5: Satellite System
 
