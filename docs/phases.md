@@ -744,6 +744,12 @@ C6.4 (Parental) ──▶ C12.1 (Content Tier) ──▶ C12.2 (Input Guards)
                                                       ▼
                                                C12.6 (Adaptive Jailbreak)
 
+C0.1 (LLM Provider) ──▶ C11.1 (TTS Provider) ──▶ C11.2 (Orpheus) ──▶ C11.3 (Emotion)
+                                                        │
+                    C11.4 (Voice Registry) ◀────────────┘
+                        └──▶ C11.5 (Streaming) ──▶ C11.6 (TTS API)
+                                                        └──▶ C11.7 (Phoneme Bridge) ──▶ C7.1 (Avatar Server)
+
 C7.1 (Avatar Server) ──▶ C7.2 → C7.3 → C7.4 → C7.5/C7.6/C7.7/C7.8 → C7.9
 
 C9.1 (Backup CLI) ──▶ C9.2 (Nightly) ──▶ C9.3 (Voice Backup)
