@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
+from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +202,57 @@ def _json_response(content: str, model: str) -> JSONResponse:
         ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     })
+
+
+# ──────────────────────────────────────────────────────────────────
+# Voice / TTS endpoints
+# ──────────────────────────────────────────────────────────────────
+
+class SpeechRequest(BaseModel):
+    model: str = "orpheus"
+    input: str
+    voice: str | None = None
+    speed: float = 1.0
+    response_format: str = "wav"
+    emotion: str | None = None
+
+
+@app.get("/v1/audio/voices")
+async def list_voices():
+    provider = get_tts_provider()
+    voices = provider.list_voices()
+    if asyncio.iscoroutine(voices):
+        voices = await voices
+    return {"voices": voices}
+
+
+@app.post("/v1/audio/speech")
+async def create_speech(req: SpeechRequest):
+    try:
+        provider = get_tts_provider(req.model)
+    except (ValueError, KeyError):
+        provider = get_tts_provider()
+
+    # Prepend emotion tag for tag-based providers
+    text = req.input
+    if req.emotion and provider.get_emotion_format() == "tags":
+        text = f"{req.emotion}: {text}"
+
+    async def _stream():
+        async for chunk in provider.synthesize(
+            text=text,
+            voice=req.voice,
+            emotion=req.emotion,
+            speed=req.speed,
+            stream=True,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        _stream(),
+        media_type="audio/wav",
+        headers={"Transfer-Encoding": "chunked"},
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
