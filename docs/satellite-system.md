@@ -313,15 +313,49 @@ Admin clicks "Identify" on a satellite →
 
 ### SD Card Setup Instructions
 
-The goal is to flash a Linux OS and configure four things: hostname, SSH, username/password, and Wi-Fi. **Any imaging tool works** — pick whichever you're comfortable with.
+#### Option A: Pre-built Atlas Satellite Image (Recommended — works on Windows/Mac/Linux)
 
-#### Option A: Raspberry Pi Imager (easiest — built-in config)
+The easiest method — everything is baked in. A GitHub Actions pipeline automatically builds
+fresh images from the latest Raspberry Pi OS each month.
+
+1. Download the latest image from [GitHub Releases](https://github.com/Betanu701/atlas-cortex/releases)
+   - `atlas-satellite-pi-armhf-YYYYMMDD.img.xz` — for Pi Zero 2 W, Pi 3 (32-bit)
+   - `atlas-satellite-pi-arm64-YYYYMMDD.img.xz` — for Pi 4, Pi 5 (64-bit)
+2. Flash to SD card using **any tool** (Raspberry Pi Imager, balenaEtcher, Rufus, dd)
+3. **Before ejecting**, open the SD card's boot partition (FAT32 — visible on Windows)
+4. Edit **`atlas-satellite.conf`** — set your WiFi and Atlas server URL:
+   ```
+   ATLAS_SERVER_URL=ws://192.168.1.100:5100/ws/satellite
+   ATLAS_ROOM=kitchen
+   WIFI_SSID=MyNetwork
+   WIFI_PASSWORD=MyPassword
+   WIFI_COUNTRY=US
+   ATLAS_LED_TYPE=respeaker
+   ```
+5. Eject SD card, insert into device, power on
+6. The satellite auto-configures on first boot and appears in Atlas Admin → Satellites within 60 seconds
+
+**Default credentials:** `atlas` / `atlas-setup` (SSH enabled)
+
+**What the image includes:**
+- Atlas satellite agent (pre-installed at `/opt/atlas-satellite/`)
+- `atlas-announce` mDNS service (auto-starts, broadcasts `_atlas-satellite._tcp.local`)
+- First-boot service that reads `atlas-satellite.conf`, configures WiFi, sets hostname,
+  installs Python dependencies, and starts the agent
+- SSH enabled with `atlas` user
+
+**Image freshness:** A CI pipeline (`build-satellite-image.yml`) rebuilds from the latest
+Raspberry Pi OS Lite monthly, on each Atlas release, or via manual trigger.
+
+#### Option B: Raspberry Pi Imager (manual setup)
+
+If you prefer the official Raspberry Pi OS without pre-built images:
 
 1. Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
-2. Choose OS: **Raspberry Pi OS Lite (64-bit)** or **DietPi**
+2. Choose OS: **Raspberry Pi OS Lite (32-bit)** (for Pi Zero 2 W) or **64-bit** (for Pi 4/5)
 3. Click the **gear icon ⚙️** (or Ctrl+Shift+X)
 4. Set these values:
-   - **Hostname:** `atlas-satellite`
+   - **Hostname:** `atlas-sat-01` (or any name)
    - **Enable SSH:** ✅ Use password authentication
    - **Username:** `atlas`
    - **Password:** `atlas-setup`
@@ -329,58 +363,19 @@ The goal is to flash a Linux OS and configure four things: hostname, SSH, userna
    - **Wi-Fi country:** your country code
 5. Click **Write** and wait for it to finish
 6. Insert SD card into the device and power on
+7. In Atlas Admin → Satellites → **Add Manual**, enter the IP address
+8. Atlas provisions the satellite via SSH (installs agent + announce service)
 
-#### Option B: balenaEtcher, Rufus, dd, or any other flasher
+#### Option C: Already-running Linux device
 
-1. Download your preferred OS image (Raspberry Pi OS Lite, DietPi, Armbian, etc.)
-2. Flash it to the SD card using your tool of choice
-3. **Before ejecting**, run the Atlas prepare script on the mounted SD card:
-
-```bash
-# Download the prepare script
-curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh -o atlas-sat-prepare.sh
-chmod +x atlas-sat-prepare.sh
-
-# Run it against the mounted boot/root partitions
-# The script auto-detects mount points and applies:
-#   - Hostname: atlas-satellite
-#   - User: atlas / atlas-setup
-#   - SSH: enabled
-#   - Wi-Fi: prompted for SSID/password
-./atlas-sat-prepare.sh
-```
-
-The script works on Linux and macOS, and handles:
-- `/boot` partition: `wpa_supplicant.conf` (Wi-Fi), empty `ssh` file (enable SSH)
-- `/rootfs` partition: hostname, user creation, `atlas-announce` mDNS service
-- Detects if the OS is Raspberry Pi OS, DietPi, Armbian, or generic Debian
-
-4. Eject the SD card, insert into device, power on
-
-#### Option C: DietPi (via dietpi.txt pre-config)
-
-1. Flash [DietPi](https://dietpi.com/) to SD card
-2. Open the SD card and edit `dietpi.txt`:
-   ```
-   AUTO_SETUP_NET_HOSTNAME=atlas-satellite
-   AUTO_SETUP_GLOBAL_PASSWORD=atlas-setup
-   AUTO_SETUP_NET_WIFI_ENABLED=1
-   AUTO_SETUP_INSTALL_SSH_SERVER=2
-   ```
-3. Edit `dietpi-wifi.txt` with your Wi-Fi credentials
-4. Insert SD card and power on
-
-#### Option D: Already-running Linux device
-
-If the device is already booted (a NUC, old laptop, etc.), just SSH in and run:
+If the device is already booted (a NUC, old laptop, Pi with existing OS, etc.), SSH in and run:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh | bash -s -- --live
 ```
 
-This configures hostname, creates the `atlas` user, installs the `atlas-announce` mDNS service, and the satellite will appear in your admin panel.
-
-That's it — the satellite will announce itself to Atlas within seconds of booting.
+This configures hostname, creates the `atlas` user, installs the `atlas-announce` mDNS service,
+and the satellite will appear in your admin panel. Or use Atlas Admin → Satellites → **Add Manual**.
 
 ### ESPHome Satellites (ESP32-S3, FutureProofHomes Satellite1)
 
