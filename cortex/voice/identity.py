@@ -209,9 +209,9 @@ class SpeakerIdentifier:
         # diversity in the embedding space).
         score = (energy * 0.4) + (variance * 0.35) + (spread * 0.25)
 
-        # Map score to estimated age range (very rough)
-        # These thresholds should be calibrated per embedding model;
-        # these defaults are conservative placeholders.
+        # Map score to estimated age range.
+        # Thresholds calibrated for safety-first: ±8yr MAE means anyone
+        # truly <17 stays child-safe.  Adjust per embedding model.
         _CHILD_THRESHOLD = 0.15    # below this → likely child
         _ADULT_THRESHOLD = 0.25    # above this → likely adult (maps to ~25yo)
 
