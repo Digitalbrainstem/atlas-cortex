@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-415%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-554%20passing-brightgreen.svg)](#testing)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -67,6 +67,35 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Evolution tracking** — rapport scores, emotional profiles, nightly evolution logs
 - **System overview** — hardware info, GPU assignment, model configs, discovered services
 
+<details>
+<summary>📸 Admin Panel Screenshots (click to expand)</summary>
+
+#### Login
+![Admin Login](docs/images/admin-login.png)
+
+#### Dashboard
+![Admin Dashboard](docs/images/admin-dashboard.png)
+
+#### Users
+![Admin Users](docs/images/admin-users.png)
+
+#### Safety Events
+![Admin Safety](docs/images/admin-safety.png)
+
+#### Devices
+![Admin Devices](docs/images/admin-devices.png)
+
+#### Voice Enrollment
+![Admin Voice](docs/images/admin-voice.png)
+
+#### Evolution
+![Admin Evolution](docs/images/admin-evolution.png)
+
+#### System
+![Admin System](docs/images/admin-system.png)
+
+</details>
+
 ## 🏗️ Architecture
 
 ```
@@ -84,21 +113,21 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
                                     │
             ┌───────────────────────┼───────────────────────┐
             │                       │                       │
-  ┌─────────▼──────────┐ ┌─────────▼──────────┐ ┌──────────▼─────────┐
-  │   Input Pipeline    │ │  Safety Guardrails  │ │   Voice Engine     │
-  │                     │ │                     │ │                    │
-  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Orpheus TTS      │
-  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Piper fallback   │
-  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Emotion tags     │
-  │ L3: LLM   (500ms+)  │ │ • Crisis detection  │ │ • Voice streaming  │
-  └─────────┬──────────┘ └─────────────────────┘ └────────────────────┘
+  ┌─────────▼──────────┐ ┌─────────▼──────────┐ ┌─────────▼──────────┐
+  │   Input Pipeline    │ │  Safety Guardrails  │ │   Voice Engine      │
+  │                     │ │                     │ │                     │
+  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Orpheus TTS       │
+  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Piper fallback    │
+  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Emotion tags      │
+  │ L3: LLM   (500ms+)  │ │ • Crisis detection  │ │ • Voice streaming   │
+  └─────────┬──────────┘ └─────────────────────┘ └─────────────────────┘
             │
   ┌─────────▼───────────────────────────────────────────────────────┐
-  │                        Integrations                             │
-  │                                                                 │
-  │  🏠 Home Assistant  📋 Lists  📚 Knowledge  🔍 Memory         │
-  │  🔧 Service Discovery  📦 Backup  🎓 Learning                  │
-  └─────────────────────────────┬───────────────────────────────────┘
+  │                         Integrations                           │
+  │                                                                │
+  │  🏠 Home Assistant  📋 Lists  📚 Knowledge  🔍 Memory        │
+  │  🔧 Service Discovery  📦 Backup  🎓 Learning                │
+  └───────────────────────────┬───────────────────────────────────┘
                                 │
                      ┌──────────▼───────────┐
                      │  SQLite + ChromaDB    │
@@ -406,15 +435,18 @@ atlas-cortex/
 │   │   ├── providers/piper.py     #   Piper CPU fallback
 │   │   ├── composer.py            #   Emotion composition
 │   │   ├── streaming.py           #   Sentence-boundary streaming
+│   │   ├── spatial.py             #   Room resolution & spatial awareness
+│   │   ├── multiroom.py           #   Multi-room command expansion
+│   │   ├── wyoming.py             #   Wyoming protocol STT/TTS client
 │   │   └── registry.py            #   Voice registry & selection
 │   ├── safety/                    # Safety guardrails
 │   │   ├── __init__.py            #   Content tiers, input/output guards
 │   │   └── jailbreak.py           #   5-layer jailbreak defense
 │   ├── plugins/                   # Plugin framework
 │   ├── integrations/              # Part 2 integrations
-│   │   ├── ha/                    #   Home Assistant (client, bootstrap, plugin)
-│   │   ├── knowledge/             #   Document indexing & search
-│   │   ├── lists/                 #   Smart lists (multi-backend)
+│   │   ├── ha/                    #   Home Assistant (client, bootstrap, websocket)
+│   │   ├── knowledge/             #   WebDAV, CalDAV, sync scheduler
+│   │   ├── lists/                 #   Smart lists (multi-backend, HA discovery)
 │   │   └── learning/              #   Nightly self-learning engine
 │   ├── memory/                    # HOT/COLD memory architecture
 │   ├── profiles/                  # User profiles & age-awareness
@@ -422,15 +454,18 @@ atlas-cortex/
 │   ├── filler/                    # Sentiment-aware filler streaming
 │   ├── grounding/                 # Anti-hallucination engine
 │   ├── backup/                    # Automated backup/restore
+│   │   ├── __init__.py            #   Nightly backups, one-command restore
+│   │   ├── offsite.py             #   NAS rsync/SMB offsite sync
+│   │   └── voice_commands.py      #   Voice backup commands
 │   ├── install/                   # Hardware detection & installer
 │   └── discovery/                 # Network service discovery
 ├── docker/
 │   ├── Dockerfile                 # Production container
 │   └── docker-compose.yml         # Full stack deployment
-├── docs/                          # Design documentation (17 files)
+├── docs/                          # Design documentation (20+ files)
 ├── seeds/
 │   └── command_patterns.sql       # Initial HA command patterns
-├── tests/                         # 415 tests
+├── tests/                         # 554 tests
 ├── requirements.txt
 └── pytest.ini
 ```
@@ -448,7 +483,7 @@ python -m pytest tests/test_safety.py -v
 python -m pytest tests/test_voice.py -v
 ```
 
-**Current status: 415 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, and admin modules.
+**Current status: 554 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, and multi-room modules.
 
 ## 📊 Implementation Status
 
@@ -474,73 +509,26 @@ python -m pytest tests/test_voice.py -v
 | Phase | Module | Status | Description |
 |-------|--------|--------|-------------|
 | I1 | Service Discovery | ✅ Complete | HTTP-probe scanner, service registry, config wizard |
-| I2 | Home Assistant | ✅ Complete | REST client, device bootstrap, pattern matching |
-| I3 | Voice Pipeline | 🔲 Planned | Wyoming integration, room awareness, multi-mic |
+| I2 | Home Assistant | ✅ Complete | REST + WebSocket client, device bootstrap, patterns |
+| I3 | Voice Pipeline | ✅ Complete | Wyoming STT/TTS, spatial awareness, multi-room commands |
 | I4 | Self-Learning | ✅ Complete | Fallthrough analysis, pattern lifecycle, nightly evolution |
-| I5 | Knowledge Sources | ✅ Complete | Document processor, FTS5 index, privacy gates |
-| I6 | List Management | ✅ Complete | Multi-backend lists, permissions, natural language |
-| I7 | Offsite Backup | 🔲 Planned | NAS sync for disaster recovery |
+| I5 | Knowledge Sources | ✅ Complete | WebDAV/Nextcloud, CalDAV calendars, sync scheduler |
+| I6 | List Management | ✅ Complete | Multi-backend lists, HA to-do discovery, permissions |
+| I7 | Offsite Backup | ✅ Complete | NAS rsync/SMB, voice commands, retention policy |
 
-## 🗺️ Roadmap — Future Features
+### Coming Next
 
-These are planned enhancements that build on the existing architecture:
+| Part | Name | Description |
+|------|------|-------------|
+| 2.5 | **Satellite System** | Distributed speakers/mics — ESP32-S3, RPi, any Linux device |
+| 3 | **Alarms, Timers & Reminders** | Wake alarms, cooking timers, location-aware reminders |
+| 4 | **Routines & Automations** | "Good morning"/"Good night" routines, custom triggers |
+| 5 | **Proactive Intelligence** | Weather actions, energy optimization, anomaly detection |
+| 6 | **Learning & Education** | Homework help, quizzes, science mode, language learning |
+| 7 | **Intercom & Broadcasting** | Room-to-room, whole-house announcements, emergency alerts |
+| 8 | **Media & Entertainment** | Local files, YouTube Music, Spotify, multi-room audio |
 
-### ⏰ Alarms, Timers & Reminders
-- *"Wake me up at 7am"* — alarm management via Home Assistant media players
-- *"Set a timer for 15 minutes"* — cooking timers with voice notifications
-- *"Remind me to take medicine at 3pm"* — recurring reminders with snooze
-- *"Remind me when I get home to check the mail"* — location-aware triggers
-
-### 🌅 Routines & Automations
-- *"Good morning"* — triggers wake-up routine: lights on, coffee maker, weather briefing, calendar summary
-- *"Good night"* — locks doors, turns off lights, sets alarm, plays sleep sounds
-- *"I'm leaving"* — arms security, adjusts thermostat, turns off non-essential devices
-- Custom routines built conversationally: *"When I say 'movie time', dim the living room to 20% and turn on the TV"*
-
-### 📅 Calendar & Scheduling
-- Reads from CalDAV/Google/Outlook calendars
-- *"What's on my schedule today?"* — morning briefing
-- *"Schedule a dentist appointment for next Thursday at 2pm"*
-- Proactive reminders: *"You have a meeting in 15 minutes"*
-
-### 🎵 Media & Entertainment
-- *"Play jazz in the living room"* — multi-room audio via HA media players
-- *"What song is this?"* — audio recognition
-- *"Recommend a movie for family night"* — preference-aware suggestions
-
-### 🌤️ Proactive Intelligence
-- Weather-aware actions: *"It's going to rain — should I close the garage?"*
-- Energy optimization: *"You've left the AC on for 8 hours — the house is at 68°F"*
-- Anomaly detection: *"The basement humidity is unusually high"*
-- Package tracking: *"Your Amazon order arrives tomorrow between 2-6pm"*
-
-### 📚 Learning & Education
-- Homework help with age-appropriate explanations
-- Interactive quizzes: *"Quiz me on state capitals"*
-- Science experiments: *"What happens if we mix baking soda and vinegar?"*
-- Language learning: vocabulary drills, pronunciation practice
-
-### 🐾 Household Management
-- Pet care reminders: feeding schedules, vet appointments, medication
-- Cooking assistant: step-by-step recipes with integrated timers
-- Inventory tracking: *"We're running low on milk"* → auto-add to grocery list
-- Chore assignments: fair rotation tracking for household members
-
-### 🔒 Security & Monitoring
-- Camera feed summaries: *"Who was at the front door?"*
-- Motion alert intelligence: distinguishes pets, packages, people
-- Door/window status: *"Is the garage door open?"*
-- Visitor history: *"When did the kids get home from school?"*
-
-### 🌐 Multi-Language Support
-- Real-time language detection and switching
-- Per-user language preferences
-- Translation assistance between household members
-
-### 📢 Intercom & Broadcasting
-- *"Tell the kids dinner is ready"* — broadcast to specific rooms
-- *"Announce: family meeting in 5 minutes"* — whole-house broadcast
-- Room-to-room communication via satellite speakers
+> 📋 **Full roadmap with detailed plans:** [docs/roadmap.md](docs/roadmap.md)
 
 ## 📖 Documentation
 
@@ -561,6 +549,8 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Lists](docs/lists.md) | Multi-backend lists, permissions |
 | [Avatar System](docs/avatar-system.md) | Lip-sync, visemes, emotion expressions |
 | [Backup & Restore](docs/backup-restore.md) | Automated backups, one-command restore |
+| [Satellite System](docs/satellite-system.md) | Satellite speaker/mic architecture |
+| [Roadmap](docs/roadmap.md) | Future features and implementation plan |
 | [Installation](docs/installation.md) | Installer flow, backend abstraction |
 | [Phases](docs/phases.md) | Implementation roadmap and dependency graph |
 
