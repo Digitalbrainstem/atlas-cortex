@@ -29,8 +29,8 @@ The satellite system enables Atlas to be present in every room through distribut
 ## Design Principles
 
 1. **Hardware-agnostic** — works on Raspberry Pi, ESP32-S3, x86 mini-PCs, Orange Pi, BeagleBone, FutureProofHomes Satellite1, or any Linux device with audio I/O
-2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → Atlas auto-discovers and configures
-3. **Zero-config discovery** — satellites use a standard hostname pattern (`atlas-sat-XXXX`) so the server can find them via network scan
+2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → satellite announces itself, admin provisions from the panel
+3. **Self-announcing** — satellites broadcast their presence via mDNS on boot; Atlas passively listens — no network scanning
 4. **Admin panel managed** — add, configure, assign rooms, enable features, and reconfigure satellites from the web UI
 5. **Local wake word** — wake word runs on-device for privacy and low latency
 6. **Thin client** — satellites only capture/play audio; all intelligence lives on the Atlas server
@@ -66,10 +66,11 @@ The satellite system enables Atlas to be present in every room through distribut
 
 The provisioning system is designed so that setting up a new satellite is as simple as:
 1. Flash an OS image to an SD card
-2. Set the hostname to `atlas-sat-XXXX` (where XXXX is auto-generated from MAC)
+2. Set the hostname to `atlas-satellite` (same for all, no per-device setup)
 3. Boot the device and connect it to the network
-4. Atlas discovers it automatically (or you enter the IP in the admin panel)
-5. Atlas SSHes in, detects hardware, installs the satellite agent, and configures everything
+4. The satellite announces itself — a notification appears in the Admin Panel
+5. Admin clicks the notification and assigns a room, selects features, clicks "Provision"
+6. Atlas SSHes in, detects hardware, installs the satellite agent, and configures everything
 
 ### Hostname Convention
 
@@ -80,8 +81,11 @@ atlas-satellite
 ```
 
 - Every new satellite uses `atlas-satellite` as its hostname during setup
-- Atlas scans the network and finds all devices with this hostname
-- When multiple `atlas-satellite` hosts exist, Atlas distinguishes them by MAC/IP
+- On boot, a lightweight `atlas-announce` service broadcasts via mDNS:
+  - Service: `_atlas-satellite._tcp.local`
+  - TXT record: `status=new`, `mac=XX:XX:XX:XX:XX:XX`
+- Atlas passively listens for these announcements — **no network scanning**
+- When multiple `atlas-satellite` hosts announce, Atlas distinguishes them by MAC/IP
 - **During provisioning**, Atlas renames each satellite to a unique hostname:
 
 ```
@@ -134,37 +138,47 @@ Admin clicks "Identify" on a satellite →
 ┌──────────────────────────────────────────────────────────┐
 │                    USER SETUP                             │
 │                                                          │
-│  1. Flash OS to SD card (Raspberry Pi OS Lite / DietPi)  │
-│  2. In Raspberry Pi Imager settings (gear icon):         │
+│  1. Flash OS to SD card using ANY imaging tool:          │
+│     Raspberry Pi Imager, balenaEtcher, dd, rufus, etc.   │
+│  2. Configure these settings (method depends on tool):   │
 │     • Hostname: atlas-satellite                          │
 │     • Enable SSH: yes                                    │
 │     • Username: atlas                                    │
 │     • Password: atlas-setup                              │
 │     • Configure Wi-Fi: enter SSID + password             │
-│  3. Insert SD card, power on — done!                     │
+│  3. If your tool doesn't support pre-config, Atlas       │
+│     provides an atlas-sat-prepare.sh script to apply     │
+│     them to the mounted SD card after flashing.          │
+│  4. Insert SD card, power on — done!                     │
 │                                                          │
-│  (That's it. No terminal, no config files.)              │
+│  (No terminal needed on the satellite itself.)           │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                  ATLAS DISCOVERY                          │
+│               SATELLITE SELF-ANNOUNCEMENT                 │
 │                                                          │
-│  Atlas server periodically scans for new satellites:     │
+│  Atlas never actively scans the network. Instead,        │
+│  satellites announce themselves and Atlas listens:        │
 │                                                          │
-│  Method 1: Hostname scan (automatic, every 5 min)        │
-│    • mDNS lookup: atlas-satellite.local                  │
-│    • ARP table scan for new devices                      │
-│    • Distinguishes multiple by MAC address               │
+│  How it works:                                           │
+│  1. On boot, a tiny `atlas-announce` service starts      │
+│  2. It broadcasts via mDNS:                              │
+│       _atlas-satellite._tcp.local                        │
+│       TXT: status=new, mac=XX:XX:XX:XX:XX:XX            │
+│  3. Atlas server runs a passive mDNS listener            │
+│  4. New satellite appears in Admin Panel with a 🔔        │
+│       notification: "New satellite found"                │
+│  5. Admin provisions when ready (no time pressure)       │
 │                                                          │
-│  Method 2: Manual add (Admin Panel)                      │
-│    • User enters IP address                              │
+│  Fallback: Manual add (Admin Panel)                      │
+│    • User enters IP address manually                     │
 │    • Atlas tries default credentials (atlas/atlas-setup) │
 │    • Or user enters custom username/password             │
+│    • Useful for networks where mDNS is blocked           │
 │                                                          │
-│  Method 3: Satellite self-announce (already provisioned) │
-│    • mDNS: _atlas-satellite._tcp.local                   │
-│    • Atlas picks it up immediately                       │
+│  After provisioning, the satellite upgrades to full      │
+│  mDNS with room/status info for ongoing monitoring.      │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
@@ -254,7 +268,9 @@ Admin clicks "Identify" on a satellite →
 
 ### SD Card Setup Instructions
 
-**Using Raspberry Pi Imager (recommended — no script needed):**
+The goal is to flash a Linux OS and configure four things: hostname, SSH, username/password, and Wi-Fi. **Any imaging tool works** — pick whichever you're comfortable with.
+
+#### Option A: Raspberry Pi Imager (easiest — built-in config)
 
 1. Download and open [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
 2. Choose OS: **Raspberry Pi OS Lite (64-bit)** or **DietPi**
@@ -269,23 +285,96 @@ Admin clicks "Identify" on a satellite →
 5. Click **Write** and wait for it to finish
 6. Insert SD card into the device and power on
 
-That's it — Atlas will discover the device within 5 minutes.
+#### Option B: balenaEtcher, Rufus, dd, or any other flasher
+
+1. Download your preferred OS image (Raspberry Pi OS Lite, DietPi, Armbian, etc.)
+2. Flash it to the SD card using your tool of choice
+3. **Before ejecting**, run the Atlas prepare script on the mounted SD card:
+
+```bash
+# Download the prepare script
+curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh -o atlas-sat-prepare.sh
+chmod +x atlas-sat-prepare.sh
+
+# Run it against the mounted boot/root partitions
+# The script auto-detects mount points and applies:
+#   - Hostname: atlas-satellite
+#   - User: atlas / atlas-setup
+#   - SSH: enabled
+#   - Wi-Fi: prompted for SSID/password
+./atlas-sat-prepare.sh
+```
+
+The script works on Linux and macOS, and handles:
+- `/boot` partition: `wpa_supplicant.conf` (Wi-Fi), empty `ssh` file (enable SSH)
+- `/rootfs` partition: hostname, user creation, `atlas-announce` mDNS service
+- Detects if the OS is Raspberry Pi OS, DietPi, Armbian, or generic Debian
+
+4. Eject the SD card, insert into device, power on
+
+#### Option C: DietPi (via dietpi.txt pre-config)
+
+1. Flash [DietPi](https://dietpi.com/) to SD card
+2. Open the SD card and edit `dietpi.txt`:
+   ```
+   AUTO_SETUP_NET_HOSTNAME=atlas-satellite
+   AUTO_SETUP_GLOBAL_PASSWORD=atlas-setup
+   AUTO_SETUP_NET_WIFI_ENABLED=1
+   AUTO_SETUP_INSTALL_SSH_SERVER=2
+   ```
+3. Edit `dietpi-wifi.txt` with your Wi-Fi credentials
+4. Insert SD card and power on
+
+#### Option D: Already-running Linux device
+
+If the device is already booted (a NUC, old laptop, etc.), just SSH in and run:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh | bash -s -- --live
+```
+
+This configures hostname, creates the `atlas` user, installs the `atlas-announce` mDNS service, and the satellite will appear in your admin panel.
+
+That's it — the satellite will announce itself to Atlas within seconds of booting.
 
 ### ESPHome Satellites (ESP32-S3, FutureProofHomes Satellite1)
 
-ESPHome-based devices use a different provisioning path:
+ESP32-based devices don't use SD cards — they're flashed via USB or over-the-air. Atlas provides a ready-to-use ESPHome firmware config.
+
+**Method A: Web flasher (easiest — no tools needed)**
+
+1. Connect the ESP32-S3 to your computer via USB
+2. Open the Atlas web flasher: `https://your-atlas-server:5100/admin/#/flash-esphome`
+3. The admin panel builds and flashes the firmware directly from the browser
+4. Device reboots into captive portal Wi-Fi: **"Atlas-Satellite-Setup"**
+5. Connect to the portal, enter your Wi-Fi credentials
+6. Device reboots, connects to Wi-Fi, announces via mDNS
+7. Appears in Admin Panel → configure room and features
+
+**Method B: ESPHome CLI / Dashboard**
+
+1. Clone the Atlas ESPHome config:
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/esphome/atlas-satellite.yaml -o atlas-satellite.yaml
+   ```
+2. Edit Wi-Fi credentials in the YAML (or use `!secret`)
+3. Flash via ESPHome:
+   ```bash
+   esphome run atlas-satellite.yaml
+   ```
+4. Device announces via mDNS, appears in Admin Panel
+
+**Method C: FutureProofHomes Satellite1**
+
+The FPH Satellite1 ships with ESPHome pre-installed. Follow their [getting started guide](https://futureproofhomes.net/), then point it at your Atlas server. It will announce itself automatically.
 
 ```
-1. User flashes ESPHome firmware (via USB or web flasher)
-2. Device creates captive portal Wi-Fi: "Atlas-Satellite-Setup"
-3. User connects and enters:
-   - Wi-Fi SSID/password
-   - Atlas server IP (or auto-discover via mDNS)
-4. Device reboots, connects to Wi-Fi
-5. Announces via mDNS: _atlas-satellite._tcp.local
-6. Atlas discovers and shows in admin panel
-7. User configures room and features in admin panel
-8. Atlas pushes config via ESPHome API (no SSH needed)
+All ESP32 methods result in:
+  → mDNS announcement: _atlas-satellite._tcp.local
+  → Appears in Admin Panel with "Announced" status
+  → Admin configures room/features
+  → Atlas pushes config via ESPHome API (no SSH needed)
+  → OTA updates managed from Admin Panel
 ```
 
 ---
@@ -298,7 +387,7 @@ ESPHome-based devices use a different provisioning path:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Auto-discover** | Enabled | Scan network for `atlas-satellite` hosts every 5 min |
+| **mDNS listener** | Enabled | Passively listen for satellite self-announcements (no scanning) |
 | **Hostname pattern** | `atlas-sat-{room}` | Pattern for renaming after provisioning |
 | **Default SSH user** | `atlas` | Username for connecting to new satellites |
 | **Default SSH password** | `atlas-setup` | Password for initial connection only |
@@ -309,8 +398,10 @@ ESPHome-based devices use a different provisioning path:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ 📡 Satellites                                    [ + Add Manual ] │
+│ 📡 Satellites                     [ 🔍 Scan Now ] [ + Add Manual ] │
 ├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│ 🔔 New satellite announced! (1 pending)                          │
 │                                                                  │
 │ ● Kitchen Speaker         Pi 4 + ReSpeaker    192.168.3.42      │
 │   Room: Kitchen           Status: Online       Uptime: 3d 14h   │
@@ -324,11 +415,13 @@ ESPHome-based devices use a different provisioning path:
 │ ○ Garage                  Pi Zero 2W          192.168.3.71      │
 │   Room: Garage            Status: Offline      Last: 2h ago     │
 │                                                                  │
-│ 🆕 atlas-sat-e4d9         Pi 4 (4GB)          192.168.3.78      │
-│   Room: Unassigned        Status: New          [Configure →]     │
+│ 🆕 atlas-satellite        Unknown             192.168.3.78      │
+│   Room: Unassigned        Status: Announced    [Configure →]     │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+> **🔍 Scan Now** is a fallback for networks where mDNS is blocked. It performs a one-time subnet scan for `atlas-satellite` hostnames. Normally not needed — satellites announce themselves.
 
 ### Satellite Detail/Config View
 
@@ -512,7 +605,7 @@ class SatelliteManager:
     """Server-side satellite lifecycle management."""
 
     async def discover_satellites(self) -> list[DiscoveredSatellite]:
-        """Scan network for atlas-sat-* hostnames and mDNS announcements."""
+        """Return satellites found via passive mDNS listener or on-demand scan."""
 
     async def detect_hardware(self, host: str, username: str, password: str) -> HardwareProfile:
         """SSH into satellite and detect hardware capabilities."""
@@ -537,19 +630,21 @@ class SatelliteManager:
 
 ```python
 class SatelliteDiscovery:
-    """Find new satellites on the network."""
+    """Passive mDNS listener + on-demand scan fallback."""
 
-    async def scan_hostnames(self, subnet: str = "192.168.0.0/16") -> list[str]:
-        """Scan for hosts matching atlas-sat-* pattern."""
-        # 1. Check mDNS for atlas-sat-*.local
-        # 2. Parse ARP table for known prefixes
-        # 3. DNS lookup atlas-sat-XXXX.local for common ranges
+    async def start_listener(self):
+        """Start background mDNS listener for _atlas-satellite._tcp.local.
+        Runs passively — zero network traffic. Satellites announce themselves."""
 
-    async def listen_mdns(self) -> AsyncGenerator[SatelliteAnnouncement, None]:
-        """Listen for _atlas-satellite._tcp.local announcements."""
+    async def get_announced(self) -> list[DiscoveredSatellite]:
+        """Return satellites that have self-announced since last check."""
+
+    async def scan_now(self, subnet: str = "192.168.0.0/24") -> list[str]:
+        """Admin-triggered one-time scan. Fallback for networks where mDNS is blocked.
+        Scans for atlas-satellite hostnames via mDNS + ARP table."""
 
     async def check_host(self, ip: str) -> DiscoveredSatellite | None:
-        """Probe a specific IP for satellite indicators."""
+        """Probe a specific IP for satellite indicators (manual add)."""
 ```
 
 ### Hardware Detector (`cortex/satellite/hardware.py`)
@@ -613,7 +708,7 @@ async def satellite_ws(websocket: WebSocket):
 ```
 GET    /admin/satellites              — List all satellites (with status)
 GET    /admin/satellites/:id          — Satellite detail + hardware info
-POST   /admin/satellites/discover     — Trigger network scan for new satellites
+POST   /admin/satellites/discover     — One-time network scan (fallback for mDNS-blocked networks)
 POST   /admin/satellites/add          — Manual add (IP, username, password)
 POST   /admin/satellites/:id/provision — Start provisioning with config
 PATCH  /admin/satellites/:id          — Update satellite config (room, features, etc.)
@@ -715,8 +810,14 @@ satellite/
 │       ├── fph_satellite1.py    # FutureProofHomes Satellite1
 │       └── generic_linux.py     # PulseAudio / ALSA fallback
 ├── requirements.txt
-├── install.sh                   # One-line installer
-├── atlas-sat-prepare.sh         # SD card preparation script
+├── install.sh                   # One-line installer (any Linux)
+├── atlas-sat-prepare.sh         # SD card/live system preparation script
+├── atlas-announce.service       # systemd unit for mDNS self-announcement
+├── atlas-announce.py            # Lightweight mDNS announcer (runs before provisioning)
+├── esphome/
+│   ├── atlas-satellite.yaml     # Base ESPHome config for ESP32-S3
+│   ├── atlas-satellite-fph.yaml # FutureProofHomes Satellite1 variant
+│   └── components/              # Custom ESPHome components
 ├── Dockerfile
 └── tests/
 ```
@@ -727,21 +828,26 @@ satellite/
 
 ### Method 1: Pre-configured SD Card Image (easiest)
 
-Download a pre-built image with the satellite agent already installed:
+Download a pre-built image with the satellite agent and announce service already installed:
 
 ```bash
-# Download and flash
+# Download image
 wget https://github.com/Betanu701/atlas-cortex/releases/download/latest/atlas-satellite-rpi.img.gz
 gunzip atlas-satellite-rpi.img.gz
-# Flash with Raspberry Pi Imager, balenaEtcher, or dd
+# Flash with ANY tool: Raspberry Pi Imager, balenaEtcher, dd, Rufus, etc.
+# Image comes pre-configured: hostname=atlas-satellite, user=atlas, SSH enabled
+# Just set Wi-Fi credentials (via Imager settings or atlas-sat-prepare.sh)
 ```
 
-### Method 2: Standard OS + Auto-Provision (recommended)
+### Method 2: Standard OS + Prepare Script (recommended)
 
-1. Flash Raspberry Pi OS Lite (or DietPi) to SD card
-2. Use Raspberry Pi Imager to set hostname `atlas-sat-XXXX`, enable SSH, configure Wi-Fi
-3. Boot and connect to network
-4. Atlas discovers and provisions automatically via admin panel
+1. Flash **any** Linux OS (Raspberry Pi OS Lite, DietPi, Armbian, Ubuntu Server, etc.) using **any** flasher
+2. Configure hostname/SSH/Wi-Fi using your flasher's built-in settings, **or** run the prepare script on the mounted SD card:
+   ```bash
+   curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh | bash
+   ```
+3. Boot the device — it announces itself via mDNS
+4. Atlas auto-provisions via the admin panel
 
 ### Method 3: Manual Install Script (any Linux device)
 
@@ -772,7 +878,20 @@ docker run -d \
 
 ### Method 5: ESPHome (ESP32-S3 / FutureProofHomes Satellite1)
 
-Flash via USB or web flasher, configure via captive portal, auto-discovered by Atlas.
+```bash
+# Option A: Use the Atlas web flasher from your browser (admin panel)
+#   Navigate to Admin → Satellites → Flash ESPHome
+
+# Option B: Use the ESPHome CLI
+curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/esphome/atlas-satellite.yaml -o atlas-satellite.yaml
+# Edit Wi-Fi credentials in the YAML
+esphome run atlas-satellite.yaml
+
+# Option C: FutureProofHomes Satellite1 — ships with ESPHome pre-installed
+#   Follow FPH getting started guide, point at Atlas server
+```
+
+All ESP32 devices announce via mDNS and appear in the Admin Panel automatically.
 
 ---
 
@@ -784,7 +903,7 @@ Flash via USB or web flasher, configure via captive portal, auto-discovered by A
 | S2.5.2 | Wake word integration — openWakeWord default, pluggable | S2.5.1 |
 | S2.5.3 | VAD + AEC — Silero VAD, speexdsp echo cancellation | S2.5.1 |
 | S2.5.4 | Server WebSocket — satellite connection handler, audio streaming | S2.5.1 |
-| S2.5.5 | Discovery service — hostname scan, mDNS listen, manual add | None |
+| S2.5.5 | Discovery service — passive mDNS listener, on-demand scan fallback, manual add | None |
 | S2.5.6 | Hardware detector — SSH-based platform/audio/sensor detection | S2.5.5 |
 | S2.5.7 | Provisioning engine — install agent, configure, start service via SSH | S2.5.4, S2.5.6 |
 | S2.5.8 | Admin API — satellite CRUD, discover, provision, reconfigure endpoints | S2.5.5, S2.5.7 |
