@@ -32,7 +32,7 @@ async function request(method, url, data) {
 
   if (res.status === 401) {
     clearToken();
-    window.location.href = '/admin/login';
+    window.location.href = '/admin/#/login';
     throw new Error('Unauthorized');
   }
 
@@ -74,7 +74,7 @@ export async function login(username, password) {
 
 export function logout() {
   clearToken();
-  window.location.href = '/admin/login';
+  window.location.href = '/admin/#/login';
 }
 
 export { getToken, isAuthenticated };

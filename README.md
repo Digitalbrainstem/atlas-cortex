@@ -67,34 +67,10 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Evolution tracking** — rapport scores, emotional profiles, nightly evolution logs
 - **System overview** — hardware info, GPU assignment, model configs, discovered services
 
-<details>
-<summary>📸 Admin Panel Screenshots (click to expand)</summary>
-
-#### Login
-![Admin Login](docs/images/admin-login.png)
-
-#### Dashboard
 ![Admin Dashboard](docs/images/admin-dashboard.png)
-
-#### Users
-![Admin Users](docs/images/admin-users.png)
-
-#### Safety Events
 ![Admin Safety](docs/images/admin-safety.png)
 
-#### Devices
-![Admin Devices](docs/images/admin-devices.png)
-
-#### Voice Enrollment
-![Admin Voice](docs/images/admin-voice.png)
-
-#### Evolution
-![Admin Evolution](docs/images/admin-evolution.png)
-
-#### System
-![Admin System](docs/images/admin-system.png)
-
-</details>
+> 📖 **[Full Admin Panel Guide →](docs/admin-guide.md)** — walkthrough with screenshots of every page
 
 ## 🏗️ Architecture
 
@@ -233,31 +209,9 @@ Open **`http://localhost:5100/admin/`** in your browser.
 | **Default username** | `admin` |
 | **Default password** | `atlas-admin` |
 
-> ⚠️ **Change the default password immediately** via the admin panel (click your username → Change Password).
-
-#### What you can do in the admin panel:
-
-- **Dashboard** — view interaction counts, safety events, layer distribution, recent activity
-- **Users** — edit profiles, set ages (birth year/month), manage vocabulary and tone preferences
-- **Parental Controls** — set content filter levels, allowed hours, restricted topics per child
-- **Safety** — browse guardrail events with filters, manage jailbreak detection patterns
-- **Voice** — view enrolled speakers, adjust confidence thresholds, remove enrollments
-- **Devices** — browse Home Assistant devices and command patterns, manage aliases
-- **Evolution** — monitor rapport scores, review emotional profiles, view nightly evolution logs
-- **System** — check hardware/GPU status, model configs, discovered services, backup history
-
-#### Development mode (hot reload):
-
-```bash
-# Terminal 1: Start the API server
-python -m cortex.server
-
-# Terminal 2: Start the Vite dev server with hot reload
-cd admin
-npm run dev
-# Dev server runs at http://localhost:5173/admin/
-# API calls are proxied to http://localhost:5100
-```
+> ⚠️ **Change the default password immediately** via the admin panel.
+>
+> 📖 **[Full Admin Panel Guide →](docs/admin-guide.md)** — walkthrough of every page with screenshots
 
 ### Discover Your Services
 
@@ -330,7 +284,7 @@ curl http://localhost:5100/health
 
 ### Admin API
 
-All admin endpoints require a JWT token obtained via login.
+All admin endpoints require a JWT token. Quick example:
 
 ```bash
 # Login and get token
@@ -338,70 +292,12 @@ TOKEN=$(curl -s http://localhost:5100/admin/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "atlas-admin"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
-# Dashboard stats
+# Use with any admin endpoint
 curl http://localhost:5100/admin/dashboard \
   -H "Authorization: Bearer $TOKEN"
-
-# List users
-curl http://localhost:5100/admin/users \
-  -H "Authorization: Bearer $TOKEN"
-
-# Set a user's age
-curl -X POST http://localhost:5100/admin/users/derek/age \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"birth_year": 1990, "birth_month": 6}'
-
-# View safety events
-curl "http://localhost:5100/admin/safety/events?page=1&per_page=20" \
-  -H "Authorization: Bearer $TOKEN"
-
-# Change admin password
-curl -X POST http://localhost:5100/admin/auth/change-password \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"current_password": "atlas-admin", "new_password": "my-new-secure-password"}'
 ```
 
-<details>
-<summary>Full Admin Endpoint List</summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/admin/auth/login` | Authenticate and get JWT token |
-| GET | `/admin/auth/me` | Get current admin info |
-| POST | `/admin/auth/change-password` | Change admin password |
-| GET | `/admin/dashboard` | Aggregate stats and recent activity |
-| GET | `/admin/users` | List user profiles (paginated) |
-| GET | `/admin/users/:id` | Get user detail with emotional profile, topics |
-| PATCH | `/admin/users/:id` | Update user profile fields |
-| POST | `/admin/users/:id/age` | Set user age (birth_year, birth_month) |
-| DELETE | `/admin/users/:id` | Delete a user |
-| GET | `/admin/users/:id/parental` | Get parental controls for a child |
-| POST | `/admin/users/:id/parental` | Set parental controls |
-| DELETE | `/admin/users/:id/parental` | Remove parental controls |
-| GET | `/admin/safety/events` | List guardrail events (filterable, paginated) |
-| GET | `/admin/safety/patterns` | List jailbreak detection patterns |
-| POST | `/admin/safety/patterns` | Add a jailbreak pattern |
-| DELETE | `/admin/safety/patterns/:id` | Delete a jailbreak pattern |
-| GET | `/admin/voice/speakers` | List enrolled speakers |
-| PATCH | `/admin/voice/speakers/:id` | Update speaker (name, threshold) |
-| DELETE | `/admin/voice/speakers/:id` | Remove speaker enrollment |
-| GET | `/admin/devices` | List HA devices with aliases (paginated) |
-| GET | `/admin/devices/patterns` | List command patterns (paginated) |
-| PATCH | `/admin/devices/patterns/:id` | Update a command pattern |
-| DELETE | `/admin/devices/patterns/:id` | Delete a command pattern |
-| GET | `/admin/evolution/profiles` | List emotional profiles with top topics |
-| GET | `/admin/evolution/logs` | List nightly evolution run logs |
-| GET | `/admin/evolution/mistakes` | List mistake log (filterable) |
-| PATCH | `/admin/evolution/mistakes/:id` | Mark a mistake as resolved |
-| GET | `/admin/system/hardware` | Hardware profile and GPU info |
-| GET | `/admin/system/models` | Model configuration |
-| GET | `/admin/system/services` | Discovered services |
-| GET | `/admin/system/backups` | Backup history |
-| GET | `/admin/system/interactions` | Browse interactions (filterable, paginated) |
-
-</details>
+> 📖 **[Full endpoint list (30+ endpoints) →](docs/admin-guide.md#admin-api-reference)**
 
 ## 📁 Project Structure
 
@@ -549,6 +445,7 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Lists](docs/lists.md) | Multi-backend lists, permissions |
 | [Avatar System](docs/avatar-system.md) | Lip-sync, visemes, emotion expressions |
 | [Backup & Restore](docs/backup-restore.md) | Automated backups, one-command restore |
+| [Admin Panel Guide](docs/admin-guide.md) | Full walkthrough with screenshots |
 | [Satellite System](docs/satellite-system.md) | Satellite speaker/mic architecture |
 | [Roadmap](docs/roadmap.md) | Future features and implementation plan |
 | [Installation](docs/installation.md) | Installer flow, backend abstraction |
