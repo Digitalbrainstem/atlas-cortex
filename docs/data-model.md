@@ -694,20 +694,41 @@ Detected hardware capabilities. See [context-management.md](context-management.m
 CREATE TABLE hardware_profile (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    gpu_vendor TEXT,
-    gpu_name TEXT,
-    vram_mb INTEGER,
-    is_igpu BOOLEAN DEFAULT FALSE,
+    gpu_mode TEXT,               -- 'multi' | 'single' | 'cpu_only'
+    gpu_count INTEGER DEFAULT 0,
     cpu_model TEXT,
     cpu_cores INTEGER,
     ram_mb INTEGER,
     disk_free_gb REAL,
     os_name TEXT,
     limits_json TEXT,
+    assignments_json TEXT,       -- GPU role assignments
     is_current BOOLEAN DEFAULT TRUE
 );
 
 CREATE UNIQUE INDEX idx_hw_current ON hardware_profile(is_current) WHERE is_current = TRUE;
+```
+
+### hardware_gpu
+
+One row per detected GPU. Links to `hardware_profile`.
+
+```sql
+CREATE TABLE hardware_gpu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER REFERENCES hardware_profile(id),
+    gpu_index INTEGER,           -- 0, 1, 2...
+    vendor TEXT,                  -- 'amd' | 'nvidia' | 'intel' | 'apple'
+    name TEXT,
+    vram_mb INTEGER,
+    is_igpu BOOLEAN DEFAULT FALSE,
+    compute_api TEXT,             -- 'rocm' | 'cuda' | 'oneapi' | 'metal'
+    driver_version TEXT,
+    assigned_role TEXT,           -- 'llm' | 'voice' | 'stt' | null
+    env_json TEXT                 -- isolation env vars
+);
+
+CREATE INDEX idx_hw_gpu_profile ON hardware_gpu(profile_id);
 ```
 
 ### model_config
@@ -828,6 +849,7 @@ memory_metrics (standalone)
 | Memory | 2 | memory_fts, memory_metrics |
 | Learning | 3 | mistake_log, mistake_tags, evolution_log |
 | Backup | 1 | backup_log |
-| Context & Hardware | 4 | hardware_profile, model_config, context_checkpoints, context_metrics |
+| Context & Hardware | 5 | hardware_profile, hardware_gpu, model_config, context_checkpoints, context_metrics |
 | Discovery & Plugins | 3 | discovered_services, service_config, plugin_registry |
-| **Total** | **~37 tables** | (including FTS5 virtual tables and junction tables) |
+| Voice | 1 | tts_voices |
+| **Total** | **~38 tables** | (including FTS5 virtual tables and junction tables) |

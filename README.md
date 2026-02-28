@@ -81,6 +81,7 @@ atlas-cortex/
 │   ├── knowledge-access.md    # File/email/message indexing, user-scoped privacy
 │   ├── lists.md               # Multi-backend lists, permissions, resolution
 │   ├── avatar-system.md       # Lip-sync avatars, visemes, multi-skin
+│   ├── voice-engine.md        # TTS providers, emotional speech, Orpheus, voice selection
 │   ├── phases.md              # Implementation phases and dependencies
 │   └── infrastructure.md      # Reference server topology (Derek's setup)
 ├── cortex/                    # Python package (future)
@@ -116,6 +117,7 @@ atlas-cortex/
 | C7 | Avatar System | 🔲 Future | Phoneme-to-viseme lip-sync, emotion expressions, multi-skin |
 | C9 | Backup & Restore | 🔲 Planned | Automated backups, one-command restore, voice commands |
 | C10 | Context & Hardware | 🔲 Planned | Context windows, compaction, overflow recovery, hardware auto-detect |
+| C11 | Voice & Speech | 🔲 Planned | TTS provider abstraction, Orpheus emotional speech, voice selection |
 
 ### Part 2: Integration Layer (discovered at install)
 

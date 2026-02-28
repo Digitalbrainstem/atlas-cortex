@@ -42,6 +42,7 @@ See [installation.md](installation.md) for the full installer design.
 | C7 | Avatar System | 🔲 Planned | None |
 | C9 | Backup & Restore | 🔲 Planned | None |
 | C10 | Context Management & Hardware | 🔲 Planned | C0 |
+| C11 | Voice & Speech Engine | 🔲 Planned | C0 |
 
 ### Part 2: Integration Layer (discovered at install)
 
@@ -76,10 +77,14 @@ See [installation.md](installation.md) for full design.
 - Options: Ollama, OpenAI-compatible, sentence-transformers (in-process), fastembed
 - Fallback: if LLM provider has no embedding support, use in-process sentence-transformers
 
-### C0.3 — Hardware Detection & Model Selection
+### C0.3 — Hardware Detection & GPU Assignment
 - GPU detection (AMD/NVIDIA/Intel/Apple/CPU-only)
+- Multi-GPU discovery: enumerate all discrete GPUs, rank by VRAM
+- GPU role assignment: largest → LLM, second → voice (TTS/STT), third+ → overflow
+- Mixed-vendor support: generate per-GPU isolation env vars (HIP/CUDA/oneAPI)
 - VRAM/RAM budgets, context window limits
 - Model recommendations based on hardware tier
+- Store per-GPU profiles in `hardware_gpu` table
 - Already designed in C10.1 — shared implementation
 
 ### C0.4 — LLM Backend Discovery
@@ -407,6 +412,53 @@ See [context-management.md](context-management.md) for full design.
 - Clarify: pause, answer inline, offer to resume
 - Refine: halt, re-generate with refinement instruction
 - Voice interruption: echo cancellation, listen-during-playback, wake word detection mid-output
+
+---
+
+## Phase C11: Voice & Speech Engine
+
+See [voice-engine.md](voice-engine.md) for full design.
+
+### C11.1 — TTS Provider Interface
+- Abstract `TTSProvider`: `synthesize()`, `list_voices()`, `supports_emotion()`
+- Implementations: Orpheus (Ollama), Piper (CPU fallback), Parler, Coqui
+- Provider discovered at install (C0), configurable in `cortex.env`
+
+### C11.2 — Orpheus TTS Integration
+- Pull `legraphista/Orpheus` Q4 GGUF into Ollama (or Orpheus-FastAPI with ROCm)
+- Verify audio generation, streaming, emotion tags
+- VRAM management: time-multiplexed with LLM (Ollama model switching)
+- 8 built-in voices with emotion support
+
+### C11.3 — Emotion Composer
+- Map VADER sentiment → Orpheus/Parler emotion format
+- Paralingual injection: `<laugh>`, `<sigh>`, `<chuckle>`, `whisper:` based on context
+- Age-appropriate emotion filtering (gentler for kids)
+- Night mode / quiet hours: automatic pace, volume, energy reduction
+- Never repeat same paralingual consecutively
+
+### C11.4 — Voice Registry & Selection
+- `tts_voices` table with provider, gender, style, language
+- Per-user voice preference (stored in user profile)
+- Voice preview/audition: "Atlas, try a different voice"
+- Seed voices for each installed provider
+
+### C11.5 — Sentence-Boundary Streaming
+- Detect sentence boundaries in LLM token stream
+- Pipeline: sentence complete → emotion tag → TTS → audio chunk
+- Overlap: sentence N plays while sentence N+1 generates
+- Fast path: Layer 1/2 → Piper CPU → <200ms total
+
+### C11.6 — Atlas TTS API Endpoint
+- `POST /v1/audio/speech` (OpenAI-compatible)
+- Extensions: `emotion`, `include_phonemes` for avatar sync
+- Wyoming TTS adapter for HA integration
+- HA uses Atlas as both conversation agent AND TTS engine
+
+### C11.7 — Avatar Phoneme Bridge
+- Extract phoneme timing from Orpheus/Piper output
+- Feed to avatar server (C7) for viseme animation
+- Synchronized: audio playback + lip movement + emotion expression
 
 ---
 
