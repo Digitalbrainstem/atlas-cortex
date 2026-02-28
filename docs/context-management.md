@@ -52,6 +52,7 @@ def compute_limits(hw):
     # Separate discrete GPUs from iGPUs
     discrete = [g for g in hw['gpus'] if not g['is_igpu']]
     igpus = [g for g in hw['gpus'] if g['is_igpu']]
+    # iGPUs are used as fallback if no discrete GPUs are present (see below)
     
     # Sort discrete GPUs by VRAM (largest first)
     discrete.sort(key=lambda g: g['vram_mb'], reverse=True)
@@ -72,13 +73,24 @@ def compute_limits(hw):
             'embedding': {'device': 'cpu'},
         }
     else:
-        limits['gpu_mode'] = 'cpu_only'
-        limits['gpu_assignments'] = {
-            'llm': {'device': 'cpu'},
-            'tts': {'device': 'cpu'},  # Piper fallback
-            'stt': {'device': 'cpu'},
-            'embedding': {'device': 'cpu'},
-        }
+        # Try iGPU fallback before going full CPU-only
+        if igpus:
+            best_igpu = max(igpus, key=lambda g: g['vram_mb'])
+            limits['gpu_mode'] = 'igpu_fallback'
+            limits['gpu_assignments'] = {
+                'llm': {'gpu_index': 0, 'gpu': best_igpu, 'shared': True},
+                'tts': {'device': 'cpu'},  # Piper fallback (iGPU VRAM too limited for TTS)
+                'stt': {'device': 'cpu'},
+                'embedding': {'device': 'cpu'},
+            }
+        else:
+            limits['gpu_mode'] = 'cpu_only'
+            limits['gpu_assignments'] = {
+                'llm': {'device': 'cpu'},
+                'tts': {'device': 'cpu'},  # Piper fallback
+                'stt': {'device': 'cpu'},
+                'embedding': {'device': 'cpu'},
+            }
     
     # Use the LLM GPU (or best available) for context/model sizing
     llm_gpu = limits['gpu_assignments'].get('llm', {}).get('gpu')
@@ -204,20 +216,24 @@ def assign_gpus(gpus):
 
 def _gpu_env(gpu, index):
     """Generate environment variables to isolate a workload to a specific GPU."""
+    # Use the vendor-native/system GPU index if available; fall back to the
+    # position in the sorted list for backward compatibility.
+    gpu_index = gpu.get('gpu_index', index)
+
     vendor = gpu.get('vendor', '').lower()
     if vendor == 'amd':
         return {
-            'HIP_VISIBLE_DEVICES': str(index),
+            'HIP_VISIBLE_DEVICES': str(gpu_index),
             'HSA_OVERRIDE_GFX_VERSION': gpu.get('gfx_version', ''),
         }
     elif vendor == 'nvidia':
         return {
-            'CUDA_VISIBLE_DEVICES': str(index),
+            'CUDA_VISIBLE_DEVICES': str(gpu_index),
         }
     elif vendor == 'intel':
         return {
-            'ONEAPI_DEVICE_SELECTOR': f'level_zero:{index}',
-            'ZE_AFFINITY_MASK': str(index),
+            'ONEAPI_DEVICE_SELECTOR': f'level_zero:{gpu_index}',
+            'ZE_AFFINITY_MASK': str(gpu_index),
         }
     else:
         return {}

@@ -410,9 +410,43 @@ class SemanticJailbreakDetector:
     
     SIMILARITY_THRESHOLD = 0.82  # tuned to minimize false positives
     
-    def check(self, message: str, embedding_fn) -> GuardrailResult:
+    def __init__(self, db_conn, embedding_fn):
+        self.db = db_conn
+        self.embedding_fn = embedding_fn
+        self._exemplar_cache = None
+    
+    def _get_exemplar_embeddings(self) -> list:
+        """Load pre-computed exemplar embeddings from DB + seed list.
+        
+        On first call: embed seed exemplars + load any DB exemplars.
+        Caches result; call reload() to refresh after learning new exemplars.
+        """
+        if self._exemplar_cache is not None:
+            return self._exemplar_cache
+        
+        embeddings = []
+        
+        # Embed seed exemplars
+        for text in self.JAILBREAK_INTENT_EXEMPLARS:
+            embeddings.append(self.embedding_fn(text))
+        
+        # Load pre-computed embeddings from DB
+        rows = self.db.execute(
+            "SELECT embedding FROM jailbreak_exemplars WHERE embedding IS NOT NULL"
+        ).fetchall()
+        for row in rows:
+            embeddings.append(deserialize_embedding(row['embedding']))
+        
+        self._exemplar_cache = embeddings
+        return embeddings
+    
+    def reload(self):
+        """Clear cache to pick up newly learned exemplars."""
+        self._exemplar_cache = None
+    
+    def check(self, message: str) -> GuardrailResult:
         """Compare message embedding against jailbreak exemplars."""
-        msg_embedding = embedding_fn(message)
+        msg_embedding = self.embedding_fn(message)
         
         for exemplar in self._get_exemplar_embeddings():
             similarity = cosine_similarity(msg_embedding, exemplar)
@@ -747,7 +781,7 @@ class DataPrivacyGuard:
         Detects and masks:
         - Credit card numbers → [CARD ****1234]
         - SSN → [SSN REDACTED]
-        - Phone numbers → [PHONE ***-**-1234]
+        - Phone numbers → [PHONE ***-***-1234]
         - Email addresses → [EMAIL r****@****.com]
         - Physical addresses → [ADDRESS REDACTED]
         """
@@ -932,25 +966,27 @@ The guardrails use `user_profiles.age_group` and `user_profiles.age_confidence` 
 
 ```python
 def resolve_content_tier(user_profile: dict) -> str:
-    """Determine content tier from user profile.
+    """Determine content tier key from user profile.
     
-    If age_confidence is below threshold, defaults to 'strict' (child-safe).
+    Returns one of: 'child', 'teen', 'adult', or 'unknown'.
+    
+    If age_confidence is below threshold, defaults to 'unknown' (child-safe).
     Parents can explicitly set a child's tier via parental_controls.
     """
     age_group = user_profile.get('age_group', 'unknown')
     confidence = user_profile.get('age_confidence', 0.0)
     
-    # Low confidence → default safe
+    # Low confidence → default safe tier
     if confidence < 0.6 or age_group == 'unknown':
-        return 'strict'
+        return 'unknown'
     
     tier_map = {
-        'toddler': 'strict',
-        'child': 'strict',
-        'teen': 'moderate',
-        'adult': 'standard',
+        'toddler': 'child',
+        'child': 'child',
+        'teen': 'teen',
+        'adult': 'adult',
     }
-    return tier_map.get(age_group, 'strict')
+    return tier_map.get(age_group, 'unknown')
 ```
 
 ### Parental Controls (data-model.md)
