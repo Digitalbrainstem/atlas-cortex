@@ -31,11 +31,12 @@ The satellite system enables Atlas to be present in every room through distribut
 1. **Hardware-agnostic** — works on Raspberry Pi, ESP32-S3, x86 mini-PCs, Orange Pi, BeagleBone, FutureProofHomes Satellite1, or any Linux device with audio I/O
 2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → satellite announces itself, admin provisions from the panel
 3. **Self-announcing** — satellites broadcast their presence via mDNS on boot; Atlas passively listens — no network scanning
-4. **Admin panel managed** — add, configure, assign rooms, enable features, and reconfigure satellites from the web UI
-5. **Local wake word** — wake word runs on-device for privacy and low latency
-6. **Thin client** — satellites only capture/play audio; all intelligence lives on the Atlas server
-7. **Wyoming-compatible** — integrates with Home Assistant Wyoming protocol for HA voice pipelines
-8. **Graceful offline** — satellites cache essential TTS (e.g., "I can't reach Atlas right now") for server outages
+4. **Shared mode** — install the satellite service on an existing machine without taking over the system; Atlas connects only to the satellite service, not SSH
+5. **Admin panel managed** — add, configure, assign rooms, enable features, and reconfigure satellites from the web UI
+6. **Local wake word** — wake word runs on-device for privacy and low latency
+7. **Thin client** — satellites only capture/play audio; all intelligence lives on the Atlas server
+8. **Wyoming-compatible** — integrates with Home Assistant Wyoming protocol for HA voice pipelines
+9. **Graceful offline** — satellites cache essential TTS (e.g., "I can't reach Atlas right now") for server outages
 
 ## Hardware Support
 
@@ -71,6 +72,50 @@ The provisioning system is designed so that setting up a new satellite is as sim
 4. The satellite announces itself — a notification appears in the Admin Panel
 5. Admin clicks the notification and assigns a room, selects features, clicks "Provision"
 6. Atlas SSHes in, detects hardware, installs the satellite agent, and configures everything
+
+### Satellite Modes
+
+Atlas supports two distinct satellite modes, depending on whether the device is dedicated to Atlas or shared with other workloads:
+
+#### Dedicated Mode (default)
+
+A device that exists solely as an Atlas satellite. Atlas has full control:
+
+- **Discovery:** Self-announces via mDNS → appears in Admin Panel automatically
+- **Provisioning:** Atlas SSHes in, installs agent, renames hostname, configures everything
+- **Security:** SSH key installed, password auth disabled — Atlas manages the device
+- **Management:** Full control from Admin Panel (restart, reconfigure, update, remove)
+- **Examples:** Raspberry Pi with a mic/speaker HAT in the kitchen, ESP32-S3 on a shelf
+
+#### Shared Mode
+
+A device that's already running other services (media server, NAS, desktop, etc.) where the user wants to **add** the Atlas satellite service alongside their existing workload. Atlas does **not** take over the system:
+
+- **Discovery:** No auto-discovery — admin manually enters IP/hostname + credentials in the Admin Panel
+- **Provisioning:** User runs the install script themselves (or Atlas installs just the satellite service via SSH)
+- **Security:** **No SSH key installed**, no password auth changes — the user manages their own system. Atlas communicates exclusively through the satellite service WebSocket port (default `:5110`), never SSH after initial setup
+- **Hostname:** Not renamed — the device keeps its existing hostname
+- **Management:** Atlas can restart/reconfigure the satellite service, but cannot modify the host system
+- **Updates:** The satellite service self-updates or the user runs the update script manually
+- **Examples:** Home server also running Plex, dev laptop, NAS box, office workstation with a USB mic
+
+```
+Dedicated Mode                          Shared Mode
+┌─────────────────────┐                 ┌─────────────────────┐
+│   Atlas Satellite   │                 │  Existing System    │
+│   (full control)    │                 │  ┌───────────────┐  │
+│                     │                 │  │ Plex, NAS,    │  │
+│  mDNS announce      │                 │  │ desktop, etc. │  │
+│  SSH key auth       │                 │  └───────────────┘  │
+│  hostname: atlas-*  │                 │  ┌───────────────┐  │
+│  agent + OS managed │                 │  │ Atlas Sat Svc │◄─── Atlas connects
+│                     │                 │  │ (port 5110)   │    via WebSocket only
+└─────────────────────┘                 │  └───────────────┘  │
+      ▲ Atlas manages                   │  hostname: unchanged│
+        everything                      └─────────────────────┘
+                                              ▲ User manages
+                                                the system
+```
 
 ### Hostname Convention
 
@@ -412,6 +457,9 @@ All ESP32 methods result in:
 │ ● Living Room             FPH Satellite1      192.168.3.60      │
 │   Room: Living Room       Status: Online       Uptime: 7d 8h    │
 │                                                                  │
+│ ● Office (shared)         x86 Desktop         192.168.3.10      │
+│   Room: Office            Status: Online       Uptime: 12d 4h   │
+│                                                                  │
 │ ○ Garage                  Pi Zero 2W          192.168.3.71      │
 │   Room: Garage            Status: Offline      Last: 2h ago     │
 │                                                                  │
@@ -433,6 +481,7 @@ All ESP32 methods result in:
 │ General                                                          │
 │ ├─ Display Name:    [ Kitchen Speaker          ]                 │
 │ ├─ Room:            [ Kitchen               ▾ ]                 │
+│ ├─ Mode:            Dedicated                                    │
 │ ├─ Satellite ID:    sat-a3f2-kitchen                            │
 │ └─ Hostname:        atlas-kitchen                                │
 │                                                                  │
@@ -461,21 +510,35 @@ All ESP32 methods result in:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+> **Shared mode satellites** show a "Shared" badge next to the mode. The "Restart Agent" button restarts only the satellite service (not the host). "Remove" uninstalls the satellite service but does not touch the host system. Hostname and system config fields are read-only.
+
 ### Manual Add Dialog
 
 ```
-┌────────────────────────────────────────────────┐
-│ Add Satellite Manually                         │
-│                                                │
-│ IP Address:  [ 192.168.3.78     ]              │
-│ Username:    [ pi                ]              │
-│ Password:    [ ••••••••          ]              │
-│   — or —                                       │
-│ SSH Key:     [ Use Atlas server key ]          │
-│                                                │
-│ [ Connect & Detect Hardware ]                  │
-└────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│ Add Satellite                                              │
+│                                                            │
+│ Mode:  (●) Dedicated — Atlas manages the entire device     │
+│        (○) Shared — Add satellite service to existing host │
+│                                                            │
+│ ── Connection ──────────────────────────────────────────── │
+│ IP / Hostname: [ 192.168.3.78          ]                   │
+│ Username:      [ pi                     ]                  │
+│ Password:      [ ••••••••               ]                  │
+│   — or —                                                   │
+│ SSH Key:       [ Use Atlas server key   ]                  │
+│                                                            │
+│ ── Shared Mode Only ────────────────────────────────────── │
+│ ☐ Install satellite service via SSH (or install manually)  │
+│ Satellite port: [ 5110 ]                                   │
+│                                                            │
+│ [ Connect & Detect Hardware ]                              │
+└────────────────────────────────────────────────────────────┘
 ```
+
+**Dedicated mode flow:** Atlas SSHes in → detects hardware → installs agent → installs SSH key → disables password auth → renames hostname → full management.
+
+**Shared mode flow:** Admin enters IP + creds → Atlas connects via SSH (one-time) to detect hardware and optionally install the satellite service → after setup, Atlas communicates only via the satellite WebSocket port (`:5110`) → SSH credentials are **not stored** and SSH key is **not installed**. The user's system is untouched except for the satellite service.
 
 ---
 
@@ -684,7 +747,12 @@ class HardwareDetector:
 
 ### WebSocket Endpoint (`cortex/satellite/websocket.py`)
 
+The Atlas server accepts WebSocket connections from all satellites (both modes).
+For **dedicated** satellites, the satellite connects to the server.
+For **shared** satellites, the server connects to the satellite's local WebSocket port (`:5110`).
+
 ```python
+# Server-side: accepts connections from dedicated satellites
 @app.websocket("/ws/satellite")
 async def satellite_ws(websocket: WebSocket):
     await websocket.accept()
@@ -701,20 +769,26 @@ async def satellite_ws(websocket: WebSocket):
                 await stream_tts_response(websocket, response)
             case "HEARTBEAT":
                 await update_satellite_status(satellite_id, message)
+
+# Server-side: connects OUT to shared satellites
+async def connect_shared_satellite(ip: str, port: int = 5110):
+    """Atlas connects to a shared satellite's local WebSocket."""
+    async with websockets.connect(f"ws://{ip}:{port}/satellite") as ws:
+        await handle_shared_session(ws)
 ```
 
 ### Admin API Endpoints
 
 ```
-GET    /admin/satellites              — List all satellites (with status)
+GET    /admin/satellites              — List all satellites (with status and mode)
 GET    /admin/satellites/:id          — Satellite detail + hardware info
 POST   /admin/satellites/discover     — One-time network scan (fallback for mDNS-blocked networks)
-POST   /admin/satellites/add          — Manual add (IP, username, password)
-POST   /admin/satellites/:id/provision — Start provisioning with config
+POST   /admin/satellites/add          — Add satellite (dedicated or shared mode)
+POST   /admin/satellites/:id/provision — Start provisioning with config (dedicated only)
 PATCH  /admin/satellites/:id          — Update satellite config (room, features, etc.)
-POST   /admin/satellites/:id/restart  — Restart satellite agent
+POST   /admin/satellites/:id/restart  — Restart satellite agent (service only for shared)
 POST   /admin/satellites/:id/test     — Run audio test
-DELETE /admin/satellites/:id          — Remove and uninstall satellite
+DELETE /admin/satellites/:id          — Remove: dedicated=full uninstall, shared=disconnect only
 GET    /admin/satellites/:id/logs     — Get satellite agent logs
 ```
 
@@ -730,6 +804,7 @@ CREATE TABLE IF NOT EXISTS satellites (
     room            TEXT,                      -- "kitchen"
     ip_address      TEXT,
     mac_address     TEXT,
+    mode            TEXT DEFAULT 'dedicated',  -- "dedicated" or "shared"
     platform        TEXT,                      -- "rpi4", "esp32s3", "fph-sat1", "x86"
     hardware_info   TEXT,                      -- JSON: full detection results
     capabilities    TEXT,                      -- JSON: {mic, speaker, led, sensors, aec}
@@ -738,10 +813,11 @@ CREATE TABLE IF NOT EXISTS satellites (
     volume          REAL DEFAULT 0.7,
     mic_gain        REAL DEFAULT 0.8,
     vad_sensitivity REAL DEFAULT 0.5,
-    status          TEXT DEFAULT 'new',        -- new, provisioning, online, offline, error
+    status          TEXT DEFAULT 'new',        -- new, announced, provisioning, online, offline, error
     provision_state TEXT,                      -- JSON: step-by-step progress
-    ssh_username    TEXT,
-    ssh_key_installed BOOLEAN DEFAULT FALSE,
+    ssh_username    TEXT,                      -- NULL for shared mode after setup
+    ssh_key_installed BOOLEAN DEFAULT FALSE,   -- always FALSE for shared mode
+    service_port    INTEGER DEFAULT 5110,      -- WebSocket port for satellite service
     is_active       BOOLEAN DEFAULT TRUE,
     last_seen       TIMESTAMP,
     last_audio      TIMESTAMP,
@@ -849,10 +925,35 @@ gunzip atlas-satellite-rpi.img.gz
 3. Boot the device — it announces itself via mDNS
 4. Atlas auto-provisions via the admin panel
 
-### Method 3: Manual Install Script (any Linux device)
+### Method 3: Shared Mode — Add to Existing Machine (any Linux device)
+
+For machines already running other services. Installs **only** the satellite service — does not modify hostname, SSH config, or any other system setting.
 
 ```bash
-# On the satellite device:
+# On the existing machine, run the satellite-only installer:
+curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/install.sh | bash -s -- --shared
+
+# This installs:
+#   - atlas-satellite service (systemd)
+#   - Listens on port 5110 (WebSocket)
+#   - Does NOT modify hostname, SSH, or system config
+#   - Does NOT announce via mDNS (admin adds it manually)
+
+# Or manually:
+git clone https://github.com/Betanu701/atlas-cortex.git
+cd atlas-cortex/satellite
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m atlas_satellite --mode shared --port 5110
+```
+
+Then in the Admin Panel: **+ Add Manual** → select **Shared** mode → enter the machine's IP and port → Atlas connects to the satellite service directly (no SSH).
+
+### Method 4: Dedicated Mode — Manual Install Script (any Linux device)
+
+```bash
+# On a dedicated satellite device:
 curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/install.sh | bash
 
 # Or manually:
@@ -864,7 +965,7 @@ pip install -r requirements.txt
 python -m atlas_satellite --server ws://atlas-server:5100/ws/satellite
 ```
 
-### Method 4: Docker (any Linux device)
+### Method 5: Docker (any Linux device)
 
 ```bash
 docker run -d \
@@ -876,7 +977,7 @@ docker run -d \
   ghcr.io/betanu701/atlas-satellite:latest
 ```
 
-### Method 5: ESPHome (ESP32-S3 / FutureProofHomes Satellite1)
+### Method 6: ESPHome (ESP32-S3 / FutureProofHomes Satellite1)
 
 ```bash
 # Option A: Use the Atlas web flasher from your browser (admin panel)
