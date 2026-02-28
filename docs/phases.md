@@ -42,6 +42,8 @@ See [installation.md](installation.md) for the full installer design.
 | C7 | Avatar System | 🔲 Planned | None |
 | C9 | Backup & Restore | 🔲 Planned | None |
 | C10 | Context Management & Hardware | 🔲 Planned | C0 |
+| C11 | Voice & Speech Engine | 🔲 Planned | C0 |
+| C12 | Safety Guardrails & Content Policy | 🔲 Planned | C6 |
 
 ### Part 2: Integration Layer (discovered at install)
 
@@ -76,10 +78,14 @@ See [installation.md](installation.md) for full design.
 - Options: Ollama, OpenAI-compatible, sentence-transformers (in-process), fastembed
 - Fallback: if LLM provider has no embedding support, use in-process sentence-transformers
 
-### C0.3 — Hardware Detection & Model Selection
+### C0.3 — Hardware Detection & GPU Assignment
 - GPU detection (AMD/NVIDIA/Intel/Apple/CPU-only)
+- Multi-GPU discovery: enumerate all discrete GPUs, rank by VRAM
+- GPU role assignment: largest → LLM, second → voice (TTS/STT), third+ → overflow
+- Mixed-vendor support: generate per-GPU isolation env vars (HIP/CUDA/oneAPI)
 - VRAM/RAM budgets, context window limits
 - Model recommendations based on hardware tier
+- Store per-GPU profiles in `hardware_gpu` table
 - Already designed in C10.1 — shared implementation
 
 ### C0.4 — LLM Backend Discovery
@@ -410,6 +416,102 @@ See [context-management.md](context-management.md) for full design.
 
 ---
 
+## Phase C11: Voice & Speech Engine
+
+See [voice-engine.md](voice-engine.md) for full design.
+
+### C11.1 — TTS Provider Interface
+- Abstract `TTSProvider`: `synthesize()`, `list_voices()`, `supports_emotion()`
+- Implementations: Orpheus (Ollama), Piper (CPU fallback), Parler, Coqui
+- Provider discovered at install (C0), configurable in `cortex.env`
+
+### C11.2 — Orpheus TTS Integration
+- Pull `legraphista/Orpheus` Q4 GGUF into Ollama (or Orpheus-FastAPI with ROCm)
+- Verify audio generation, streaming, emotion tags
+- VRAM management: time-multiplexed with LLM (Ollama model switching)
+- 8 built-in voices with emotion support
+
+### C11.3 — Emotion Composer
+- Map VADER sentiment → Orpheus/Parler emotion format
+- Paralingual injection: `<laugh>`, `<sigh>`, `<chuckle>`, `whisper:` based on context
+- Age-appropriate emotion filtering (gentler for kids)
+- Night mode / quiet hours: automatic pace, volume, energy reduction
+- Never repeat same paralingual consecutively
+
+### C11.4 — Voice Registry & Selection
+- `tts_voices` table with provider, gender, style, language
+- Per-user voice preference (stored in user profile)
+- Voice preview/audition: "Atlas, try a different voice"
+- Seed voices for each installed provider
+
+### C11.5 — Sentence-Boundary Streaming
+- Detect sentence boundaries in LLM token stream
+- Pipeline: sentence complete → emotion tag → TTS → audio chunk
+- Overlap: sentence N plays while sentence N+1 generates
+- Fast path: Layer 1/2 → Piper CPU → <200ms total
+
+### C11.6 — Atlas TTS API Endpoint
+- `POST /v1/audio/speech` (OpenAI-compatible)
+- Extensions: `emotion`, `include_phonemes` for avatar sync
+- Wyoming TTS adapter for HA integration
+- HA uses Atlas as both conversation agent AND TTS engine
+
+### C11.7 — Avatar Phoneme Bridge
+- Extract phoneme timing from Orpheus/Piper output
+- Feed to avatar server (C7) for viseme animation
+- Synchronized: audio playback + lip movement + emotion expression
+
+---
+
+## Phase C12: Safety Guardrails & Content Policy
+
+See [safety-guardrails.md](safety-guardrails.md).
+
+### C12.1 — Content Tier Resolution
+- Resolve content tier from user profile (age_group + age_confidence)
+- Default to strict when age unknown (confidence < 0.6)
+- Parental control override support
+- Store tier in pipeline context for all downstream layers
+
+### C12.2 — Input Guardrails
+- Pre-pipeline checks: self-harm detection, illegal content, PII detection, prompt injection
+- GuardrailResult severity levels: PASS, WARN, SOFT_BLOCK, HARD_BLOCK
+- PII redaction before logging
+- Crisis response protocol with pre-written empathetic responses + resources
+- Input deobfuscation: decode base64, leetspeak, Unicode homoglyphs, ROT13, zero-width chars before analysis
+
+### C12.3 — Output Guardrails
+- Post-LLM checks: explicit content scan, language appropriateness, harmful instructions, data leakage
+- Content tier enforcement on vocabulary and tone
+- Response replacement/rewriting when guardrails trigger
+- Cross-user data isolation verification
+- Output behavioral analysis: persona break, system prompt leak, tone shift, instruction echo
+
+### C12.4 — Safety System Prompt Injection
+- Build age-appropriate system prompt prefix per content tier
+- Educational mode: scientific terminology for bodies/biology at all tiers
+- Profanity handling rules per tier
+- Honest challenge mode: push back on bad ideas, admit uncertainty
+- Anti-jailbreak instructions hardened into system prompt
+
+### C12.5 — Guardrail Event Logging & Review
+- `guardrail_events` table for all triggers
+- Severity-based alerting (parent notification on crisis for minors)
+- Nightly evolution review of guardrail patterns to reduce false positives
+- Hard limits that cannot be overridden (explicit content, CSAM, self-harm methods)
+
+### C12.6 — Adaptive Jailbreak Defense
+- 5-layer defense: static regex, semantic intent, system prompt, output analysis, adaptive learning
+- `jailbreak_patterns` table: learned regex patterns from blocked attempts
+- `jailbreak_exemplars` table: semantic embeddings of novel attacks
+- Auto-extract patterns from blocked attacks, validate against known-good messages (<1% FPR)
+- Hot-reload detectors when new patterns are learned
+- Conversation drift monitor: track safety temperature across multi-turn escalation attempts
+- Nightly clustering of attack families, meta-pattern generation, stale pattern pruning
+- Attack taxonomy classification: direct override, persona swap, roleplay wrap, encoding, gradual escalation
+
+---
+
 # Part 2: Integration Layer
 
 Everything below connects Atlas to the outside world. Designed as **discovery-based plugins** so anyone can install Atlas and it adapts to whatever services are available.
@@ -632,6 +734,15 @@ C5.5 + C3a.3 ──▶ C6.1 (Profiles) ──▶ C6.2 ──▶ C6.3 ──▶ C
                                                                 │
                    C4.1 (Emotion) ◀────────────────────────────┘
                         └──▶ C4.2 ──▶ C4.3 ──▶ C4.4
+
+C6.4 (Parental) ──▶ C12.1 (Content Tier) ──▶ C12.2 (Input Guards)
+                                                      │
+                          C12.4 (Safety Prompt) ◀─────┤
+                                                      ▼
+                    C12.3 (Output Guards) ──▶ C12.5 (Logging & Review)
+                                                      │
+                                                      ▼
+                                               C12.6 (Adaptive Jailbreak)
 
 C7.1 (Avatar Server) ──▶ C7.2 → C7.3 → C7.4 → C7.5/C7.6/C7.7/C7.8 → C7.9
 
