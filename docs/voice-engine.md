@@ -135,7 +135,12 @@ class EmotionComposer:
     """Translates Atlas sentiment/context into TTS emotion instructions."""
     
     def compose(self, text, sentiment, confidence, user_profile, context):
-        """Add emotion markup to text for TTS provider."""
+        """Add emotion markup to text for TTS provider.
+        
+        Returns:
+            str: Emotion-annotated text for tag/ssml/plain providers.
+            tuple[str, str]: (text, description) for description-based providers (Parler).
+        """
         
         provider = get_tts_provider()
         fmt = provider.get_emotion_format()
