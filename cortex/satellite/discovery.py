@@ -23,6 +23,7 @@ from typing import Callable
 logger = logging.getLogger(__name__)
 
 ATLAS_SATELLITE_SERVICE = "_atlas-satellite._tcp.local."
+ATLAS_SERVER_SERVICE = "_atlas-cortex._tcp.local."
 DEFAULT_HOSTNAME = "atlas-satellite"
 
 
@@ -291,3 +292,66 @@ class _MdnsListener:
     def update_service(self, zc, type_: str, name: str) -> None:
         # Re-announce (IP change, etc.)
         self.add_service(zc, type_, name)
+
+
+class ServerAnnouncer:
+    """Announces the Atlas server via mDNS so satellites can auto-discover it.
+
+    Broadcasts _atlas-cortex._tcp.local with the WebSocket endpoint info.
+    Satellites browse for this service to find their server URL automatically.
+    """
+
+    def __init__(self, port: int = 5100, ws_path: str = "/ws/satellite") -> None:
+        self.port = port
+        self.ws_path = ws_path
+        self._zeroconf = None
+        self._info = None
+
+    async def start(self) -> None:
+        try:
+            from zeroconf import ServiceInfo, Zeroconf
+
+            local_ip = _get_local_ip()
+            hostname = socket.gethostname()
+
+            self._info = ServiceInfo(
+                ATLAS_SERVER_SERVICE,
+                f"atlas-cortex.{ATLAS_SERVER_SERVICE}",
+                addresses=[socket.inet_aton(local_ip)],
+                port=self.port,
+                properties={
+                    "hostname": hostname,
+                    "ws_path": self.ws_path,
+                    "version": "0.1.0",
+                },
+            )
+            self._zeroconf = Zeroconf()
+            self._zeroconf.register_service(self._info)
+            logger.info(
+                "Server mDNS: announcing _atlas-cortex._tcp at %s:%d",
+                local_ip, self.port,
+            )
+        except ImportError:
+            logger.warning("zeroconf not installed — server mDNS announcement disabled")
+        except Exception:
+            logger.exception("Failed to start server mDNS announcement")
+
+    async def stop(self) -> None:
+        if self._zeroconf and self._info:
+            self._zeroconf.unregister_service(self._info)
+            self._zeroconf.close()
+            self._zeroconf = None
+            self._info = None
+
+
+def _get_local_ip() -> str:
+    """Get this machine's LAN IP address."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"

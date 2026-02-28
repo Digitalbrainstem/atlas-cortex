@@ -127,36 +127,18 @@ jobs:
           HASH=$(openssl passwd -6 "atlas-setup")
           echo "atlas:${HASH}" | sudo tee /mnt/pi-boot/userconf.txt > /dev/null
 
-          # Atlas satellite config on boot partition
-          # Users can edit this file on Windows/Mac/Linux before first boot
+          # Optional config file on boot partition (FAT32 — accessible on Windows)
+          # All settings are OPTIONAL — the satellite auto-discovers the server
+          # via mDNS (_atlas-cortex._tcp.local). Wi-Fi should be configured in
+          # your flashing tool (Raspberry Pi Imager, etc.)
           sudo tee /mnt/pi-boot/atlas-satellite.conf > /dev/null << 'ATLASCONF'
-          # ──────────────────────────────────────────────
-          # Atlas Satellite Configuration
-          # Edit this file BEFORE first boot to customize.
-          # This file is on the boot partition (FAT32) so
-          # it's accessible from Windows, macOS, and Linux.
-          # ──────────────────────────────────────────────
-
-          # Atlas server URL (REQUIRED — set this to your server's address)
-          ATLAS_SERVER_URL=ws://atlas-server:5100/ws/satellite
-
-          # Room name (shown in admin panel)
-          ATLAS_ROOM=
-
-          # Wi-Fi settings (leave empty to use ethernet only)
-          WIFI_SSID=
-          WIFI_PASSWORD=
-          WIFI_COUNTRY=US
-
-          # Hostname (auto-generated if empty)
-          ATLAS_HOSTNAME=
-
-          # LED type: none, respeaker, gpio
-          ATLAS_LED_TYPE=none
-
-          # Audio devices (leave as default for auto-detect)
-          ATLAS_AUDIO_IN=default
-          ATLAS_AUDIO_OUT=default
+          # Atlas Satellite Configuration (OPTIONAL)
+          # All fields are optional. The satellite auto-discovers the Atlas
+          # server via mDNS. Configure WiFi in your imaging tool.
+          #
+          # Only edit this if you need to override defaults:
+          # ATLAS_SERVER_URL=ws://192.168.1.100:5100/ws/satellite
+          # ATLAS_HOSTNAME=atlas-sat-kitchen
           ATLASCONF
 
       - name: Install atlas-announce service into root partition
