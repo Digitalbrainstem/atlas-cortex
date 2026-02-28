@@ -1,3 +1,20 @@
-"""cortex.discover — entry-point package stub."""
+"""cortex.discover — entry-point for ``python -m cortex.discover``.
+
+Re-exports core discovery classes from :mod:`cortex.discovery` for convenience.
+"""
 
 from __future__ import annotations
+
+from cortex.discovery import (
+    DiscoveredService,
+    ServiceConfig,
+    ServiceRegistry,
+    ServiceScanner,
+)
+
+__all__ = [
+    "DiscoveredService",
+    "ServiceScanner",
+    "ServiceRegistry",
+    "ServiceConfig",
+]
