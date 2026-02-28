@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router';
+import { createRouter, createWebHashHistory } from 'vue-router';
 import { isAuthenticated } from '../api.js';
 
 const routes = [
@@ -56,7 +56,7 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHistory('/admin/'),
+  history: createWebHashHistory('/admin/'),
   routes,
 });
 
