@@ -67,6 +67,35 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Evolution tracking** — rapport scores, emotional profiles, nightly evolution logs
 - **System overview** — hardware info, GPU assignment, model configs, discovered services
 
+<details>
+<summary>📸 Admin Panel Screenshots (click to expand)</summary>
+
+#### Login
+![Admin Login](docs/images/admin-login.png)
+
+#### Dashboard
+![Admin Dashboard](docs/images/admin-dashboard.png)
+
+#### Users
+![Admin Users](docs/images/admin-users.png)
+
+#### Safety Events
+![Admin Safety](docs/images/admin-safety.png)
+
+#### Devices
+![Admin Devices](docs/images/admin-devices.png)
+
+#### Voice Enrollment
+![Admin Voice](docs/images/admin-voice.png)
+
+#### Evolution
+![Admin Evolution](docs/images/admin-evolution.png)
+
+#### System
+![Admin System](docs/images/admin-system.png)
+
+</details>
+
 ## 🏗️ Architecture
 
 ```
