@@ -409,14 +409,24 @@ async def update_speaker(
     _: dict = Depends(require_admin),
 ):
     conn = _db()
-    allowed = {"display_name", "user_id", "confidence_threshold"}
-    fields = {k: v for k, v in update.items() if k in allowed and v is not None}
-    if not fields:
+    # Map allowed input field names to fixed SQL assignment fragments
+    allowed_fields = {
+        "display_name": "display_name = ?",
+        "user_id": "user_id = ?",
+        "confidence_threshold": "confidence_threshold = ?",
+    }
+    set_parts: list[str] = []
+    params: list[Any] = []
+    for key, value in update.items():
+        if key in allowed_fields and value is not None:
+            set_parts.append(allowed_fields[key])
+            params.append(value)
+    if not set_parts:
         raise HTTPException(status_code=400, detail="No valid fields to update")
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    set_clause = ", ".join(set_parts)
     conn.execute(
         f"UPDATE speaker_profiles SET {set_clause} WHERE id = ?",
-        list(fields.values()) + [speaker_id],
+        params + [speaker_id],
     )
     conn.commit()
     return {"ok": True}
