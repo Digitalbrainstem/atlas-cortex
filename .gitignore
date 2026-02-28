@@ -40,3 +40,8 @@ docker-compose.override.yml
 admin/node_modules/
 admin/dist/
 admin/.vscode/
+
+# Root-level Playwright / Node.js (for screenshot capture)
+/node_modules/
+/package.json
+/package-lock.json
