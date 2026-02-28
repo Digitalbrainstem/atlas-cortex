@@ -23,7 +23,7 @@ from .audio import AudioCapture, AudioPlayback
 from .config import SatelliteConfig
 from .filler_cache import FillerCache
 from .led import LEDController, create_led
-from .mdns import SatelliteAnnouncer
+from .mdns import SatelliteAnnouncer, ServerDiscovery
 from .vad import VoiceActivityDetector
 from .wake_word import WakeWordDetector
 from .ws_client import SatelliteWSClient
@@ -64,11 +64,13 @@ class SatelliteAgent:
         self.ws: Optional[SatelliteWSClient] = None
         self.led: Optional[LEDController] = None
         self.announcer: Optional[SatelliteAnnouncer] = None
+        self.server_discovery: Optional[ServerDiscovery] = None
         self.fillers: Optional[FillerCache] = None
 
         self._base_dir = base
         self._tts_buffer = bytearray()
         self._tts_sample_rate = 22050
+        self._server_url_discovered = asyncio.Event()
 
     async def start(self) -> None:
         """Initialize components and run the main loop."""
@@ -82,7 +84,7 @@ class SatelliteAgent:
         # Initialize all components
         self._init_components()
 
-        # Start mDNS announcement
+        # Start mDNS announcement (so server can find us)
         if self.announcer:
             try:
                 self.announcer.start()
@@ -92,10 +94,24 @@ class SatelliteAgent:
         # LED: boot pattern
         self.led.set_pattern("thinking")
 
+        # Auto-discover server if no URL configured
+        if not self.config.server_url or self.config.server_url == "ws://atlas-server:5100/ws/satellite":
+            logger.info("No server URL configured — searching via mDNS...")
+            self.server_discovery = ServerDiscovery(self._on_server_found)
+            self.server_discovery.start()
+            # Wait up to 30s for discovery, then fall back to retry loop
+            try:
+                await asyncio.wait_for(self._server_url_discovered.wait(), timeout=30)
+            except asyncio.TimeoutError:
+                logger.warning("Server not found via mDNS — will keep searching in background")
+        else:
+            self._server_url_discovered.set()
+
         # Connect to server
-        connected = await self.ws.connect()
-        if not connected:
-            logger.error("Initial connection failed — will retry in background")
+        if self._server_url_discovered.is_set() and self.config.server_url:
+            connected = await self.ws.connect()
+            if not connected:
+                logger.error("Initial connection failed — will retry in background")
 
         self.led.set_pattern("idle")
 
@@ -121,6 +137,8 @@ class SatelliteAgent:
             self.audio_in.stop()
         if self.announcer:
             self.announcer.stop()
+        if self.server_discovery:
+            self.server_discovery.stop()
         if self.led:
             self.led.close()
         if self.ws:
@@ -204,6 +222,14 @@ class SatelliteAgent:
         if self.config.filler_enabled:
             caps.append("filler_playback")
         return caps
+
+    def _on_server_found(self, server_url: str) -> None:
+        """Callback when Atlas server is discovered via mDNS."""
+        logger.info("Auto-discovered Atlas server: %s", server_url)
+        self.config.server_url = server_url
+        if self.ws:
+            self.ws.server_url = server_url
+        self._server_url_discovered.set()
 
     def _register_ws_handlers(self) -> None:
         """Register handlers for server → satellite messages."""

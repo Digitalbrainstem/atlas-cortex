@@ -20,6 +20,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -33,16 +34,32 @@ from cortex.admin_api import router as admin_router
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
+from cortex.satellite.discovery import ServerAnnouncer
 from cortex.satellite.websocket import satellite_ws_handler
 from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────
+# Server mDNS announcer (so satellites can auto-discover us)
+# ──────────────────────────────────────────────────────────────────
+
+_server_announcer = ServerAnnouncer(port=5100)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start/stop server-level services."""
+    await _server_announcer.start()
+    yield
+    await _server_announcer.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
 # FastAPI app
 # ──────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Atlas Cortex", version="1.0.0")
+app = FastAPI(title="Atlas Cortex", version="1.0.0", lifespan=lifespan)
 
 # CORS for admin SPA dev server
 app.add_middleware(
