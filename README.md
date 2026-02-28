@@ -118,6 +118,7 @@ atlas-cortex/
 | C9 | Backup & Restore | 🔲 Planned | Automated backups, one-command restore, voice commands |
 | C10 | Context & Hardware | 🔲 Planned | Context windows, compaction, overflow recovery, hardware auto-detect |
 | C11 | Voice & Speech | 🔲 Planned | TTS provider abstraction, Orpheus emotional speech, voice selection |
+| C12 | Safety Guardrails | 🔲 Planned | Content tiers, input/output guardrails, adaptive jailbreak defense |
 
 ### Part 2: Integration Layer (discovered at install)
 
