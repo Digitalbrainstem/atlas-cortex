@@ -78,18 +78,128 @@ Connects Atlas to real-world services discovered on your network.
 
 These plugins intercept frequent request types at Layer 2, hitting external APIs or local logic directly instead of routing through the LLM. Each one follows the existing `CortexPlugin` interface (`match` → `handle`). The nightly evolution job already identifies LLM fallthrough patterns that could become fast-path plugins, but these are proactively built for the most common cases.
 
+**All plugins are opt-in.** Users enable what they want from the Admin Panel → Plugins page. Disabled plugins are never loaded — queries fall through to the LLM as normal.
+
+#### Information & Lookup
+
 | Plugin | Example Queries | Data Source | Expected Latency |
 |--------|----------------|-------------|------------------|
 | **Weather** | *"What's the weather?"*, *"Will it rain tomorrow?"* | OpenWeatherMap / NWS API | ~1s |
-| **Timers & Alarms** | *"Set a 10-minute timer"*, *"Cancel my alarm"* | Local scheduler (no API) | <200ms |
-| **Sports Scores** | *"Did the Lakers win?"*, *"What's the NFL score?"* | ESPN / SportsData API | ~1s |
-| **Unit Conversions** | *"Convert 5 miles to km"*, *"How many cups in a liter?"* | Local math (no API) | <100ms |
-| **Dictionary** | *"Define serendipity"*, *"What does ephemeral mean?"* | Free Dictionary API / local | ~500ms |
 | **News Headlines** | *"What's in the news?"*, *"Tech news today"* | RSS feeds / NewsAPI | ~1s |
-| **Calendar** | *"What's on my schedule today?"*, *"Next meeting?"* | CalDAV (already in Part 2) | ~500ms |
-| **Package Tracking** | *"Where's my package?"*, *"Any deliveries today?"* | 17track / carrier APIs | ~1-2s |
-| **Stock Prices** | *"What's AAPL at?"*, *"How's the market?"* | Yahoo Finance / Alpha Vantage | ~1s |
+| **Dictionary** | *"Define serendipity"*, *"How do you spell accommodate?"* | Free Dictionary API / local | ~500ms |
 | **Translation** | *"How do you say hello in Spanish?"* | LibreTranslate (self-hosted) | ~500ms |
+| **Wikipedia Summary** | *"Tell me about the Eiffel Tower"*, *"Who was Tesla?"* | Wikipedia API (first paragraph) | ~1s |
+| **This Day in History** | *"What happened today in history?"* | History API / local DB | ~500ms |
+
+#### Time, Math & Utilities
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Timers & Alarms** | *"Set a 10-minute timer"*, *"Cancel my alarm"* | Local scheduler (no API) | <200ms |
+| **Unit Conversions** | *"Convert 5 miles to km"*, *"Cups in a liter?"* | Local math (no API) | <100ms |
+| **Calculator** | *"What's 15% tip on $84?"*, *"Mortgage on $300k at 6.5%?"* | Local math (no API) | <100ms |
+| **Timezone** | *"What time is it in Tokyo?"*, *"Time difference to London?"* | Local tz database | <100ms |
+| **Calendar** | *"What's on my schedule today?"*, *"Next meeting?"* | CalDAV (already in Part 2) | ~500ms |
+| **Countdown** | *"How many days until Christmas?"*, *"Days until my birthday?"* | Local date math | <100ms |
+
+#### Finance & Shopping
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Stock Prices** | *"What's AAPL at?"*, *"How's the market?"* | Yahoo Finance / Alpha Vantage | ~1s |
+| **Crypto Prices** | *"What's Bitcoin at?"*, *"ETH price?"* | CoinGecko API (free) | ~1s |
+| **Package Tracking** | *"Where's my package?"*, *"Any deliveries today?"* | 17track / carrier APIs | ~1-2s |
+| **Gas Prices** | *"What's gas near me?"*, *"Cheapest gas?"* | GasBuddy API / local | ~1s |
+
+#### Sports & Entertainment
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Sports Scores** | *"Did the Lakers win?"*, *"NFL scores?"* | ESPN / SportsData API | ~1s |
+| **Movie/TV Lookup** | *"What's playing at the movies?"*, *"Rate for Inception?"* | TMDb API | ~1s |
+| **Jokes** | *"Tell me a joke"*, *"Dad joke"* | Local joke DB (no API) | <100ms |
+| **Quotes** | *"Give me a motivational quote"*, *"Quote of the day"* | Local quotes DB (no API) | <100ms |
+
+#### Environment & Outdoors
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Sun & Moon** | *"When does the sun set?"*, *"Moon phase tonight?"* | Sunrise-Sunset API / local calc | ~500ms |
+| **Air Quality** | *"What's the air quality?"*, *"Is it safe to run outside?"* | AirNow / PurpleAir API | ~1s |
+| **Pollen & Allergies** | *"What's the pollen count?"*, *"Bad allergy day?"* | Pollen.com / Ambee API | ~1s |
+| **UV Index** | *"Should I wear sunscreen?"*, *"UV level today?"* | OpenUV API | ~1s |
+| **Tides** | *"What's the tide schedule?"*, *"High tide today?"* | NOAA Tides API | ~1s |
+
+#### Home & Personal
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Home Energy** | *"How much power am I using?"*, *"Energy today?"* | HA energy integration | ~500ms |
+| **System Status** | *"Is the server healthy?"*, *"GPU temperature?"* | Internal health checks | <200ms |
+| **Contacts** | *"What's John's phone number?"*, *"Email for Dr. Smith?"* | Local contacts DB | <200ms |
+| **Household Log** | *"When was the dog fed?"*, *"Did I take my meds?"* | Local tracking DB | <200ms |
+| **Commute & Traffic** | *"How's traffic to work?"*, *"ETA to the office?"* | Google Maps / HERE API | ~1-2s |
+| **Flight Status** | *"Is flight AA123 on time?"*, *"Gate for UA456?"* | FlightAware / AviationStack | ~1s |
+
+#### Cooking & Recipes
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Quick Cooking Facts** | *"How long to cook chicken at 350?"*, *"Internal temp for steak?"* | Local cooking reference DB | <200ms |
+| **Recipe Lookup** | *"Recipe for banana bread"*, *"How to make pasta?"* | Spoonacular / Edamam API | ~1s |
+| **Measurement Conversion** | *"Tablespoons in a cup?"*, *"Grams to ounces?"* | Local math (cooking-specific) | <100ms |
+
+---
+
+**Total: 35 fast-path plugins** across 7 categories.
+
+#### Plugin Management (Admin Panel)
+
+All plugins are managed from **Admin → Plugins**:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ 🔌 Plugins                                        [ + Custom ]   │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│ ── Information & Lookup ─────────────────────────────────────── │
+│ ☑ Weather             OpenWeatherMap    API Key: ••••••ok  [⚙]  │
+│ ☑ News Headlines      RSS + NewsAPI     API Key: ••••••ok  [⚙]  │
+│ ☐ Dictionary          Free Dictionary   No key needed      [⚙]  │
+│ ☐ Translation         LibreTranslate    URL: localhost:5000 [⚙] │
+│ ☐ Wikipedia Summary   Wikipedia API     No key needed      [⚙]  │
+│ ☐ This Day in History Local DB          No key needed      [⚙]  │
+│                                                                  │
+│ ── Time, Math & Utilities ───────────────────────────────────── │
+│ ☑ Timers & Alarms     Local             No key needed      [⚙]  │
+│ ☑ Unit Conversions    Local             No key needed      [⚙]  │
+│ ☑ Calculator          Local             No key needed      [⚙]  │
+│ ...                                                              │
+│                                                                  │
+│ ── Finance & Shopping ───────────────────────────────────────── │
+│ ☐ Stock Prices        Yahoo Finance     No key needed      [⚙]  │
+│ ☐ Crypto Prices       CoinGecko         No key needed      [⚙]  │
+│ ...                                                              │
+│                                                                  │
+│ Stats: 12 enabled / 35 available    LLM bypass rate: 47%        │
+│        Last 24h: 142 fast-path hits, 158 LLM fallthrough        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Per-plugin settings (⚙):**
+- API key / URL / credentials
+- Response preferences (units: °F/°C, currency: USD/EUR, language)
+- Custom regex patterns (power users can add their own trigger phrases)
+- Priority (higher priority plugins match first)
+- Cache TTL (how long to cache API responses — e.g., weather: 30 min)
+- Fallback behavior: if API is down, fall through to LLM or return error
+
+**Plugin stats dashboard:**
+- Hit count per plugin (last 24h, 7d, 30d)
+- Average response time per plugin
+- LLM bypass rate (% of queries handled without LLM)
+- Suggested new plugins from evolution job analysis
+- Most common LLM fallthrough queries (candidates for new fast-path rules)
 
 **Architecture per plugin:**
 ```python
@@ -109,11 +219,13 @@ class WeatherPlugin(CortexPlugin):
 ```
 
 **Key design points:**
-- Each plugin is optional — disable any via admin panel or config
-- API keys configured in admin settings (per-plugin)
+- Each plugin is opt-in — disabled plugins are never loaded
+- Plugins with no API key requirement work out of the box (math, jokes, timers, etc.)
+- API keys configured per-plugin in admin settings
 - Response templates are natural language, not robotic ("It's 72°F and sunny in Austin — perfect day to be outside")
 - Plugins can optionally enrich LLM context (e.g., weather data included when LLM handles a complex weather question)
-- Evolution job tracks which queries still fall through to LLM and suggests new patterns
+- Evolution job tracks which queries still fall through to LLM and suggests new patterns or new plugins
+- Users can write custom plugins following the `CortexPlugin` interface and drop them in
 
 > **Implementation note:** Timers/Alarms and Calendar overlap with Part 3. The fast-path plugin handles the voice interface; Part 3 adds the full scheduler, recurrence, and multi-room delivery.
 
