@@ -123,13 +123,13 @@ atlas-cortex/
 
 | Phase | Name | Status | Description |
 |-------|------|--------|-------------|
-| I1 | Service Discovery | 🔲 Planned | mDNS/Zeroconf scan, config wizard, plugin activation |
-| I2 | Home Assistant | 🔲 Planned | Device bootstrap, command execution, real-time WebSocket |
-| I3 | Voice Pipeline & Spatial | 🔲 Planned | HA Wyoming integration, room awareness, multi-mic proximity |
-| I4 | Self-Learning | 🔲 Planned | Nightly device discovery, fallthrough analysis, pattern learning |
-| I5 | Knowledge Sources | 🔲 Planned | Nextcloud, email, calendar, NAS connectors, privacy enforcement |
-| I6 | List Management | 🔲 Planned | Multi-backend lists, permissions, smart resolution |
-| I7 | Offsite Backup | 🔲 Planned | NAS sync for disaster recovery |
+| I1 | Service Discovery | ✅ Complete | HTTP-probe scanner, service registry, config wizard, `python -m cortex.discover` |
+| I2 | Home Assistant | ✅ Complete | HA REST client, device bootstrap, pattern generation, HAPlugin, graceful offline fallback |
+| I3 | Voice Pipeline & Spatial | 🔲 Future | HA Wyoming integration, room awareness, multi-mic proximity (requires live HA + hardware) |
+| I4 | Self-Learning | ✅ Complete | Fallthrough analyzer, pattern lifecycle (prune/boost), nightly evolution orchestrator |
+| I5 | Knowledge Sources | ✅ Complete | Document processor, FTS5 index, privacy/access gate, KnowledgePlugin |
+| I6 | List Management | ✅ Complete | SQLite backend, list registry, permissions, ListPlugin with add/get/remove intents |
+| I7 | Offsite Backup | 🔲 Future | NAS sync for disaster recovery (requires discovered NAS) |
 
 See [docs/phases.md](docs/phases.md) for detailed task breakdown and dependency graph.
 
