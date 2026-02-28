@@ -431,6 +431,9 @@ class SemanticJailbreakDetector:
             embeddings.append(self.embedding_fn(text))
         
         # Load pre-computed embeddings from DB
+        # Requires conn.row_factory = sqlite3.Row (set by get_db()).
+        # deserialize_embedding converts stored BLOB bytes back to a float list:
+        #   lambda blob: numpy.frombuffer(blob, dtype=numpy.float32).tolist()
         rows = self.db.execute(
             "SELECT embedding FROM jailbreak_exemplars WHERE embedding IS NOT NULL"
         ).fetchall()
@@ -973,6 +976,18 @@ def resolve_content_tier(user_profile: dict) -> str:
     If age_confidence is below threshold, defaults to 'unknown' (child-safe).
     Parents can explicitly set a child's tier via parental_controls.
     """
+    # Parental controls override takes precedence when present
+    parental = user_profile.get('parental_controls')
+    if parental:
+        filter_map = {
+            'strict':   'child',
+            'moderate': 'teen',
+            'standard': 'adult',
+        }
+        override = filter_map.get(parental.get('content_filter_level', ''))
+        if override:
+            return override
+
     age_group = user_profile.get('age_group', 'unknown')
     confidence = user_profile.get('age_confidence', 0.0)
     

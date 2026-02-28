@@ -78,7 +78,7 @@ def compute_limits(hw):
             best_igpu = max(igpus, key=lambda g: g['vram_mb'])
             limits['gpu_mode'] = 'igpu_fallback'
             limits['gpu_assignments'] = {
-                'llm': {'gpu_index': 0, 'gpu': best_igpu, 'shared': True},
+                'llm': {'gpu_index': best_igpu.get('gpu_index', 0), 'gpu': best_igpu, 'shared': True},
                 'tts': {'device': 'cpu'},  # Piper fallback (iGPU VRAM too limited for TTS)
                 'stt': {'device': 'cpu'},
                 'embedding': {'device': 'cpu'},
