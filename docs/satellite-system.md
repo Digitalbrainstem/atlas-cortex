@@ -561,8 +561,10 @@ Server → Satellite (WebSocket):
   2. TTS_START   {session_id, format: "pcm_22k_16bit_mono"}
   3. TTS_CHUNK   {session_id, audio: bytes}
   4. TTS_END     {session_id}
-  5. COMMAND     {action: "listen" | "stop" | "volume" | "led" | "reboot", params: {}}
-  6. CONFIG      {wake_word, volume, led_brightness, vad_sensitivity, features}
+  5. PLAY_FILLER {session_id}   — play a random pre-cached filler phrase
+  6. COMMAND     {action: "listen" | "stop" | "volume" | "led" | "reboot", params: {}}
+  7. CONFIG      {wake_word, volume, led_brightness, vad_sensitivity, features}
+  8. SYNC_FILLERS {fillers: [{id, audio: bytes}]}  — push updated filler cache
 ```
 
 ### Audio Pipeline
@@ -580,6 +582,78 @@ Server → Satellite (WebSocket):
                                 │   via WebSocket (opus or raw PCM) │
                                 └──────────────────────────────────┘
 ```
+
+### Response Latency & Filler Phrase Caching
+
+Voice assistant UX is highly sensitive to perceived latency. The pipeline has variable response times depending on what's being processed:
+
+| Request Type | Path | Expected Latency |
+|---|---|---|
+| "What time is it?" | Layer 1 (instant) | **< 500ms** |
+| "Turn on kitchen lights" | Layer 2 (HA plugin) | **< 1.5s** |
+| "What's the weather?" | Layer 2 (weather plugin) | **1-2s** |
+| "Tell me about black holes" | Layer 3 (LLM) | **3-7s** |
+| Complex multi-step queries | Layer 3 (LLM + tools) | **5-10s** |
+
+For fast-path responses (Layers 1-2), no filler is needed — the answer arrives before any awkward silence. For LLM responses, the delay is noticeable. Rather than always playing a filler (which feels robotic), the **server decides dynamically**:
+
+#### How It Works
+
+```
+User: "Hey Atlas, tell me about quantum computing"
+
+  t=0ms    Wake word detected, audio streaming begins
+  t=500ms  Audio ends (VAD silence), server starts processing
+  t=600ms  Layer 1: no match
+  t=650ms  Layer 2: no match → falls through to Layer 3 (LLM)
+  t=650ms  Server starts LLM inference + starts a 1.5s timer
+  t=1500ms LLM still processing → server sends PLAY_FILLER
+  t=1500ms Satellite plays cached filler INSTANTLY (0ms latency)
+            "Let me think about that..."
+  t=3500ms LLM response + TTS ready → server sends TTS_START
+            Satellite transitions smoothly from filler to real response
+```
+
+**If the response is ready before the 1.5s threshold, no filler plays at all.** The user just gets the answer.
+
+#### Pre-Cached Filler Phrases
+
+Each satellite stores ~10-15 pre-rendered TTS audio clips locally (~2-5 MB total):
+
+```
+Thinking fillers (used when processing takes > 1.5s):
+  "Let me think about that..."
+  "Good question, one moment..."
+  "Hmm, let me look into that..."
+  "Working on it..."
+  "Give me just a second..."
+
+Acknowledgment fillers (used when action confirmed but response generating):
+  "Sure thing..."
+  "On it..."
+  "Absolutely..."
+
+Context-aware fillers (server specifies which category):
+  "Let me check on that..."          (for lookups/queries)
+  "Let me crunch those numbers..."   (for math/data)
+```
+
+**Cache management:**
+- Fillers are generated using the configured TTS voice during provisioning
+- Stored locally on the satellite in `/opt/atlas-satellite/cache/fillers/`
+- Server pushes updated fillers via `SYNC_FILLERS` message when voice settings change
+- Satellite picks randomly within the category to avoid repetition
+- Recently-played fillers are deprioritized (weighted random)
+
+#### Filler Threshold Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `filler_threshold_ms` | 1500 | Delay before triggering a filler phrase |
+| `filler_enabled` | true | Enable/disable filler phrases globally |
+| `filler_category` | auto | Server auto-selects based on intent classification |
+
+The threshold is tunable per-deployment. Faster hardware (dual-GPU) can lower it or disable fillers entirely.
 
 ### Core Components
 
