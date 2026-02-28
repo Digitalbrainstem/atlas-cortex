@@ -206,14 +206,104 @@ class TestUnenroll:
 
 
 class TestAgeEstimate:
-    def test_returns_unknown(self, db_conn):
+    def test_returns_valid_group(self, db_conn):
         sid = SpeakerIdentifier(db_conn)
         group, conf = sid.estimate_age_group(_random_embedding(seed=700))
+        assert group in ("child", "adult")
+        assert conf > 0.0
+
+    def test_empty_embedding_returns_unknown(self, db_conn):
+        sid = SpeakerIdentifier(db_conn)
+        group, conf = sid.estimate_age_group([])
         assert group == "unknown"
         assert conf == 0.0
+
+    def test_low_energy_embedding_is_child(self, db_conn):
+        """An embedding with very low energy/variance should map to child."""
+        sid = SpeakerIdentifier(db_conn)
+        # Tiny values → low energy, low variance → child
+        emb = [0.01] * 256
+        group, conf = sid.estimate_age_group(emb)
+        assert group == "child"
+
+    def test_high_energy_embedding_is_adult(self, db_conn):
+        """An embedding with high energy/variance should map to adult."""
+        sid = SpeakerIdentifier(db_conn)
+        rng = np.random.RandomState(42)
+        emb = (rng.randn(256) * 2.0).tolist()  # high variance
+        group, conf = sid.estimate_age_group(emb)
+        assert group == "adult"
+
+    def test_confidence_always_low(self, db_conn):
+        """Voice-based estimation should always have low confidence (<=0.3)."""
+        sid = SpeakerIdentifier(db_conn)
+        for seed in [1, 50, 100, 200]:
+            _, conf = sid.estimate_age_group(_random_embedding(seed=seed))
+            assert conf <= 0.3
 
     @pytest.mark.asyncio
     async def test_identify_includes_age_estimate(self, db_conn):
         sid = SpeakerIdentifier(db_conn)
         result = await sid.identify(_random_embedding(seed=800))
-        assert result.age_estimate is not None
+        assert result.age_estimate in ("child", "adult")
+
+
+# ---------------------------------------------------------------------------
+# Hybrid age resolution (profiles + voice)
+# ---------------------------------------------------------------------------
+
+
+class TestHybridAgeResolution:
+    """Test set_user_age() and resolve_age_group() in profiles module."""
+
+    def test_set_user_age_adult(self, db_conn):
+        from cortex.profiles import get_or_create_user_profile, set_user_age
+        get_or_create_user_profile(db_conn, "alice")
+        result = set_user_age(db_conn, "alice", birth_year=1993, birth_month=6)
+        assert result["age_group"] == "adult"
+        assert result["age_confidence"] == 0.95
+        assert result["age"] >= 32
+
+    def test_set_user_age_child(self, db_conn):
+        from cortex.profiles import get_or_create_user_profile, set_user_age
+        get_or_create_user_profile(db_conn, "timmy")
+        result = set_user_age(db_conn, "timmy", birth_year=2018, birth_month=3)
+        assert result["age_group"] in ("child", "toddler")
+        assert result["age_confidence"] == 0.95
+
+    def test_set_user_age_teen(self, db_conn):
+        from cortex.profiles import get_or_create_user_profile, set_user_age
+        get_or_create_user_profile(db_conn, "jake")
+        result = set_user_age(db_conn, "jake", birth_year=2011, birth_month=1)
+        assert result["age_group"] == "teen"
+
+    def test_resolve_admin_age_wins_over_voice(self, db_conn):
+        from cortex.profiles import resolve_age_group
+        profile = {"age_group": "adult", "age_confidence": 0.95}
+        voice = ("child", 0.3)
+        group, conf = resolve_age_group(profile, voice_estimate=voice)
+        assert group == "adult"
+        assert conf == 0.95
+
+    def test_resolve_voice_fallback_for_unknown(self, db_conn):
+        from cortex.profiles import resolve_age_group
+        profile = {"age_group": "unknown", "age_confidence": 0.0}
+        voice = ("child", 0.3)
+        group, conf = resolve_age_group(profile, voice_estimate=voice)
+        assert group == "child"
+        assert conf == 0.3
+
+    def test_resolve_no_data_returns_unknown(self, db_conn):
+        from cortex.profiles import resolve_age_group
+        profile = {"age_group": "unknown", "age_confidence": 0.0}
+        group, conf = resolve_age_group(profile, voice_estimate=None)
+        assert group == "unknown"
+        assert conf == 0.0
+
+    def test_resolve_low_confidence_admin_uses_voice(self, db_conn):
+        from cortex.profiles import resolve_age_group
+        profile = {"age_group": "adult", "age_confidence": 0.2}
+        voice = ("child", 0.3)
+        group, conf = resolve_age_group(profile, voice_estimate=voice)
+        # Admin confidence too low (<0.5) so voice fallback kicks in
+        assert group == "child"
