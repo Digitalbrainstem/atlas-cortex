@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS ha_devices (
     friendly_name  TEXT NOT NULL,
     domain         TEXT NOT NULL,
     area_id        TEXT,
+    area_name      TEXT,
     state          TEXT,
     discovered_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -377,6 +378,17 @@ CREATE TABLE IF NOT EXISTS list_permissions (
 );
 CREATE INDEX IF NOT EXISTS idx_list_perms_user ON list_permissions(user_id);
 
+CREATE TABLE IF NOT EXISTS list_items (
+    id         TEXT PRIMARY KEY,
+    list_id    TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    done       BOOLEAN DEFAULT FALSE,
+    added_by   TEXT DEFAULT '',
+    added_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (list_id) REFERENCES list_registry(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_list_items_list ON list_items(list_id);
+
 -- ───────── Learning ─────────
 
 CREATE TABLE IF NOT EXISTS learned_patterns (
@@ -521,8 +533,12 @@ CREATE TABLE IF NOT EXISTS discovered_services (
     last_health_check TIMESTAMP,
     health_status    TEXT DEFAULT 'unknown',
     discovered_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(service_type, url)
 );
+-- Explicit unique index so ON CONFLICT works on DBs upgraded from pre-constraint schemas
+CREATE UNIQUE INDEX IF NOT EXISTS idx_discovered_services_type_url
+    ON discovered_services(service_type, url);
 
 CREATE TABLE IF NOT EXISTS service_config (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -551,3 +567,21 @@ CREATE TABLE IF NOT EXISTS plugin_registry (
 def _create_schema(conn: sqlite3.Connection) -> None:
     """Execute all CREATE TABLE / INDEX statements in one transaction."""
     conn.executescript(_SCHEMA_SQL)
+    # Incremental migrations: add columns that may not exist in older DBs.
+    # ALTER TABLE ADD COLUMN is idempotent — we just ignore the error if the
+    # column is already present.
+    _add_column_if_missing(conn, "ha_devices", "area_name", "TEXT")
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    col_type: str,
+) -> None:
+    """Add *column* to *table* if it does not already exist (SQLite migration helper)."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
