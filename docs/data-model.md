@@ -529,6 +529,26 @@ CREATE TABLE jailbreak_exemplars (
 CREATE INDEX idx_jb_cluster ON jailbreak_exemplars(cluster_id);
 ```
 
+### tts_voices
+
+Voice registry for TTS providers. See [voice-engine.md](voice-engine.md).
+
+```sql
+CREATE TABLE tts_voices (
+    id TEXT PRIMARY KEY,               -- 'orpheus_tara', 'orpheus_leo', 'piper_amy'
+    provider TEXT NOT NULL,            -- 'orpheus' | 'parler' | 'piper'
+    display_name TEXT NOT NULL,        -- 'Tara', 'Leo', 'Amy'
+    gender TEXT,                       -- 'female' | 'male' | 'neutral'
+    language TEXT DEFAULT 'en',
+    accent TEXT,                       -- 'american' | 'british' | 'australian'
+    style TEXT,                        -- 'warm' | 'professional' | 'casual' | 'energetic'
+    supports_emotion BOOLEAN DEFAULT TRUE,
+    sample_audio_path TEXT,
+    is_default BOOLEAN DEFAULT FALSE,
+    metadata TEXT                      -- provider-specific config (JSON)
+);
+```
+
 ### list_registry
 
 `backend_config` stays as JSON (opaque, varies per backend). Permissions normalized to `list_permissions`. Aliases normalized to `list_aliases`.
@@ -915,6 +935,5 @@ memory_metrics (standalone)
 | Backup | 1 | backup_log |
 | Context & Hardware | 5 | hardware_profile, hardware_gpu, model_config, context_checkpoints, context_metrics |
 | Discovery & Plugins | 3 | discovered_services, service_config, plugin_registry |
-| Safety | 3 | guardrail_events, jailbreak_patterns, jailbreak_exemplars |
 | Voice | 1 | tts_voices |
 | **Total** | **~42 tables** | (including FTS5 virtual tables and junction tables) |
