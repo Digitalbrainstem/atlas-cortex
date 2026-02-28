@@ -616,6 +616,16 @@ CREATE TABLE IF NOT EXISTS hardware_gpu (
     role          TEXT,
     detected_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ── Admin Authentication ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login    TIMESTAMP
+);
 """
 
 
