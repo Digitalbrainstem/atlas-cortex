@@ -73,7 +73,51 @@ Connects Atlas to real-world services discovered on your network.
 
 ---
 
-### Part 3: Alarms, Timers & Reminders
+### Part 2.7: Fast-Path Plugins
+*Layer 2 plugins that bypass the LLM for common queries — instant responses, lower latency, reduced GPU load.*
+
+These plugins intercept frequent request types at Layer 2, hitting external APIs or local logic directly instead of routing through the LLM. Each one follows the existing `CortexPlugin` interface (`match` → `handle`). The nightly evolution job already identifies LLM fallthrough patterns that could become fast-path plugins, but these are proactively built for the most common cases.
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Weather** | *"What's the weather?"*, *"Will it rain tomorrow?"* | OpenWeatherMap / NWS API | ~1s |
+| **Timers & Alarms** | *"Set a 10-minute timer"*, *"Cancel my alarm"* | Local scheduler (no API) | <200ms |
+| **Sports Scores** | *"Did the Lakers win?"*, *"What's the NFL score?"* | ESPN / SportsData API | ~1s |
+| **Unit Conversions** | *"Convert 5 miles to km"*, *"How many cups in a liter?"* | Local math (no API) | <100ms |
+| **Dictionary** | *"Define serendipity"*, *"What does ephemeral mean?"* | Free Dictionary API / local | ~500ms |
+| **News Headlines** | *"What's in the news?"*, *"Tech news today"* | RSS feeds / NewsAPI | ~1s |
+| **Calendar** | *"What's on my schedule today?"*, *"Next meeting?"* | CalDAV (already in Part 2) | ~500ms |
+| **Package Tracking** | *"Where's my package?"*, *"Any deliveries today?"* | 17track / carrier APIs | ~1-2s |
+| **Stock Prices** | *"What's AAPL at?"*, *"How's the market?"* | Yahoo Finance / Alpha Vantage | ~1s |
+| **Translation** | *"How do you say hello in Spanish?"* | LibreTranslate (self-hosted) | ~500ms |
+
+**Architecture per plugin:**
+```python
+class WeatherPlugin(CortexPlugin):
+    plugin_id = "weather"
+    plugin_type = "query"
+
+    async def match(self, message, context) -> CommandMatch:
+        # Regex patterns: "weather", "temperature", "rain", "forecast", etc.
+        # Return confidence score based on match quality
+
+    async def handle(self, message, match, context) -> CommandResult:
+        # 1. Extract location (from message, user profile, or HA zone)
+        # 2. Hit weather API directly
+        # 3. Format natural-language response from template
+        # 4. Return — never touches LLM
+```
+
+**Key design points:**
+- Each plugin is optional — disable any via admin panel or config
+- API keys configured in admin settings (per-plugin)
+- Response templates are natural language, not robotic ("It's 72°F and sunny in Austin — perfect day to be outside")
+- Plugins can optionally enrich LLM context (e.g., weather data included when LLM handles a complex weather question)
+- Evolution job tracks which queries still fall through to LLM and suggests new patterns
+
+> **Implementation note:** Timers/Alarms and Calendar overlap with Part 3. The fast-path plugin handles the voice interface; Part 3 adds the full scheduler, recurrence, and multi-room delivery.
+
+---
 
 > **Design doc:** [alarms-timers-reminders.md](alarms-timers-reminders.md)
 
@@ -212,12 +256,12 @@ Part 1: Core Engine ────────────────────
          ▼
 Part 2: Integration Layer ────────────────────────────── ✅ COMPLETE
          │
-         ├─────────────────────┐
-         ▼                     ▼
-Part 2.5: Satellites     Part 4: Routines
-         │                     │
-         ├───────────┐         │
-         ▼           ▼         ▼
+         ├─────────────────────┬──────────────────┐
+         ▼                     ▼                  ▼
+Part 2.5: Satellites     Part 2.7: Fast-Path   Part 4: Routines
+         │               (independent)          │
+         ├───────────┐                           │
+         ▼           ▼                           ▼
 Part 3: Alarms  Part 7: Intercom
          │           │
          ▼           ▼
@@ -228,6 +272,9 @@ Part 8: Media & Entertainment
 
 Part 6: Learning & Education ◀── Part 1 (C6 + C12)
     (can start independently after Part 1)
+
+Part 2.7: Fast-Path Plugins ◀── Part 2 (plugin system)
+    (can start independently after Part 2, no other deps)
 ```
 
 ---
