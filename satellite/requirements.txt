@@ -1,0 +1,24 @@
+# Atlas Satellite Agent — Python dependencies
+# Designed to be lightweight for Pi Zero 2 W (512MB RAM)
+
+# Audio I/O via ALSA (direct bindings, no PortAudio/numpy needed)
+pyalsaaudio>=0.10.0
+
+# Voice Activity Detection (lightweight C library, ~1MB)
+webrtcvad>=2.0.10
+
+# WebSocket client (async)
+websockets>=12.0
+
+# mDNS service announcement
+zeroconf>=0.131.0
+
+# SPI for ReSpeaker LEDs (optional — only needed for ReSpeaker HAT)
+spidev>=3.6
+
+# ── Optional: Wake word detection ─────────────────────────────
+# Uncomment for local wake word support (adds ~100MB RAM usage).
+# Not recommended for Pi Zero 2 W; works well on Pi 3/4/5.
+# openwakeword>=0.6.0
+# numpy>=1.24.0
+# tflite-runtime>=2.14.0

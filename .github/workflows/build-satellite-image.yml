@@ -1,0 +1,424 @@
+# ──────────────────────────────────────────────────────────────────
+# Atlas Satellite — Raspberry Pi Image Builder
+#
+# Automatically builds a customized Raspberry Pi OS image with:
+#   - Atlas satellite agent pre-installed
+#   - atlas-announce mDNS service enabled
+#   - atlas user pre-created
+#   - SSH enabled
+#   - First-boot WiFi setup via boot partition config
+#
+# Triggers:
+#   - On release publish (new Atlas version)
+#   - Monthly schedule (picks up latest RPi OS)
+#   - Manual dispatch (with options)
+#
+# Output:
+#   - atlas-satellite-pi-{arch}-{date}.img.xz (GitHub Release artifact)
+# ──────────────────────────────────────────────────────────────────
+
+name: Build Satellite Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      pi_arch:
+        description: 'Target architecture'
+        required: true
+        default: 'armhf'
+        type: choice
+        options:
+          - armhf
+          - arm64
+          - both
+      publish_release:
+        description: 'Publish as GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+  schedule:
+    # Monthly: 1st of each month at 3:00 AM UTC
+    - cron: '0 3 1 * *'
+
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  # Latest Raspberry Pi OS Lite image URLs (updated by renovate/dependabot)
+  RPIOS_ARMHF_URL: "https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2024-11-19/2024-11-19-raspios-bookworm-armhf-lite.img.xz"
+  RPIOS_ARM64_URL: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ${{ fromJson(
+          github.event_name == 'workflow_dispatch' && github.event.inputs.pi_arch == 'both' && '["armhf","arm64"]' ||
+          github.event_name == 'workflow_dispatch' && format('["{0}"]', github.event.inputs.pi_arch) ||
+          '["armhf"]'
+          ) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            qemu-user-static \
+            parted \
+            kpartx \
+            xz-utils \
+            dosfstools \
+            e2fsprogs \
+            systemd-container
+
+      - name: Download Raspberry Pi OS image
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            IMG_URL="${RPIOS_ARM64_URL}"
+          else
+            IMG_URL="${RPIOS_ARMHF_URL}"
+          fi
+          echo "Downloading: $IMG_URL"
+          curl -L -o rpios.img.xz "$IMG_URL"
+          xz -d rpios.img.xz
+          echo "Image size: $(du -sh rpios.img | cut -f1)"
+
+      - name: Expand image (add 512MB for agent + deps)
+        run: |
+          # Add space for the satellite agent and its dependencies
+          dd if=/dev/zero bs=1M count=512 >> rpios.img
+          # Expand the root partition to fill the new space
+          LOOP=$(sudo losetup --find --show --partscan rpios.img)
+          echo "LOOP=$LOOP" >> $GITHUB_ENV
+          # Get partition info
+          sudo parted -s "$LOOP" resizepart 2 100%
+          sudo e2fsck -f -y "${LOOP}p2" || true
+          sudo resize2fs "${LOOP}p2"
+          sudo losetup -d "$LOOP"
+
+      - name: Mount image partitions
+        run: |
+          LOOP=$(sudo losetup --find --show --partscan rpios.img)
+          echo "LOOP=$LOOP" >> $GITHUB_ENV
+
+          sudo mkdir -p /mnt/pi-boot /mnt/pi-root
+          sudo mount "${LOOP}p1" /mnt/pi-boot
+          sudo mount "${LOOP}p2" /mnt/pi-root
+
+          echo "Boot partition:"
+          ls /mnt/pi-boot/ | head -10
+          echo "Root partition:"
+          ls /mnt/pi-root/ | head -10
+
+      - name: Configure boot partition (FAT32 — cross-platform accessible)
+        run: |
+          # Enable SSH
+          sudo touch /mnt/pi-boot/ssh
+
+          # Create default user: atlas / atlas-setup
+          HASH=$(openssl passwd -6 "atlas-setup")
+          echo "atlas:${HASH}" | sudo tee /mnt/pi-boot/userconf.txt > /dev/null
+
+          # Atlas satellite config on boot partition
+          # Users can edit this file on Windows/Mac/Linux before first boot
+          sudo tee /mnt/pi-boot/atlas-satellite.conf > /dev/null << 'ATLASCONF'
+          # ──────────────────────────────────────────────
+          # Atlas Satellite Configuration
+          # Edit this file BEFORE first boot to customize.
+          # This file is on the boot partition (FAT32) so
+          # it's accessible from Windows, macOS, and Linux.
+          # ──────────────────────────────────────────────
+
+          # Atlas server URL (REQUIRED — set this to your server's address)
+          ATLAS_SERVER_URL=ws://atlas-server:5100/ws/satellite
+
+          # Room name (shown in admin panel)
+          ATLAS_ROOM=
+
+          # Wi-Fi settings (leave empty to use ethernet only)
+          WIFI_SSID=
+          WIFI_PASSWORD=
+          WIFI_COUNTRY=US
+
+          # Hostname (auto-generated if empty)
+          ATLAS_HOSTNAME=
+
+          # LED type: none, respeaker, gpio
+          ATLAS_LED_TYPE=none
+
+          # Audio devices (leave as default for auto-detect)
+          ATLAS_AUDIO_IN=default
+          ATLAS_AUDIO_OUT=default
+          ATLASCONF
+
+      - name: Install atlas-announce service into root partition
+        run: |
+          # ── atlas-announce script ──
+          sudo tee /mnt/pi-root/usr/local/bin/atlas-announce > /dev/null << 'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HOSTNAME=$(hostname)
+          SAT_ID="sat-${HOSTNAME}"
+          LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
+          echo "Atlas Satellite announcing: ${SAT_ID} at ${LOCAL_IP}:5110"
+          if command -v avahi-publish &>/dev/null; then
+              exec avahi-publish -s "${SAT_ID}" _atlas-satellite._tcp 5110 \
+                  "id=${SAT_ID}" "hostname=${HOSTNAME}" "room=" "hw_type=linux"
+          else
+              echo "Waiting for avahi-utils..."
+              while true; do
+                  sleep 30
+                  command -v avahi-publish &>/dev/null && \
+                      exec avahi-publish -s "${SAT_ID}" _atlas-satellite._tcp 5110 \
+                          "id=${SAT_ID}" "hostname=${HOSTNAME}" "room=" "hw_type=linux"
+              done
+          fi
+          SCRIPT
+          sudo chmod +x /mnt/pi-root/usr/local/bin/atlas-announce
+
+          # ── systemd service ──
+          sudo tee /mnt/pi-root/etc/systemd/system/atlas-announce.service > /dev/null << 'UNIT'
+          [Unit]
+          Description=Atlas Satellite mDNS Announcement
+          After=network-online.target avahi-daemon.service
+          Wants=network-online.target
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/atlas-announce
+          Restart=always
+          RestartSec=10
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          # Enable the service
+          sudo mkdir -p /mnt/pi-root/etc/systemd/system/multi-user.target.wants
+          sudo ln -sf /etc/systemd/system/atlas-announce.service \
+              /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-announce.service
+
+      - name: Install satellite agent into image
+        run: |
+          INSTALL_DIR="/mnt/pi-root/opt/atlas-satellite"
+          sudo mkdir -p "$INSTALL_DIR/atlas_satellite/platforms"
+          sudo mkdir -p "$INSTALL_DIR/cache/fillers"
+
+          # Copy agent code
+          for f in satellite/atlas_satellite/*.py; do
+            sudo cp "$f" "$INSTALL_DIR/atlas_satellite/"
+          done
+          sudo cp satellite/atlas_satellite/platforms/__init__.py \
+              "$INSTALL_DIR/atlas_satellite/platforms/"
+          sudo cp satellite/requirements.txt "$INSTALL_DIR/"
+
+      - name: Install first-boot configuration service
+        run: |
+          # This service runs once on first boot:
+          # 1. Reads atlas-satellite.conf from boot partition
+          # 2. Configures WiFi, hostname, creates config.json
+          # 3. Installs Python deps in venv
+          # 4. Starts the satellite agent
+          sudo tee /mnt/pi-root/usr/local/bin/atlas-firstboot > /dev/null << 'FIRSTBOOT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          LOG="/var/log/atlas-firstboot.log"
+          exec > "$LOG" 2>&1
+
+          echo "$(date) — Atlas Satellite first-boot starting"
+
+          BOOT_CONF="/boot/firmware/atlas-satellite.conf"
+          [ ! -f "$BOOT_CONF" ] && BOOT_CONF="/boot/atlas-satellite.conf"
+
+          # Source config (strip leading whitespace from heredoc)
+          if [ -f "$BOOT_CONF" ]; then
+              # shellcheck disable=SC1090
+              source <(sed 's/^[[:space:]]*//' "$BOOT_CONF" | grep -v '^#' | grep '=')
+              echo "Loaded config from $BOOT_CONF"
+          fi
+
+          # ── Configure Wi-Fi ──
+          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ]; then
+              echo "Configuring Wi-Fi: $WIFI_SSID"
+              nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD" || true
+          fi
+
+          # Wait for network
+          for i in $(seq 1 30); do
+              if ping -c1 -W2 8.8.8.8 &>/dev/null; then break; fi
+              sleep 2
+          done
+
+          # ── Set hostname ──
+          if [ -n "${ATLAS_HOSTNAME:-}" ]; then
+              SAT_HOSTNAME="$ATLAS_HOSTNAME"
+          else
+              SUFFIX=$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 4)
+              SAT_HOSTNAME="atlas-sat-${SUFFIX}"
+          fi
+          hostnamectl set-hostname "$SAT_HOSTNAME"
+          sed -i "s/127.0.1.1.*/127.0.1.1\t$SAT_HOSTNAME/" /etc/hosts
+          echo "Hostname: $SAT_HOSTNAME"
+
+          # ── Install system deps ──
+          apt-get update -qq
+          apt-get install -y -qq python3 python3-venv python3-dev \
+              libasound2-dev avahi-utils i2c-tools
+
+          # ── Create Python venv + install deps ──
+          INSTALL_DIR="/opt/atlas-satellite"
+          python3 -m venv "$INSTALL_DIR/.venv"
+          "$INSTALL_DIR/.venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+
+          # ── Generate config.json ──
+          SERVER_URL="${ATLAS_SERVER_URL:-ws://atlas-server:5100/ws/satellite}"
+          ROOM="${ATLAS_ROOM:-}"
+          LED="${ATLAS_LED_TYPE:-none}"
+          AUDIO_IN="${ATLAS_AUDIO_IN:-default}"
+          AUDIO_OUT="${ATLAS_AUDIO_OUT:-default}"
+
+          cat > "$INSTALL_DIR/config.json" << CFGEOF
+          {
+            "satellite_id": "sat-${SAT_HOSTNAME}",
+            "server_url": "${SERVER_URL}",
+            "room": "${ROOM}",
+            "mode": "dedicated",
+            "service_port": 5110,
+            "wake_word": "hey atlas",
+            "volume": 0.7,
+            "mic_gain": 0.8,
+            "vad_sensitivity": 2,
+            "audio_device_in": "${AUDIO_IN}",
+            "audio_device_out": "${AUDIO_OUT}",
+            "led_type": "${LED}",
+            "wake_word_enabled": false,
+            "filler_enabled": true,
+            "features": {}
+          }
+          CFGEOF
+          # Strip leading whitespace from heredoc
+          sed -i 's/^[[:space:]]*//' "$INSTALL_DIR/config.json"
+
+          # ── Install satellite systemd service ──
+          cat > /etc/systemd/system/atlas-satellite.service << 'SVCEOF'
+          [Unit]
+          Description=Atlas Satellite Agent
+          After=network-online.target sound.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          ExecStart=/opt/atlas-satellite/.venv/bin/python -m atlas_satellite
+          WorkingDirectory=/opt/atlas-satellite
+          Restart=always
+          RestartSec=5
+          Environment=PYTHONUNBUFFERED=1
+
+          [Install]
+          WantedBy=multi-user.target
+          SVCEOF
+          sed -i 's/^[[:space:]]*//' /etc/systemd/system/atlas-satellite.service
+
+          systemctl daemon-reload
+          systemctl enable atlas-satellite
+          systemctl start atlas-satellite
+
+          # ── Restart announce with correct hostname ──
+          systemctl restart atlas-announce
+
+          echo "$(date) — Atlas Satellite first-boot complete!"
+          echo "Satellite ID: sat-${SAT_HOSTNAME}"
+          echo "Server: ${SERVER_URL}"
+
+          # Disable first-boot (one-shot)
+          systemctl disable atlas-firstboot.service
+          FIRSTBOOT
+          sudo chmod +x /mnt/pi-root/usr/local/bin/atlas-firstboot
+
+          # Systemd service for first-boot
+          sudo tee /mnt/pi-root/etc/systemd/system/atlas-firstboot.service > /dev/null << 'FBUNIT'
+          [Unit]
+          Description=Atlas Satellite First Boot Setup
+          After=network-online.target
+          Wants=network-online.target
+          ConditionPathExists=/usr/local/bin/atlas-firstboot
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/atlas-firstboot
+          RemainAfterExit=yes
+          TimeoutStartSec=600
+
+          [Install]
+          WantedBy=multi-user.target
+          FBUNIT
+
+          sudo mkdir -p /mnt/pi-root/etc/systemd/system/multi-user.target.wants
+          sudo ln -sf /etc/systemd/system/atlas-firstboot.service \
+              /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-firstboot.service
+
+      - name: Unmount and compress image
+        run: |
+          sudo umount /mnt/pi-boot /mnt/pi-root
+          sudo losetup -d "$LOOP"
+
+          DATE=$(date +%Y%m%d)
+          IMG_NAME="atlas-satellite-pi-${{ matrix.arch }}-${DATE}.img"
+          mv rpios.img "$IMG_NAME"
+
+          echo "Compressing image..."
+          xz -9 -T0 "$IMG_NAME"
+          echo "IMG_FILE=${IMG_NAME}.xz" >> $GITHUB_ENV
+          echo "IMG_NAME=${IMG_NAME}" >> $GITHUB_ENV
+
+          ls -lh "${IMG_NAME}.xz"
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum "$IMG_FILE" > "${IMG_FILE}.sha256"
+          cat "${IMG_FILE}.sha256"
+
+      - name: Upload image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-satellite-${{ matrix.arch }}
+          path: |
+            ${{ env.IMG_FILE }}
+            ${{ env.IMG_FILE }}.sha256
+          retention-days: 90
+
+      - name: Upload to release
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'release' && github.ref_name || format('satellite-image-{0}', env.IMG_NAME) }}
+          files: |
+            ${{ env.IMG_FILE }}
+            ${{ env.IMG_FILE }}.sha256
+          body: |
+            ## Atlas Satellite Image — ${{ matrix.arch }}
+
+            Pre-built Raspberry Pi OS image with Atlas satellite agent.
+
+            ### Quick Start
+            1. Flash this image to an SD card (use [Raspberry Pi Imager](https://www.raspberrypi.com/software/), [balenaEtcher](https://etcher.balena.io/), or `dd`)
+            2. Open the SD card's boot partition on your computer
+            3. Edit `atlas-satellite.conf` — set your WiFi and Atlas server URL
+            4. Eject, insert into Pi, power on
+            5. The satellite appears in Atlas Admin → Satellites within 60 seconds
+
+            ### Default Credentials
+            - **User:** `atlas`
+            - **Password:** `atlas-setup`
+            - **SSH:** Enabled
+
+            ### Checksum
+            ```
+            $(cat ${IMG_FILE}.sha256)
+            ```
