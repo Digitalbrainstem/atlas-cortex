@@ -15,6 +15,10 @@ aiohttp>=3.9.0
 # ── Safety / Embeddings ──────────────────────────────────────────
 numpy>=1.24.0
 
+# ── Admin Panel Auth ─────────────────────────────────────────────
+PyJWT>=2.8.0
+bcrypt>=4.0.0
+
 # ── Database ─────────────────────────────────────────────────────
 # sqlite3 is included in the Python standard library
 

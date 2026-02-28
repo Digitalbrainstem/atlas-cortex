@@ -2,14 +2,13 @@
 
 ## Part 1 vs Part 2
 
-Atlas Cortex is split into two independent parts so that the core engine is **portable and reusable** by anyone, while the integration layer adapts to whatever infrastructure is available.
+Atlas Cortex is split into multiple parts so that the core engine is **portable and reusable** by anyone, while extended features adapt to available infrastructure.
 
-| | Part 1: Core Engine | Part 2: Integration Layer |
-|---|---|---|
-| **What** | The brain — personality, memory, context, avatar, grounding | The body — connects to the real world (smart home, files, network) |
-| **Requires** | Any LLM backend + Python (Ollama default, others supported) | Discovered at install time (HA, Nextcloud, NAS, etc.) |
-| **Portable?** | Yes — works on any machine with any LLM backend | Adapts to whatever services are found |
-| **Key design** | No hardcoded backends or infrastructure | Plugin/discovery architecture |
+| | Part 1: Core Engine | Part 2: Integration | Part 2.5: Satellites | Parts 3–8: Extended |
+|---|---|---|---|---|
+| **What** | The brain — personality, memory, context, avatar, safety | Connects to real world (HA, files, network) | Distributed speakers/mics in every room | Alarms, routines, media, education, intercom |
+| **Requires** | Any LLM backend + Python | Discovered services (HA, etc.) | Satellite hardware (Pi, ESP32) | Satellites + integrations |
+| **Portable?** | Yes — any machine | Adapts to found services | Hardware-agnostic | Builds on Parts 1–2.5 |
 
 ### How It Works for Others
 
@@ -56,6 +55,23 @@ See [installation.md](installation.md) for the full installer design.
 | I5 | Knowledge Source Connectors | 🔲 Planned | I1 + C5 memory + C6 profiles |
 | I6 | List Management | 🔲 Planned | I1 + I5 |
 | I7 | Offsite Backup | 🔲 Planned | I1 + C9 |
+
+### Part 2.5: Satellite System
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| S2.5 | Satellite Speaker/Mic System | 🔲 Planned | C11 (TTS) + C3a (Voice ID) |
+
+### Part 3–8: Extended Features
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P3 | Alarms, Timers & Reminders | 🔲 Planned | S2.5 + I2 |
+| P4 | Routines & Automations | 🔲 Planned | I2 + P3 |
+| P5 | Proactive Intelligence | 🔲 Planned | I2 + S2.5 + C5 |
+| P6 | Learning & Education | 🔲 Planned | C6 + C12 |
+| P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 |
+| P8 | Media & Entertainment | 🔲 Planned | S2.5 + I2 |
 
 ---
 
@@ -814,3 +830,320 @@ I1.1 (Discovery) ──▶ I1.2 (Config Wizard) ──▶ I1.3 (Plugin Activatio
 ## External Projects (separate repos)
 
 - [ ] **Document Classification System** — standalone service that classifies documents by type, sensitivity, and access level. Consumed by Atlas Cortex (I5) for automatic `access_level` assignment, PII detection, and content categorization. Should support: file type detection, content analysis, sensitivity scoring, category tagging (financial, medical, personal, work, household). Could use a fine-tuned small model or rule-based engine. Lives outside this project as a general-purpose utility.
+
+---
+
+# Part 2.5: Satellite System
+
+Distributed speaker/microphone devices for whole-house Atlas presence. See [satellite-system.md](satellite-system.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| S2.5 | Satellite System | 🔲 Planned | Part 1 C11 (TTS) + C3a (Voice ID) |
+
+### S2.5.1 — Satellite Agent Core
+- Audio capture (16kHz mono), playback, agent loop
+- Cross-platform: Raspberry Pi, ESP32-S3, generic Linux
+
+### S2.5.2 — Wake Word Detection
+- openWakeWord (default), pluggable engine interface
+- Local-only processing for privacy
+
+### S2.5.3 — VAD + Acoustic Echo Cancellation
+- Silero VAD for speech boundaries
+- speexdsp AEC for barge-in support
+
+### S2.5.4 — Server Connection
+- WebSocket client with auto-reconnect
+- Audio streaming (PCM or Opus)
+- Protocol: ANNOUNCE → WAKE → AUDIO_CHUNK → AUDIO_END
+
+### S2.5.5 — Atlas WebSocket Endpoint
+- Server-side `/ws/satellite` handler
+- STT → pipeline → TTS → stream back to satellite
+
+### S2.5.6 — Discovery & Registration
+- mDNS/Zeroconf announcement from satellites
+- Atlas auto-detection and DB registration
+
+### S2.5.7 — Wyoming Protocol Compatibility
+- Integrate with Home Assistant voice pipeline
+- Satellites appear as HA voice assistants
+
+### S2.5.8 — LED / Visual Feedback
+- State-based LED control (idle, listening, thinking, speaking)
+- NeoPixel, GPIO, OLED support
+
+### S2.5.9 — Platform Abstraction
+- Raspberry Pi GPIO/I2S, ESP32 I2S, generic ALSA/PulseAudio
+
+### S2.5.10 — Installer & Docker
+- One-line install script for Pi
+- Docker image for any Linux device
+- ESP32 firmware flash tool
+
+### S2.5.11 — Offline Fallback
+- Cached error TTS for server outages
+- Automatic reconnection with exponential backoff
+
+---
+
+# Part 3: Alarms, Timers & Reminders
+
+See [alarms-timers-reminders.md](alarms-timers-reminders.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P3 | Alarms, Timers & Reminders | 🔲 Planned | S2.5 (satellites) + I2 (HA) |
+
+### P3.1 — Alarm Engine
+- Cron-like scheduler, DB persistence, recurring (weekday/weekend/daily)
+- Sound selection or TTS message
+
+### P3.2 — Timer Engine
+- In-memory countdown, multiple concurrent timers
+- Pause, resume, cancel, label ("pasta timer")
+
+### P3.3 — Reminder Engine
+- Time-based, location-based (geofence via HA), event-based
+- Recurring reminders with cron expressions
+
+### P3.4 — Notification Router
+- Route to satellite in user's room, escalate to all, push to phone
+- Priority-based delivery strategy
+
+### P3.5 — Natural Language Parser
+- Extract time, duration, recurrence from user speech
+- "Every weekday at 7am", "In 15 minutes", "When I get home"
+
+### P3.6 — Snooze / Dismiss Handling
+- Voice commands during active alarm: "Snooze", "Stop", "5 more minutes"
+
+### P3.7 — Pipeline Integration
+- Layer 2 plugin for alarm/timer/reminder intents
+
+---
+
+# Part 4: Routines & Automations
+
+See [routines-automations.md](routines-automations.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P4 | Routines & Automations | 🔲 Planned | I2 (HA) + P3 (timers for delays) |
+
+### P4.1 — Routine Engine
+- Sequential action execution with condition checks
+- Support for delays, conditional branching, error handling
+
+### P4.2 — Conversational Builder
+- Create and edit routines through natural conversation
+- "When I say X, do Y" pattern recognition
+
+### P4.3 — Built-in Templates
+- Good Morning, Good Night, I'm Leaving, I'm Home, Movie Time, Dinner Time
+- Customizable per user
+
+### P4.4 — Schedule Triggers
+- Cron-based routine execution
+
+### P4.5 — Event Triggers
+- HA state change subscription (door opened, motion detected, etc.)
+
+### P4.6 — Pipeline Integration
+- Layer 2 plugin matching voice trigger phrases to routines
+
+### P4.7 — Routine Management
+- List, edit, delete, enable/disable via voice or API
+
+---
+
+# Part 5: Proactive Intelligence
+
+See [proactive-intelligence.md](proactive-intelligence.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P5 | Proactive Intelligence | 🔲 Planned | I2 (HA) + S2.5 (satellites) + C5 (memory) |
+
+### P5.1 — Proactive Rule Engine
+- Evaluate triggers against HA state + external data sources
+- User-configurable rules + built-in defaults
+
+### P5.2 — Notification Priority & Throttle
+- Critical/High/Medium/Low/Passive priority levels
+- Fatigue prevention: max per hour, cooldown, DND/sleep suppression
+
+### P5.3 — Weather Intelligence
+- Storm/rain/temperature/UV alerts from HA weather entities or direct API
+
+### P5.4 — Energy Monitoring
+- Usage anomalies, cost optimization, solar awareness
+
+### P5.5 — Anomaly Detection
+- Pattern-based unusual activity alerts (unusual door open, device malfunction)
+
+### P5.6 — Package Tracking
+- Email parsing for tracking numbers, delivery status updates
+
+### P5.7 — Calendar Awareness
+- Meeting prep, travel time calculation, birthday/event reminders
+
+### P5.8 — Daily Briefing
+- Morning summary: weather, calendar, reminders, energy, packages
+
+---
+
+# Part 6: Learning & Education
+
+See [learning-education.md](learning-education.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P6 | Learning & Education | 🔲 Planned | C6 (profiles) + C12 (safety) |
+
+### P6.1 — Tutoring Engine
+- Socratic method, never gives direct homework answers
+- Age-adapted explanations and examples
+
+### P6.2 — Quiz Generator
+- Topic-based questions with adaptive difficulty
+- Scoring, streaks, encouragement
+
+### P6.3 — Homework Helper
+- Guide through problem-solving steps
+- Show-your-work mode
+
+### P6.4 — Science Experiments
+- Safe, age-appropriate, step-by-step instructions
+- Integrated timers for experiments
+
+### P6.5 — Language Learning
+- Vocabulary drills, pronunciation practice via TTS
+- Conversational language practice
+
+### P6.6 — Progress Tracking
+- Per-subject proficiency scoring
+- Spaced repetition scheduling
+
+### P6.7 — Parent Reporting
+- Summary of what child learned, time spent, areas needing help
+
+---
+
+# Part 7: Intercom & Broadcasting
+
+See [intercom-broadcasting.md](intercom-broadcasting.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 (satellites) |
+
+### P7.1 — Intercom Intent Parser
+- Extract target rooms, zones, people, and message from voice
+
+### P7.2 — Message Personalizer
+- Adapt tone and voice for target audience (child vs adult)
+
+### P7.3 — Satellite Router
+- Deliver TTS audio to specific satellites or zones
+
+### P7.4 — Two-Way Calling
+- Bidirectional audio stream between two satellites
+
+### P7.5 — Zone Management
+- Create/edit/delete satellite groups (upstairs, bedrooms, etc.)
+
+### P7.6 — Emergency Broadcast
+- Max-priority, all-satellite, max-volume override
+
+### P7.7 — Pipeline Integration
+- Layer 2 plugin for intercom/announce/call intents
+
+---
+
+# Part 8: Media & Entertainment
+
+See [media-entertainment.md](media-entertainment.md) for full design.
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) + I2 (HA media players) |
+
+### P8.1 — Media Provider Interface
+- Abstract source with search, stream, health check
+
+### P8.2 — Local Library Provider
+- File scanning (FLAC, MP3, OGG, WAV), ID3 tags, search index
+- Optional Jellyfin/Plex/Navidrome integration
+
+### P8.3 — Spotify Provider
+- Spotify Connect API via HA or `spotipy`
+
+### P8.4 — YouTube Music Provider
+- `ytmusicapi` search and streaming
+
+### P8.5 — HA Media Provider
+- Wrap HA `media_player.*` entities
+
+### P8.6 — Podcast Provider
+- RSS parsing, auto-download, episode tracking, resume position
+
+### P8.7 — Playback Controller
+- Play/pause/skip/volume/transfer between rooms
+
+### P8.8 — Multi-Room Sync
+- HA media groups, Snapcast, or satellite-based sync
+
+### P8.9 — Smart Playlists
+- Learn preferences from listening patterns
+- Contextual auto-generation (morning, focus, cooking, bedtime)
+
+### P8.10 — Pipeline Integration
+- Layer 2 plugin for media voice commands
+
+### P8.11 — Source Priority
+- Multi-source resolution: local → preferred service → first available
+
+---
+
+## Extended Dependency Graph
+
+```
+PART 2.5 → PART 3 → PART 4 (sequential foundation)
+                 │
+PART 1 (C5+C6+C11+C12) ──▶ PART 5 (proactive, needs memory + HA)
+                 │
+PART 1 (C6+C12) ──────────▶ PART 6 (education, needs profiles + safety)
+                 │
+PART 2.5 ──────────────────▶ PART 7 (intercom, needs satellites)
+                 │
+PART 2.5 + I2 ─────────────▶ PART 8 (media, needs satellites + HA)
+```
+
+```
+S2.5.1-S2.5.3 ──▶ S2.5.4 ──▶ S2.5.5 ──▶ S2.5.6 ──▶ S2.5.7
+S2.5.8-S2.5.9 ──────────────────────────────────────▶ S2.5.10
+                                                      S2.5.11
+
+P3.1-P3.3 ──▶ P3.4 ──▶ P3.5 ──▶ P3.7
+P3.6 ──────────────────────────────┘
+
+P4.1 ──▶ P4.2 ──▶ P4.3
+P4.4 ──┐
+P4.5 ──┼──▶ P4.6 ──▶ P4.7
+       │
+P5.1 ──▶ P5.2 ──▶ P5.3-P5.7 ──▶ P5.8
+
+P6.1 ──▶ P6.2-P6.5 ──▶ P6.6 ──▶ P6.7
+
+P7.1 ──▶ P7.3 ──▶ P7.7
+P7.2 ──────┘
+P7.4 ──────────────┘
+P7.5 ──────────────┘
+P7.6 ──────────────┘
+
+P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
+                                   │
+                        P8.9 ◀────┘──▶ P8.11
+```

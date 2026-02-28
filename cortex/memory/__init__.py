@@ -25,6 +25,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Optional ChromaDB — graceful fallback to FTS5-only when not installed
+try:
+    import chromadb  # type: ignore[import-untyped]
+    _HAS_CHROMADB = True
+except ImportError:
+    chromadb = None  # type: ignore[assignment]
+    _HAS_CHROMADB = False
+
 # ──────────────────────────────────────────────────────────────────
 # PII redaction
 # ──────────────────────────────────────────────────────────────────
@@ -97,6 +105,112 @@ class MemoryHit:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Vector store (optional ChromaDB wrapper)
+# ──────────────────────────────────────────────────────────────────
+
+class VectorStore:
+    """Thin wrapper around a persistent ChromaDB collection."""
+
+    def __init__(self, data_dir: str) -> None:
+        if not _HAS_CHROMADB:
+            raise RuntimeError("chromadb is not installed")
+        self._client = chromadb.PersistentClient(path=data_dir)
+        self._collection = self._client.get_or_create_collection("atlas_memory")
+
+    @property
+    def is_available(self) -> bool:
+        return self._collection is not None
+
+    def upsert(
+        self,
+        doc_id: str,
+        text: str,
+        embedding: list[float],
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self._collection.upsert(
+            ids=[doc_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[metadata or {}],
+        )
+
+    def query(
+        self,
+        embedding: list[float],
+        user_id: str,
+        top_k: int = 8,
+    ) -> list[tuple[str, str, float]]:
+        """Return list of (doc_id, text, score) tuples."""
+        results = self._collection.query(
+            query_embeddings=[embedding],
+            n_results=top_k,
+            where={"user_id": user_id},
+        )
+        out: list[tuple[str, str, float]] = []
+        if results and results["ids"]:
+            ids = results["ids"][0]
+            docs = results["documents"][0] if results["documents"] else [""] * len(ids)
+            dists = results["distances"][0] if results["distances"] else [0.0] * len(ids)
+            for doc_id, text, dist in zip(ids, docs, dists):
+                score = 1.0 / (1.0 + dist)
+                out.append((doc_id, text, score))
+        return out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Embedding helper
+# ──────────────────────────────────────────────────────────────────
+
+async def get_embedding(text: str, provider: Any = None) -> list[float] | None:
+    """Get an embedding vector from the LLM provider, or None if unavailable."""
+    if provider is None:
+        return None
+    try:
+        result = await provider.embed(text)
+        return result
+    except Exception as exc:
+        logger.debug("Embedding failed: %s", exc)
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────
+# RRF fusion
+# ──────────────────────────────────────────────────────────────────
+
+def rrf_fuse(
+    fts_hits: list[MemoryHit],
+    vec_hits: list[MemoryHit],
+    k: int = 60,
+) -> list[MemoryHit]:
+    """Reciprocal Rank Fusion: score = Σ 1/(k + rank) across both lists."""
+    scores: dict[str, float] = {}
+    best_hit: dict[str, MemoryHit] = {}
+
+    for rank, hit in enumerate(fts_hits, start=1):
+        scores[hit.doc_id] = scores.get(hit.doc_id, 0.0) + 1.0 / (k + rank)
+        best_hit[hit.doc_id] = hit
+
+    for rank, hit in enumerate(vec_hits, start=1):
+        scores[hit.doc_id] = scores.get(hit.doc_id, 0.0) + 1.0 / (k + rank)
+        if hit.doc_id not in best_hit:
+            best_hit[hit.doc_id] = hit
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    results: list[MemoryHit] = []
+    for doc_id, score in ranked:
+        hit = best_hit[doc_id]
+        results.append(MemoryHit(
+            doc_id=hit.doc_id,
+            user_id=hit.user_id,
+            text=hit.text,
+            score=score,
+            source="rrf",
+        ))
+    return results
+
+
+# ──────────────────────────────────────────────────────────────────
 # HOT path — retrieval
 # ──────────────────────────────────────────────────────────────────
 
@@ -105,13 +219,16 @@ def hot_query(
     user_id: str,
     conn: Any,
     top_k: int = 8,
+    embedding: list[float] | None = None,
+    vector_store: VectorStore | None = None,
 ) -> list[MemoryHit]:
     """Retrieve relevant memories for *query* using BM25 (FTS5).
 
-    Returns up to *top_k* :class:`MemoryHit` objects sorted by relevance.
+    When *embedding* and *vector_store* are provided, also performs vector
+    search and fuses results via RRF.  Falls back to FTS5-only otherwise.
     """
     start = time.monotonic()
-    results: list[MemoryHit] = []
+    fts_results: list[MemoryHit] = []
     try:
         rows = conn.execute(
             """
@@ -126,7 +243,7 @@ def hot_query(
             (_fts_query(query), user_id, top_k),
         ).fetchall()
         for row in rows:
-            results.append(MemoryHit(
+            fts_results.append(MemoryHit(
                 doc_id=row["doc_id"],
                 user_id=row["user_id"],
                 text=row["text"],
@@ -135,6 +252,28 @@ def hot_query(
             ))
     except Exception as exc:
         logger.debug("HOT query error: %s", exc)
+
+    # Vector search + RRF fusion when available
+    if embedding is not None and vector_store is not None:
+        vec_results: list[MemoryHit] = []
+        try:
+            for doc_id, text, score in vector_store.query(embedding, user_id, top_k):
+                vec_results.append(MemoryHit(
+                    doc_id=doc_id,
+                    user_id=user_id,
+                    text=text,
+                    score=score,
+                    source="vector",
+                ))
+        except Exception as exc:
+            logger.debug("Vector query error: %s", exc)
+        if vec_results:
+            results = rrf_fuse(fts_results, vec_results)[:top_k]
+        else:
+            results = fts_results
+    else:
+        results = fts_results
+
     elapsed = (time.monotonic() - start) * 1000
     logger.debug("HOT query returned %d hits in %.1f ms", len(results), elapsed)
     return results
@@ -170,8 +309,15 @@ def format_memory_context(hits: list[MemoryHit], max_chars: int = 1000) -> str:
 class MemoryWriter:
     """Non-blocking memory writer.  Enqueue items; worker processes them."""
 
-    def __init__(self, conn: Any) -> None:
+    def __init__(
+        self,
+        conn: Any,
+        vector_store: VectorStore | None = None,
+        provider: Any = None,
+    ) -> None:
         self._conn = conn
+        self._vector_store = vector_store
+        self._provider = provider
         self._queue: asyncio.Queue[MemoryEntry] = asyncio.Queue()
         self._running = False
         self._task: asyncio.Task | None = None
@@ -216,7 +362,7 @@ class MemoryWriter:
                 logger.error("Memory write error: %s", exc)
 
     async def _write(self, entry: MemoryEntry) -> None:
-        """Persist entry to FTS5 (idempotent via DELETE + INSERT)."""
+        """Persist entry to FTS5 (and optionally ChromaDB)."""
         try:
             self._conn.execute(
                 "DELETE FROM memory_fts WHERE doc_id = ?", (entry.doc_id,)
@@ -235,3 +381,103 @@ class MemoryWriter:
             logger.debug("Memory written: %s", entry.doc_id)
         except Exception as exc:
             logger.error("Memory FTS write failed: %s", exc)
+
+        # Upsert to ChromaDB when available
+        if self._vector_store is not None and self._provider is not None:
+            try:
+                emb = await get_embedding(entry.text, self._provider)
+                if emb is not None:
+                    self._vector_store.upsert(
+                        doc_id=entry.doc_id,
+                        text=entry.text,
+                        embedding=emb,
+                        metadata={
+                            "user_id": entry.user_id,
+                            "type": entry.memory_type,
+                            "tags": " ".join(entry.tags),
+                        },
+                    )
+                    logger.debug("Memory vector upserted: %s", entry.doc_id)
+            except Exception as exc:
+                logger.error("Memory vector write failed: %s", exc)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Convenience wrapper
+# ──────────────────────────────────────────────────────────────────
+
+class MemorySystem:
+    """Unified interface for HOT (recall) and COLD (remember) paths."""
+
+    def __init__(
+        self,
+        conn: Any,
+        data_dir: str = "./data",
+        provider: Any = None,
+    ) -> None:
+        self._conn = conn
+        self._provider = provider
+
+        # Try to set up vector store; gracefully degrade if unavailable
+        self._vector_store: VectorStore | None = None
+        if _HAS_CHROMADB:
+            try:
+                self._vector_store = VectorStore(data_dir)
+            except Exception as exc:
+                logger.warning("ChromaDB init failed, falling back to FTS5-only: %s", exc)
+
+        self._writer = MemoryWriter(
+            conn,
+            vector_store=self._vector_store,
+            provider=provider,
+        )
+
+    async def recall(
+        self,
+        query: str,
+        user_id: str,
+        top_k: int = 8,
+    ) -> list[MemoryHit]:
+        """Retrieve memories (HOT path).  Uses RRF fusion when vectors available."""
+        embedding = await get_embedding(query, self._provider)
+        return hot_query(
+            query,
+            user_id,
+            self._conn,
+            top_k=top_k,
+            embedding=embedding,
+            vector_store=self._vector_store,
+        )
+
+    async def remember(
+        self,
+        text: str,
+        user_id: str,
+        tags: list[str] | None = None,
+    ) -> None:
+        """Store a memory (COLD path, non-blocking)."""
+        await self._writer.enqueue(text, user_id, tags)
+
+    async def start(self) -> None:
+        self._writer.start()
+
+    async def stop(self) -> None:
+        await self._writer.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────
+
+__all__ = [
+    "redact_pii",
+    "MemoryEntry",
+    "MemoryHit",
+    "VectorStore",
+    "get_embedding",
+    "rrf_fuse",
+    "hot_query",
+    "format_memory_context",
+    "MemoryWriter",
+    "MemorySystem",
+]

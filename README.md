@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-285%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-415%20passing-brightgreen.svg)](#testing)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -57,6 +57,15 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Honest personality** — pushes back on bad ideas, challenges in tutoring mode, never sycophantic
 - **Emotional evolution** — builds unique rapport with each household member over time
 - **Parental controls** — content filtering, allowed hours, restricted actions per child
+
+### 🖥️ Admin Web Panel
+- **Dark-themed dashboard** — real-time stats, recent activity, system health at a glance
+- **User management** — profiles, age settings, vocabulary levels, parental controls
+- **Safety monitoring** — guardrail event log, jailbreak pattern management, content tier overrides
+- **Voice enrollment** — view and manage speaker profiles, confidence thresholds
+- **Device management** — Home Assistant devices, aliases, command patterns
+- **Evolution tracking** — rapport scores, emotional profiles, nightly evolution logs
+- **System overview** — hardware info, GPU assignment, model configs, discovered services
 
 ## 🏗️ Architecture
 
@@ -173,6 +182,54 @@ python -m cortex.server
    - **Model**: `atlas-cortex`
 4. Start chatting — Atlas handles the rest
 
+### Admin Panel Setup
+
+The admin panel is a Vue 3 SPA served directly from the Atlas Cortex server.
+
+```bash
+# Build the admin panel (requires Node.js 18+)
+cd admin
+npm install
+npx vite build
+cd ..
+
+# Start the server (admin panel is now available)
+python -m cortex.server
+```
+
+Open **`http://localhost:5100/admin/`** in your browser.
+
+| | |
+|---|---|
+| **Default username** | `admin` |
+| **Default password** | `atlas-admin` |
+
+> ⚠️ **Change the default password immediately** via the admin panel (click your username → Change Password).
+
+#### What you can do in the admin panel:
+
+- **Dashboard** — view interaction counts, safety events, layer distribution, recent activity
+- **Users** — edit profiles, set ages (birth year/month), manage vocabulary and tone preferences
+- **Parental Controls** — set content filter levels, allowed hours, restricted topics per child
+- **Safety** — browse guardrail events with filters, manage jailbreak detection patterns
+- **Voice** — view enrolled speakers, adjust confidence thresholds, remove enrollments
+- **Devices** — browse Home Assistant devices and command patterns, manage aliases
+- **Evolution** — monitor rapport scores, review emotional profiles, view nightly evolution logs
+- **System** — check hardware/GPU status, model configs, discovered services, backup history
+
+#### Development mode (hot reload):
+
+```bash
+# Terminal 1: Start the API server
+python -m cortex.server
+
+# Terminal 2: Start the Vite dev server with hot reload
+cd admin
+npm run dev
+# Dev server runs at http://localhost:5173/admin/
+# API calls are proxied to http://localhost:5100
+```
+
 ### Discover Your Services
 
 ```bash
@@ -199,6 +256,8 @@ Atlas finds available services on your network and configures integrations autom
 | `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning |
 | `HA_URL` | — | Home Assistant URL (e.g., `http://192.168.1.100:8123`) |
 | `HA_TOKEN` | — | Home Assistant long-lived access token |
+| `CORTEX_JWT_SECRET` | `atlas-cortex-change-me` | Secret key for admin JWT tokens (change in production!) |
+| `CORTEX_JWT_EXPIRY` | `86400` | Admin session duration in seconds (default: 24 hours) |
 
 ## 📡 API Reference
 
@@ -240,12 +299,98 @@ curl http://localhost:5100/v1/audio/voices
 curl http://localhost:5100/health
 ```
 
+### Admin API
+
+All admin endpoints require a JWT token obtained via login.
+
+```bash
+# Login and get token
+TOKEN=$(curl -s http://localhost:5100/admin/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "atlas-admin"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Dashboard stats
+curl http://localhost:5100/admin/dashboard \
+  -H "Authorization: Bearer $TOKEN"
+
+# List users
+curl http://localhost:5100/admin/users \
+  -H "Authorization: Bearer $TOKEN"
+
+# Set a user's age
+curl -X POST http://localhost:5100/admin/users/derek/age \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"birth_year": 1990, "birth_month": 6}'
+
+# View safety events
+curl "http://localhost:5100/admin/safety/events?page=1&per_page=20" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Change admin password
+curl -X POST http://localhost:5100/admin/auth/change-password \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"current_password": "atlas-admin", "new_password": "my-new-secure-password"}'
+```
+
+<details>
+<summary>Full Admin Endpoint List</summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/admin/auth/login` | Authenticate and get JWT token |
+| GET | `/admin/auth/me` | Get current admin info |
+| POST | `/admin/auth/change-password` | Change admin password |
+| GET | `/admin/dashboard` | Aggregate stats and recent activity |
+| GET | `/admin/users` | List user profiles (paginated) |
+| GET | `/admin/users/:id` | Get user detail with emotional profile, topics |
+| PATCH | `/admin/users/:id` | Update user profile fields |
+| POST | `/admin/users/:id/age` | Set user age (birth_year, birth_month) |
+| DELETE | `/admin/users/:id` | Delete a user |
+| GET | `/admin/users/:id/parental` | Get parental controls for a child |
+| POST | `/admin/users/:id/parental` | Set parental controls |
+| DELETE | `/admin/users/:id/parental` | Remove parental controls |
+| GET | `/admin/safety/events` | List guardrail events (filterable, paginated) |
+| GET | `/admin/safety/patterns` | List jailbreak detection patterns |
+| POST | `/admin/safety/patterns` | Add a jailbreak pattern |
+| DELETE | `/admin/safety/patterns/:id` | Delete a jailbreak pattern |
+| GET | `/admin/voice/speakers` | List enrolled speakers |
+| PATCH | `/admin/voice/speakers/:id` | Update speaker (name, threshold) |
+| DELETE | `/admin/voice/speakers/:id` | Remove speaker enrollment |
+| GET | `/admin/devices` | List HA devices with aliases (paginated) |
+| GET | `/admin/devices/patterns` | List command patterns (paginated) |
+| PATCH | `/admin/devices/patterns/:id` | Update a command pattern |
+| DELETE | `/admin/devices/patterns/:id` | Delete a command pattern |
+| GET | `/admin/evolution/profiles` | List emotional profiles with top topics |
+| GET | `/admin/evolution/logs` | List nightly evolution run logs |
+| GET | `/admin/evolution/mistakes` | List mistake log (filterable) |
+| PATCH | `/admin/evolution/mistakes/:id` | Mark a mistake as resolved |
+| GET | `/admin/system/hardware` | Hardware profile and GPU info |
+| GET | `/admin/system/models` | Model configuration |
+| GET | `/admin/system/services` | Discovered services |
+| GET | `/admin/system/backups` | Backup history |
+| GET | `/admin/system/interactions` | Browse interactions (filterable, paginated) |
+
+</details>
+
 ## 📁 Project Structure
 
 ```
 atlas-cortex/
+├── admin/                         # Vue 3 Admin Panel (SPA)
+│   ├── src/
+│   │   ├── views/                 #   10 admin views (dashboard, users, safety, etc.)
+│   │   ├── components/            #   Reusable components (NavBar, DataTable, etc.)
+│   │   ├── router/                #   Vue Router with auth guards
+│   │   ├── stores/                #   Pinia auth store
+│   │   └── api.js                 #   API client with JWT handling
+│   ├── package.json
+│   └── vite.config.js
 ├── cortex/                        # Core Python package
 │   ├── server.py                  # OpenAI-compatible FastAPI server
+│   ├── auth.py                    # JWT authentication (bcrypt + PyJWT)
+│   ├── admin_api.py               # Admin REST API (30+ endpoints)
 │   ├── pipe.py                    # Open WebUI Pipe function
 │   ├── db.py                      # SQLite schema (50+ tables, WAL mode)
 │   ├── pipeline/                  # 4-layer processing pipeline
@@ -285,7 +430,7 @@ atlas-cortex/
 ├── docs/                          # Design documentation (17 files)
 ├── seeds/
 │   └── command_patterns.sql       # Initial HA command patterns
-├── tests/                         # 285 tests
+├── tests/                         # 415 tests
 ├── requirements.txt
 └── pytest.ini
 ```
@@ -303,7 +448,7 @@ python -m pytest tests/test_safety.py -v
 python -m pytest tests/test_voice.py -v
 ```
 
-**Current status: 285 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, and learning modules.
+**Current status: 415 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, and admin modules.
 
 ## 📊 Implementation Status
 
@@ -313,15 +458,16 @@ python -m pytest tests/test_voice.py -v
 |-------|--------|--------|-------------|
 | C0 | Installer & Backend | ✅ Complete | LLM provider abstraction, GPU detection, CLI installer |
 | C1 | Core Pipeline | ✅ Complete | 4-layer pipeline, sentiment, instant answers, filler streaming |
-| C3a | Voice Identity | 🔲 Planned | Speaker recognition, enrollment, age estimation |
-| C4 | Emotional Evolution | 🔲 Planned | Rapport tracking, personality drift, proactive suggestions |
-| C5 | Memory System | 🔲 Planned | HOT/COLD paths, vector search, BM25, RRF fusion |
-| C6 | User Profiles | 🔲 Planned | Age-awareness, onboarding, parental controls |
-| C7 | Avatar System | 🔲 Planned | Phoneme-to-viseme lip-sync, emotion expressions |
+| C3a | Voice Identity | ✅ Complete | Speaker recognition, enrollment, hybrid age estimation |
+| C4 | Emotional Evolution | ✅ Complete | Rapport tracking, personality drift, proactive suggestions |
+| C5 | Memory System | ✅ Complete | HOT/COLD paths, vector search, BM25, RRF fusion |
+| C6 | User Profiles | ✅ Complete | Age-awareness, onboarding, parental controls |
+| C7 | Avatar System | ✅ Complete | Phoneme-to-viseme lip-sync, emotion expressions |
 | C9 | Backup & Restore | ✅ Complete | Automated nightly backups, one-command restore |
-| C10 | Context & Hardware | 🔲 Planned | Context windows, compaction, overflow recovery |
+| C10 | Context Management | ✅ Complete | Context windows, compaction, overflow recovery |
 | C11 | Voice & Speech | ✅ Complete | TTS providers (Orpheus + Piper), emotion, streaming |
 | C12 | Safety Guardrails | ✅ Complete | Content tiers, jailbreak defense, PII redaction |
+| — | Admin Web Panel | ✅ Complete | Vue 3 dashboard, JWT auth, 30+ REST endpoints |
 
 ### Part 2: Integration Layer
 
