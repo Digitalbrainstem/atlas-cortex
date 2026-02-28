@@ -23,8 +23,11 @@ bcrypt>=4.0.0
 # sqlite3 is included in the Python standard library
 
 # ── Part 2: Integration Layer ─────────────────────────────────────
-# Service discovery — mDNS/Zeroconf (optional, falls back to HTTP probes)
-# zeroconf>=0.131.0      # uncomment to enable mDNS scanning
+# Service discovery — mDNS/Zeroconf
+zeroconf>=0.131.0
+
+# ── Part 2.5: Satellite System ────────────────────────────────────
+asyncssh>=2.14.0
 
 # Vector memory — ChromaDB (optional, falls back to FTS5)
 # chromadb>=0.4.0        # uncomment to enable vector search

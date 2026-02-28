@@ -44,6 +44,16 @@ const routes = [
     component: () => import('../views/DevicesView.vue'),
   },
   {
+    path: '/satellites',
+    name: 'satellites',
+    component: () => import('../views/SatellitesView.vue'),
+  },
+  {
+    path: '/satellites/:id',
+    name: 'satellite-detail',
+    component: () => import('../views/SatelliteDetailView.vue'),
+  },
+  {
     path: '/evolution',
     name: 'evolution',
     component: () => import('../views/EvolutionView.vue'),
