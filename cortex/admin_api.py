@@ -664,3 +664,227 @@ async def get_interactions(
         params + [per_page, offset],
     )
     return {"interactions": _rows(cur), "total": total, "page": page, "per_page": per_page}
+
+
+# ══════════════════════════════════════════════════════════════════
+# SATELLITES
+# ══════════════════════════════════════════════════════════════════
+
+# Lazy-init singleton to avoid import-time side effects
+_satellite_manager = None
+
+
+def _get_satellite_manager():
+    global _satellite_manager
+    if _satellite_manager is None:
+        from cortex.satellite.manager import SatelliteManager
+        _satellite_manager = SatelliteManager()
+    return _satellite_manager
+
+
+class SatelliteAddRequest(BaseModel):
+    ip_address: str
+    mode: str = "dedicated"
+    ssh_username: str = "atlas"
+    ssh_password: str = "atlas-setup"
+    service_port: int = 5110
+
+
+class SatelliteProvisionRequest(BaseModel):
+    room: str
+    display_name: str = ""
+    features: dict = Field(default_factory=dict)
+    ssh_password: str = "atlas-setup"
+
+
+class SatelliteUpdateRequest(BaseModel):
+    display_name: str | None = None
+    room: str | None = None
+    wake_word: str | None = None
+    volume: float | None = None
+    mic_gain: float | None = None
+    vad_sensitivity: float | None = None
+    features: dict | None = None
+    filler_enabled: bool | None = None
+    filler_threshold_ms: int | None = None
+
+
+@router.get("/satellites")
+async def list_satellites(
+    status: str | None = Query(None),
+    mode: str | None = Query(None),
+    admin: dict = Depends(require_admin),
+):
+    """List all satellites with optional filters."""
+    mgr = _get_satellite_manager()
+    satellites = mgr.list_satellites(status=status, mode=mode)
+    # Include announced (undiscovered) count
+    announced = await mgr.get_discovered()
+    return {
+        "satellites": satellites,
+        "total": len(satellites),
+        "announced_count": len(announced),
+    }
+
+
+@router.get("/satellites/announced")
+async def list_announced(admin: dict = Depends(require_admin)):
+    """List satellites that have self-announced but aren't yet registered."""
+    mgr = _get_satellite_manager()
+    announced = await mgr.get_discovered()
+    return {
+        "announced": [
+            {
+                "ip_address": s.ip_address,
+                "hostname": s.hostname,
+                "mac_address": s.mac_address,
+                "port": s.port,
+                "properties": s.properties,
+                "discovered_at": s.discovered_at,
+            }
+            for s in announced
+        ]
+    }
+
+
+@router.get("/satellites/{satellite_id}")
+async def get_satellite(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Get satellite detail with hardware info."""
+    mgr = _get_satellite_manager()
+    sat = mgr.get_satellite(satellite_id)
+    if not sat:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    return sat
+
+
+@router.post("/satellites/discover")
+async def discover_satellites(admin: dict = Depends(require_admin)):
+    """Trigger a one-time network scan (fallback for mDNS-blocked networks)."""
+    mgr = _get_satellite_manager()
+    found = await mgr.scan_now()
+    return {
+        "found": [
+            {
+                "ip_address": s.ip_address,
+                "hostname": s.hostname,
+                "mac_address": s.mac_address,
+                "discovery_method": s.discovery_method,
+            }
+            for s in found
+        ],
+        "count": len(found),
+    }
+
+
+@router.post("/satellites/add")
+async def add_satellite(req: SatelliteAddRequest, admin: dict = Depends(require_admin)):
+    """Manually add a satellite by IP address."""
+    mgr = _get_satellite_manager()
+    sat = await mgr.add_manual(
+        ip_address=req.ip_address,
+        mode=req.mode,
+        ssh_username=req.ssh_username,
+        ssh_password=req.ssh_password,
+        service_port=req.service_port,
+    )
+    return sat
+
+
+@router.post("/satellites/{satellite_id}/detect")
+async def detect_hardware(
+    satellite_id: str,
+    ssh_password: str = "atlas-setup",
+    admin: dict = Depends(require_admin),
+):
+    """SSH into a satellite and detect its hardware."""
+    mgr = _get_satellite_manager()
+    try:
+        profile = await mgr.detect_hardware(satellite_id, ssh_password=ssh_password)
+        return {
+            "satellite_id": satellite_id,
+            "platform": profile.platform_short(),
+            "hardware": profile.to_dict(),
+            "capabilities": profile.capabilities_dict(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/satellites/{satellite_id}/provision")
+async def provision_satellite(
+    satellite_id: str,
+    req: SatelliteProvisionRequest,
+    admin: dict = Depends(require_admin),
+):
+    """Start provisioning a satellite."""
+    mgr = _get_satellite_manager()
+    try:
+        result = await mgr.provision(
+            satellite_id=satellite_id,
+            room=req.room,
+            display_name=req.display_name,
+            features=req.features,
+            ssh_password=req.ssh_password,
+        )
+        return {
+            "success": result.success,
+            "error": result.error,
+            "steps": [
+                {"name": s.name, "status": s.status, "detail": s.detail}
+                for s in result.steps
+            ],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/satellites/{satellite_id}")
+async def update_satellite(
+    satellite_id: str,
+    req: SatelliteUpdateRequest,
+    admin: dict = Depends(require_admin),
+):
+    """Update satellite configuration."""
+    mgr = _get_satellite_manager()
+    updates = req.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    try:
+        sat = await mgr.reconfigure(satellite_id, **updates)
+        return sat
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/satellites/{satellite_id}/restart")
+async def restart_satellite(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Restart the satellite agent service."""
+    mgr = _get_satellite_manager()
+    sent = await mgr.restart_agent(satellite_id)
+    return {"sent": sent, "detail": "Restart command sent" if sent else "Satellite not connected"}
+
+
+@router.post("/satellites/{satellite_id}/identify")
+async def identify_satellite(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Blink LEDs on a satellite for physical identification."""
+    mgr = _get_satellite_manager()
+    sent = await mgr.identify(satellite_id)
+    return {"sent": sent}
+
+
+@router.post("/satellites/{satellite_id}/test")
+async def test_satellite_audio(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Run an audio test on the satellite."""
+    mgr = _get_satellite_manager()
+    sent = await mgr.test_audio(satellite_id)
+    return {"sent": sent}
+
+
+@router.delete("/satellites/{satellite_id}")
+async def remove_satellite(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Remove and deregister a satellite."""
+    mgr = _get_satellite_manager()
+    await mgr.remove(satellite_id)
+    return {"removed": True}
