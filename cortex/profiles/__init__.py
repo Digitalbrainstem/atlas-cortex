@@ -77,6 +77,68 @@ def get_age_group(age: int | None) -> str:
     return "adult"
 
 
+def set_user_age(
+    conn: Any,
+    user_id: str,
+    *,
+    birth_year: int,
+    birth_month: int = 1,
+) -> dict[str, Any]:
+    """Set a user's age from their birth year and month (admin / self-report).
+
+    Computes current age, maps to age group, and stores with high confidence.
+    This is the **primary** age source — always preferred over voice estimation.
+    """
+    now = datetime.now(tz=timezone.utc)
+    age = now.year - birth_year
+    if now.month < birth_month:
+        age -= 1  # birthday hasn't happened yet this year
+    age = max(0, age)
+    group = get_age_group(age)
+
+    update_user_profile(
+        conn,
+        user_id,
+        age=age,
+        age_group=group,
+        age_confidence=0.95,
+    )
+    return {"user_id": user_id, "age": age, "age_group": group, "age_confidence": 0.95}
+
+
+def resolve_age_group(
+    profile: dict[str, Any],
+    voice_estimate: tuple[str, float] | None = None,
+) -> tuple[str, float]:
+    """Hybrid age resolution — admin-set age wins, voice is safety fallback.
+
+    Priority:
+      1. Admin/self-reported age (confidence 0.95) — stored in profile
+      2. Voice-based estimate (confidence ~0.3) — only for unknown speakers
+      3. Default "unknown" → safety guardrails treat as child-safe
+
+    The voice estimator uses a threshold of ~25 years so that the ±8 year
+    error band keeps real children safely in the child bucket while allowing
+    older teens (15-16) who sound adult to pass.
+
+    Returns ``(age_group, confidence)``.
+    """
+    # 1. If admin set the age, always use it
+    stored_confidence = profile.get("age_confidence", 0.0) or 0.0
+    stored_group = profile.get("age_group", "unknown")
+    if stored_confidence >= 0.5 and stored_group != "unknown":
+        return (stored_group, stored_confidence)
+
+    # 2. Voice-based estimate as safety fallback
+    if voice_estimate is not None:
+        voice_group, voice_conf = voice_estimate
+        if voice_group != "unknown" and voice_conf > 0.0:
+            return (voice_group, voice_conf)
+
+    # 3. Unknown — safety guardrails will default to child-safe
+    return ("unknown", 0.0)
+
+
 def age_appropriate_system_prompt(profile: dict[str, Any]) -> str:
     """Return a system-prompt modifier based on the user's age group."""
     age_group = profile.get("age_group", "unknown")
