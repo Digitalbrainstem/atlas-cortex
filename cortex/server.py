@@ -20,12 +20,16 @@ import logging
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from cortex.admin_api import router as admin_router
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
@@ -38,6 +42,18 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Atlas Cortex", version="1.0.0")
+
+# CORS for admin SPA dev server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount admin API router
+app.include_router(admin_router)
 
 _provider = None
 _db_conn = None
@@ -253,6 +269,16 @@ async def create_speech(req: SpeechRequest):
         media_type="audio/wav",
         headers={"Transfer-Encoding": "chunked"},
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Admin SPA static files
+# ──────────────────────────────────────────────────────────────────
+
+_ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
+
+if _ADMIN_DIST.is_dir():
+    app.mount("/admin", StaticFiles(directory=str(_ADMIN_DIST), html=True), name="admin-spa")
 
 
 # ──────────────────────────────────────────────────────────────────

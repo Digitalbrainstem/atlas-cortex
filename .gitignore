@@ -35,3 +35,8 @@ secrets/
 
 # Docker
 docker-compose.override.yml
+
+# Admin panel (Vue SPA)
+admin/node_modules/
+admin/dist/
+admin/.vscode/
