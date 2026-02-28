@@ -10,7 +10,7 @@ const error = ref('')
 const loading = ref(false)
 
 onMounted(() => {
-  if (isAuthenticated()) router.replace('/dashboard')
+  if (isAuthenticated()) router.replace({ name: 'dashboard' })
 })
 
 async function handleLogin() {
@@ -18,7 +18,7 @@ async function handleLogin() {
   loading.value = true
   try {
     await login(username.value, password.value)
-    router.push('/dashboard')
+    router.push({ name: 'dashboard' })
   } catch (e) {
     error.value = e.message || 'Login failed'
   } finally {
