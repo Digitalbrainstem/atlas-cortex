@@ -9,6 +9,12 @@ pydantic>=2.0
 # ── Sentiment Analysis ────────────────────────────────────────────
 vaderSentiment>=3.3.2
 
+# ── Voice / TTS ──────────────────────────────────────────────────
+aiohttp>=3.9.0
+
+# ── Safety / Embeddings ──────────────────────────────────────────
+numpy>=1.24.0
+
 # ── Database ─────────────────────────────────────────────────────
 # sqlite3 is included in the Python standard library
 
