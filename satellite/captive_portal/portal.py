@@ -162,9 +162,46 @@ def _save_wifi_config(ssid: str, password: str, country: str):
 # Hotspot (AP) management via NetworkManager
 # ---------------------------------------------------------------------------
 
+def _wait_for_wifi_hardware(timeout: int = 60) -> bool:
+    """Wait for the WiFi adapter to become available."""
+    LOG.info("Waiting for WiFi hardware (wlan0)...")
+
+    # Unblock WiFi radio
+    try:
+        subprocess.run(["rfkill", "unblock", "wifi"], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"],
+                capture_output=True, text=True, timeout=10,
+            )
+            for line in result.stdout.strip().splitlines():
+                parts = line.split(":")
+                if len(parts) >= 2 and parts[1] == "wifi":
+                    LOG.info("WiFi adapter found: %s (state: %s)", parts[0], parts[2] if len(parts) > 2 else "unknown")
+                    return True
+        except Exception:
+            pass
+        time.sleep(2)
+
+    LOG.error("WiFi adapter not found after %ds", timeout)
+    return False
+
+
 def start_hotspot() -> bool:
     """Create a WiFi hotspot using NetworkManager."""
     LOG.info("Starting hotspot: %s", AP_SSID)
+
+    # Ensure WiFi radio is unblocked
+    try:
+        subprocess.run(["rfkill", "unblock", "wifi"], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
     try:
         # Remove any previous atlas hotspot connection
         subprocess.run(
@@ -879,17 +916,24 @@ def main():
 
     LOG.info("No WiFi connection — starting captive portal")
 
-    # Start the hotspot
-    if not start_hotspot():
-        LOG.error("Could not start WiFi hotspot. Is wlan0 available?")
-        # Retry a few times
-        for attempt in range(3):
-            time.sleep(5)
-            if start_hotspot():
-                break
-        else:
-            LOG.error("Failed to start hotspot after retries — exiting")
-            sys.exit(1)
+    # Wait for WiFi hardware to be available
+    if not _wait_for_wifi_hardware(timeout=90):
+        LOG.error("No WiFi hardware found — cannot start captive portal")
+        sys.exit(1)
+
+    # Start the hotspot (retry with increasing delays)
+    hotspot_started = False
+    for attempt in range(6):
+        if start_hotspot():
+            hotspot_started = True
+            break
+        delay = 5 * (attempt + 1)
+        LOG.warning("Hotspot attempt %d failed, retrying in %ds...", attempt + 1, delay)
+        time.sleep(delay)
+
+    if not hotspot_started:
+        LOG.error("Failed to start hotspot after all retries — exiting")
+        sys.exit(1)
 
     # Start DNS server
     dns_server = None
