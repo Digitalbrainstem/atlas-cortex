@@ -1,0 +1,13 @@
+# =============================================
+#  Atlas Satellite — WiFi Configuration
+# =============================================
+#  Edit these values, then eject the SD card.
+#  The satellite connects to WiFi on first boot.
+#
+#  Alternatively, just power on and connect your
+#  phone to the "Atlas-Setup" WiFi hotspot —
+#  a setup page will guide you through it.
+#
+WIFI_SSID=YOUR_WIFI_NAME
+WIFI_PASSWORD=YOUR_WIFI_PASSWORD
+WIFI_COUNTRY=US
