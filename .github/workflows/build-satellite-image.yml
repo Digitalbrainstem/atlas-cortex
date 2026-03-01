@@ -127,27 +127,15 @@ jobs:
           HASH=$(openssl passwd -6 "atlas-setup")
           echo "atlas:${HASH}" | sudo tee /mnt/pi-boot/userconf.txt > /dev/null
 
-          # ── WiFi config file (user edits this after flashing) ──
-          sudo tee /mnt/pi-boot/atlas-wifi.txt > /dev/null << 'WIFICFG'
-          # =============================================
-          #  Atlas Satellite — WiFi Configuration
-          # =============================================
-          #  Edit these values, then eject the SD card.
-          #  The satellite connects to WiFi on first boot.
-          #
-          WIFI_SSID=YOUR_WIFI_NAME
-          WIFI_PASSWORD=YOUR_WIFI_PASSWORD
-          WIFI_COUNTRY=US
-          WIFICFG
+          # Copy boot config files from repo (avoids heredoc-in-YAML issues)
+          sudo cp satellite/boot-files/atlas-wifi.txt /mnt/pi-boot/atlas-wifi.txt
+          sudo cp satellite/boot-files/atlas-satellite.conf /mnt/pi-boot/atlas-satellite.conf
 
-          # ── Optional satellite overrides ──
-          sudo tee /mnt/pi-boot/atlas-satellite.conf > /dev/null << 'ATLASCONF'
-          # Atlas Satellite Configuration (OPTIONAL)
-          # The satellite auto-discovers the server via mDNS.
-          # Only edit if you need to override defaults:
-          # ATLAS_SERVER_URL=ws://192.168.1.100:5100/ws/satellite
-          # ATLAS_HOSTNAME=atlas-sat-kitchen
-          ATLASCONF
+          # Verify boot partition files exist
+          echo "=== Boot partition contents ==="
+          ls -la /mnt/pi-boot/atlas-wifi.txt /mnt/pi-boot/atlas-satellite.conf /mnt/pi-boot/ssh /mnt/pi-boot/userconf.txt
+          echo "=== atlas-wifi.txt ==="
+          cat /mnt/pi-boot/atlas-wifi.txt
 
       - name: Install WiFi early-boot service
         run: |
@@ -254,8 +242,8 @@ jobs:
           sudo tee /mnt/pi-root/etc/systemd/system/atlas-captive-portal.service > /dev/null << 'CPUNIT'
           [Unit]
           Description=Atlas Satellite Captive Portal WiFi Setup
-          After=NetworkManager.service atlas-wifi-setup.service
-          Wants=NetworkManager.service
+          After=NetworkManager.service atlas-wifi-setup.service sys-subsystem-net-devices-wlan0.device
+          Wants=NetworkManager.service sys-subsystem-net-devices-wlan0.device
 
           [Service]
           Type=simple
