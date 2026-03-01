@@ -24,7 +24,12 @@ except ImportError:
 
 
 class AudioCapture:
-    """Captures audio from an ALSA device."""
+    """Captures audio from an ALSA device.
+
+    Some codecs (e.g. WM8960 on ReSpeaker) only support stereo capture.
+    When the hardware requires stereo but the pipeline needs mono, we
+    capture in stereo and downmix by averaging the two channels.
+    """
 
     def __init__(
         self,
@@ -41,26 +46,40 @@ class AudioCapture:
         self.mic_gain = mic_gain
         self._pcm: Optional[alsaaudio.PCM] = None
         self._running = False
+        self._hw_channels = channels  # actual channels opened on hardware
 
     def start(self) -> None:
         if alsaaudio is None:
             raise RuntimeError("pyalsaaudio not installed")
+        self._hw_channels = self.channels
+        try:
+            self._open_pcm(self._hw_channels)
+        except alsaaudio.ALSAAudioError:
+            if self.channels == 1:
+                logger.info("Mono capture failed, trying stereo with downmix")
+                self._hw_channels = 2
+                self._open_pcm(self._hw_channels)
+            else:
+                raise
+        self._running = True
+        logger.info(
+            "Audio capture started: device=%s rate=%d hw_ch=%d out_ch=%d period=%d",
+            self.device, self.sample_rate, self._hw_channels,
+            self.channels, self.period_size,
+        )
+
+    def _open_pcm(self, channels: int) -> None:
+        if self._pcm:
+            self._pcm.close()
         self._pcm = alsaaudio.PCM(
             alsaaudio.PCM_CAPTURE,
             alsaaudio.PCM_NORMAL,
             device=self.device,
         )
-        self._pcm.setchannels(self.channels)
+        self._pcm.setchannels(channels)
         self._pcm.setrate(self.sample_rate)
         self._pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
         self._pcm.setperiodsize(self.period_size)
-        self._running = True
-        logger.info(
-            "Audio capture started: device=%s rate=%d period=%d",
-            self.device,
-            self.sample_rate,
-            self.period_size,
-        )
 
     def stop(self) -> None:
         self._running = False
@@ -70,18 +89,30 @@ class AudioCapture:
         logger.info("Audio capture stopped")
 
     def read(self) -> Optional[bytes]:
-        """Read one period of audio. Returns raw PCM bytes or None."""
+        """Read one period of audio. Returns raw mono PCM bytes or None."""
         if not self._pcm or not self._running:
             return None
         try:
             length, data = self._pcm.read()
             if length > 0:
+                if self._hw_channels == 2 and self.channels == 1:
+                    data = self._stereo_to_mono(data)
                 if self.mic_gain != 1.0:
                     data = self._apply_gain(data, self.mic_gain)
                 return data
         except alsaaudio.ALSAAudioError as e:
             logger.warning("ALSA read error: %s", e)
         return None
+
+    @staticmethod
+    def _stereo_to_mono(data: bytes) -> bytes:
+        """Downmix interleaved stereo S16_LE to mono by averaging channels."""
+        samples = struct.unpack(f"<{len(data) // 2}h", data)
+        mono = [
+            (samples[i] + samples[i + 1]) // 2
+            for i in range(0, len(samples), 2)
+        ]
+        return struct.pack(f"<{len(mono)}h", *mono)
 
     @staticmethod
     def _apply_gain(data: bytes, gain: float) -> bytes:
