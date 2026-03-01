@@ -241,6 +241,38 @@ jobs:
           sudo ln -sf /etc/systemd/system/atlas-wifi-setup.service \
               /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-wifi-setup.service
 
+      - name: Install captive portal WiFi setup
+        run: |
+          # If no WiFi is configured (atlas-wifi.txt has placeholders), the
+          # captive portal creates a hotspot ("Atlas-Setup") and serves a
+          # mobile-friendly web page where the user picks their network.
+          PORTAL_DIR="/mnt/pi-root/opt/atlas-captive-portal"
+          sudo mkdir -p "$PORTAL_DIR"
+          sudo cp satellite/captive_portal/portal.py "$PORTAL_DIR/portal.py"
+
+          # Systemd service — runs after NetworkManager, checks for WiFi
+          sudo tee /mnt/pi-root/etc/systemd/system/atlas-captive-portal.service > /dev/null << 'CPUNIT'
+          [Unit]
+          Description=Atlas Satellite Captive Portal WiFi Setup
+          After=NetworkManager.service atlas-wifi-setup.service
+          Wants=NetworkManager.service
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/python3 /opt/atlas-captive-portal/portal.py
+          Restart=on-failure
+          RestartSec=5
+          TimeoutStartSec=infinity
+
+          [Install]
+          WantedBy=multi-user.target
+          CPUNIT
+
+          # Enable the service
+          sudo mkdir -p /mnt/pi-root/etc/systemd/system/multi-user.target.wants
+          sudo ln -sf /etc/systemd/system/atlas-captive-portal.service \
+              /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-captive-portal.service
+
       - name: Install atlas-announce service into root partition
         run: |
           # ── atlas-announce script ──

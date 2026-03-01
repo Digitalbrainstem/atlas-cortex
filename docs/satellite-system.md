@@ -183,20 +183,18 @@ Admin clicks "Identify" on a satellite →
 ┌──────────────────────────────────────────────────────────┐
 │                    USER SETUP                             │
 │                                                          │
-│  1. Flash OS to SD card using ANY imaging tool:          │
-│     Raspberry Pi Imager, balenaEtcher, dd, rufus, etc.   │
-│  2. Configure these settings (method depends on tool):   │
-│     • Hostname: atlas-satellite                          │
-│     • Enable SSH: yes                                    │
-│     • Username: atlas                                    │
-│     • Password: atlas-setup                              │
-│     • Configure Wi-Fi: enter SSID + password             │
-│  3. If your tool doesn't support pre-config, Atlas       │
-│     provides an atlas-sat-prepare.sh script to apply     │
-│     them to the mounted SD card after flashing.          │
-│  4. Insert SD card, power on — done!                     │
+│  1. Flash the pre-built Atlas Satellite image to an SD   │
+│     card using ANY imaging tool (balenaEtcher, RPi       │
+│     Imager, Rufus, dd — whatever you prefer).            │
+│  2. Insert SD card, power on.                            │
+│  3. Connect your phone to the "Atlas-Setup" WiFi.        │
+│  4. A setup page opens — pick your network, enter your   │
+│     password, tap Connect.  Done!                        │
 │                                                          │
-│  (No terminal needed on the satellite itself.)           │
+│  Power users: edit atlas-wifi.txt on the boot partition  │
+│  before first boot to skip the captive portal.           │
+│                                                          │
+│  (No terminal, no SSH, no config files needed.)          │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
@@ -319,29 +317,28 @@ The easiest method — everything is baked in. A GitHub Actions pipeline automat
 fresh images from the latest Raspberry Pi OS each month.
 
 1. Download the latest image from [GitHub Releases](https://github.com/Betanu701/atlas-cortex/releases)
-   - `atlas-satellite-pi-armhf-YYYYMMDD.img.xz` — for Pi Zero 2 W, Pi 3 (32-bit)
-   - `atlas-satellite-pi-arm64-YYYYMMDD.img.xz` — for Pi 4, Pi 5 (64-bit)
+   - `atlas-satellite-pi-armhf-YYYYMMDD.img` — for Pi Zero 2 W, Pi 3 (32-bit)
+   - `atlas-satellite-pi-arm64-YYYYMMDD.img` — for Pi 4, Pi 5 (64-bit)
 2. Flash to SD card using **any tool** (Raspberry Pi Imager, balenaEtcher, Rufus, dd)
-3. **Before ejecting**, open the SD card's boot partition (FAT32 — visible on Windows)
-4. Edit **`atlas-satellite.conf`** — set your WiFi and Atlas server URL:
-   ```
-   ATLAS_SERVER_URL=ws://192.168.1.100:5100/ws/satellite
-   ATLAS_ROOM=kitchen
-   WIFI_SSID=MyNetwork
-   WIFI_PASSWORD=MyPassword
-   WIFI_COUNTRY=US
-   ATLAS_LED_TYPE=respeaker
-   ```
-5. Eject SD card, insert into device, power on
-6. The satellite auto-configures on first boot and appears in Atlas Admin → Satellites within 60 seconds
+3. Insert SD card, power on — the satellite creates a WiFi hotspot called **"Atlas-Setup"**
+4. Connect your phone or laptop to **Atlas-Setup** → a setup page opens automatically
+5. Pick your WiFi network, enter the password, tap **Connect**
+6. The satellite connects to your WiFi and auto-discovers the Atlas server via mDNS
+7. It appears in Atlas Admin → Satellites within 60 seconds
+
+**Power-user alternative (skip the captive portal):**
+Before ejecting the SD card, open the boot partition (FAT32 — visible on Windows) and edit
+**`atlas-wifi.txt`** with your network name and password. The satellite connects on boot
+without needing the captive portal.
 
 **Default credentials:** `atlas` / `atlas-setup` (SSH enabled)
 
 **What the image includes:**
 - Atlas satellite agent (pre-installed at `/opt/atlas-satellite/`)
+- **Captive portal** — creates a WiFi hotspot for zero-config setup when no WiFi is configured
+- `atlas-wifi.txt` on boot partition for power-user WiFi pre-configuration
 - `atlas-announce` mDNS service (auto-starts, broadcasts `_atlas-satellite._tcp.local`)
-- First-boot service that reads `atlas-satellite.conf`, configures WiFi, sets hostname,
-  installs Python dependencies, and starts the agent
+- First-boot service that installs Python dependencies and starts the agent
 - SSH enabled with `atlas` user
 
 **Image freshness:** A CI pipeline (`build-satellite-image.yml`) rebuilds from the latest
