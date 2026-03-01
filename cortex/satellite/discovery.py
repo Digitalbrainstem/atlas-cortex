@@ -304,12 +304,13 @@ class ServerAnnouncer:
     def __init__(self, port: int = 5100, ws_path: str = "/ws/satellite") -> None:
         self.port = port
         self.ws_path = ws_path
-        self._zeroconf = None
+        self._async_zc = None
         self._info = None
 
     async def start(self) -> None:
         try:
-            from zeroconf import ServiceInfo, Zeroconf
+            from zeroconf import ServiceInfo
+            from zeroconf.asyncio import AsyncZeroconf
 
             local_ip = _get_local_ip()
             hostname = socket.gethostname()
@@ -325,8 +326,8 @@ class ServerAnnouncer:
                     "version": "0.1.0",
                 },
             )
-            self._zeroconf = Zeroconf()
-            self._zeroconf.register_service(self._info)
+            self._async_zc = AsyncZeroconf()
+            await self._async_zc.async_register_service(self._info)
             logger.info(
                 "Server mDNS: announcing _atlas-cortex._tcp at %s:%d",
                 local_ip, self.port,
@@ -337,10 +338,10 @@ class ServerAnnouncer:
             logger.exception("Failed to start server mDNS announcement")
 
     async def stop(self) -> None:
-        if self._zeroconf and self._info:
-            self._zeroconf.unregister_service(self._info)
-            self._zeroconf.close()
-            self._zeroconf = None
+        if hasattr(self, "_async_zc") and self._async_zc and self._info:
+            await self._async_zc.async_unregister_service(self._info)
+            await self._async_zc.async_close()
+            self._async_zc = None
             self._info = None
 
 

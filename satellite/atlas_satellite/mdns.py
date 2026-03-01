@@ -47,34 +47,42 @@ class SatelliteAnnouncer:
         self._info: Optional[ServiceInfo] = None
 
     def start(self) -> None:
+        """Register mDNS service in a background thread to avoid blocking the event loop."""
         if Zeroconf is None:
             logger.warning("Cannot announce — zeroconf not installed")
             return
 
-        local_ip = _get_local_ip()
-        hostname = socket.gethostname()
+        def _register():
+            try:
+                local_ip = _get_local_ip()
+                hostname = socket.gethostname()
 
-        self._info = ServiceInfo(
-            SATELLITE_SERVICE_TYPE,
-            f"{self.satellite_id}.{SATELLITE_SERVICE_TYPE}",
-            addresses=[socket.inet_aton(local_ip)],
-            port=self.port,
-            properties={
-                "id": self.satellite_id,
-                "room": self.room,
-                "hw_type": self.hw_type,
-                "hostname": hostname,
-            },
-        )
+                self._info = ServiceInfo(
+                    SATELLITE_SERVICE_TYPE,
+                    f"{self.satellite_id}.{SATELLITE_SERVICE_TYPE}",
+                    addresses=[socket.inet_aton(local_ip)],
+                    port=self.port,
+                    properties={
+                        "id": self.satellite_id,
+                        "room": self.room,
+                        "hw_type": self.hw_type,
+                        "hostname": hostname,
+                    },
+                )
 
-        self._zeroconf = Zeroconf()
-        self._zeroconf.register_service(self._info)
-        logger.info(
-            "mDNS: announcing %s at %s:%d",
-            self.satellite_id,
-            local_ip,
-            self.port,
-        )
+                self._zeroconf = Zeroconf()
+                self._zeroconf.register_service(self._info)
+                logger.info(
+                    "mDNS: announcing %s at %s:%d",
+                    self.satellite_id,
+                    local_ip,
+                    self.port,
+                )
+            except Exception:
+                logger.exception("mDNS announcement failed in background thread")
+
+        t = threading.Thread(target=_register, daemon=True)
+        t.start()
 
     def stop(self) -> None:
         if self._zeroconf and self._info:
