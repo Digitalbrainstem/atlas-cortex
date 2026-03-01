@@ -92,6 +92,20 @@ mkdir -p "$INSTALL_DIR/cache/fillers"
 CONFIG_FILE="$INSTALL_DIR/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     HOSTNAME=$(hostname)
+
+    # Auto-detect audio device and LED type
+    AUDIO_DEV="default"
+    LED_TYPE="none"
+    if arecord -l 2>/dev/null | grep -q "seeed2micvoicec\|seeed-2mic"; then
+        AUDIO_DEV="hw:0,0"
+        LED_TYPE="respeaker_2mic"
+        echo "  ✓ Detected ReSpeaker 2-Mic HAT"
+    elif arecord -l 2>/dev/null | grep -q "seeed4micvoicec\|seeed-4mic"; then
+        AUDIO_DEV="hw:0,0"
+        LED_TYPE="respeaker_4mic"
+        echo "  ✓ Detected ReSpeaker 4-Mic Array"
+    fi
+
     cat > "$CONFIG_FILE" << EOF
 {
   "satellite_id": "sat-$HOSTNAME",
@@ -103,9 +117,9 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "volume": 0.7,
   "mic_gain": 0.8,
   "vad_sensitivity": 2,
-  "audio_device_in": "default",
-  "audio_device_out": "default",
-  "led_type": "none",
+  "audio_device_in": "$AUDIO_DEV",
+  "audio_device_out": "$AUDIO_DEV",
+  "led_type": "$LED_TYPE",
   "wake_word_enabled": false,
   "filler_enabled": true,
   "features": {}

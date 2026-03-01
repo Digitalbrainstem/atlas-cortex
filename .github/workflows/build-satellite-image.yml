@@ -373,6 +373,14 @@ jobs:
           apt-get install -y -qq python3 python3-venv python3-dev \
               libasound2-dev avahi-utils i2c-tools
 
+          # ── Auto-detect ReSpeaker HAT and set defaults ──
+          if i2cdetect -y 1 2>/dev/null | grep -q "1a"; then
+              echo "Detected WM8960 codec (ReSpeaker HAT) on I2C"
+              AUDIO_IN="${ATLAS_AUDIO_IN:-hw:0,0}"
+              AUDIO_OUT="${ATLAS_AUDIO_OUT:-hw:0,0}"
+              LED="${ATLAS_LED_TYPE:-respeaker_2mic}"
+          fi
+
           # ── Create Python venv + install deps ──
           INSTALL_DIR="/opt/atlas-satellite"
           python3 -m venv "$INSTALL_DIR/.venv"
