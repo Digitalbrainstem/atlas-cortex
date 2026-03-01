@@ -45,3 +45,6 @@ admin/.vscode/
 /node_modules/
 /package.json
 /package-lock.json
+
+# Copilot workspace
+.github/copilot-instructions.md
