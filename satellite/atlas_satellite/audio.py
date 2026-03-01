@@ -54,6 +54,12 @@ class AudioCapture:
         self._hw_channels = self.channels
         try:
             self._open_pcm(self._hw_channels)
+            # Verify actual channel count by reading a test frame
+            length, data = self._pcm.read()
+            expected_mono = self.period_size * 2
+            if len(data) > expected_mono and self.channels == 1:
+                logger.info("Hardware returns stereo despite mono request, enabling downmix")
+                self._hw_channels = 2
         except alsaaudio.ALSAAudioError:
             if self.channels == 1:
                 logger.info("Mono capture failed, trying stereo with downmix")
@@ -95,7 +101,11 @@ class AudioCapture:
         try:
             length, data = self._pcm.read()
             if length > 0:
-                if self._hw_channels == 2 and self.channels == 1:
+                # Detect actual stereo even if we requested mono
+                expected_mono = self.period_size * 2  # 16-bit mono
+                if len(data) > expected_mono and self.channels == 1:
+                    data = self._stereo_to_mono(data)
+                elif self._hw_channels == 2 and self.channels == 1:
                     data = self._stereo_to_mono(data)
                 if self.mic_gain != 1.0:
                     data = self._apply_gain(data, self.mic_gain)
@@ -148,10 +158,13 @@ class AudioPlayback:
     def _play_pcm_sync(self, audio_data: bytes, sample_rate: int) -> None:
         with self._lock:
             try:
-                hw_channels = self.channels
+                logger.info("Playing %d bytes at %dHz on %s", len(audio_data), sample_rate, self.device)
+                # Try stereo first — many codecs (WM8960) only support stereo
+                # and setchannels(1) silently succeeds but data is misinterpreted
+                hw_channels = 2
                 pcm = self._open_playback(hw_channels, sample_rate)
-                if pcm is None and self.channels == 1:
-                    hw_channels = 2
+                if pcm is None:
+                    hw_channels = self.channels
                     pcm = self._open_playback(hw_channels, sample_rate)
                 if pcm is None:
                     logger.error("Could not open playback device %s", self.device)
@@ -172,6 +185,7 @@ class AudioPlayback:
                     pcm.write(chunk)
 
                 pcm.close()
+                logger.info("Playback complete (%d bytes)", len(audio_data))
             except Exception:
                 logger.exception("Audio playback error")
 

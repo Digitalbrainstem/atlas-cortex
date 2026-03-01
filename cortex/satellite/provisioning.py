@@ -365,14 +365,11 @@ class ProvisioningEngine:
         """Generate the Atlas server SSH keypair if it doesn't exist."""
         _SSH_KEY_DIR.mkdir(parents=True, exist_ok=True)
         if not _SSH_PRIVATE_KEY.exists():
-            import asyncio
-            proc = await asyncio.create_subprocess_exec(
-                "ssh-keygen", "-t", "ed25519", "-f", str(_SSH_PRIVATE_KEY),
-                "-N", "", "-C", "atlas-cortex-satellite",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.communicate()
+            import asyncssh
+            key = asyncssh.generate_private_key("ssh-ed25519", comment="atlas-cortex-satellite")
+            key.write_private_key(str(_SSH_PRIVATE_KEY))
+            key.write_public_key(str(_SSH_PUBLIC_KEY))
+            _SSH_PRIVATE_KEY.chmod(0o600)
             logger.info("Generated satellite SSH key: %s", _SSH_PRIVATE_KEY)
         return _SSH_PRIVATE_KEY
 

@@ -32,6 +32,150 @@ const provisionSteps = ref([])
 
 const satId = computed(() => route.params.id)
 
+// Debounced live push for sliders
+let _volumeTimer = null
+function onVolumeInput() {
+  clearTimeout(_volumeTimer)
+  _volumeTimer = setTimeout(() => {
+    api.post(`/admin/satellites/${satId.value}/command`, { action: 'volume', params: { level: form.value.volume } }).catch(() => {})
+  }, 150)
+}
+
+// LED configuration
+const ledPatterns = ref({})
+const ledLoading = ref(false)
+const showAddPattern = ref(false)
+const newPatternName = ref('')
+
+const ledStates = ['idle', 'listening', 'thinking', 'speaking', 'error', 'muted', 'wakeword']
+
+// TTS Preview
+const ttsText = ref('Hello, I am Atlas. How can I help you today?')
+const ttsPlaying = ref(false)
+const ttsVoices = ref([])
+const selectedVoice = ref('')
+
+// Filler preview
+const fillerSentiment = ref('greeting')
+const fillerPlaying = ref(false)
+
+async function fetchTtsVoices() {
+  try {
+    const data = await api.get('/admin/tts/voices')
+    ttsVoices.value = data.voices || []
+  } catch { /* ignore */ }
+}
+
+async function playTtsPreview(target) {
+  ttsPlaying.value = true
+  try {
+    if (target === 'browser') {
+      const resp = await fetch(`/admin/tts/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + btoa('admin:atlas-admin') },
+        body: JSON.stringify({ text: ttsText.value, voice: selectedVoice.value || undefined, target: 'browser' })
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audio.onended = () => { URL.revokeObjectURL(url); ttsPlaying.value = false }
+      audio.play()
+      return
+    }
+    // Push to satellite
+    await api.post('/admin/tts/preview', { text: ttsText.value, voice: selectedVoice.value || undefined, target: satId.value })
+    success.value = 'Audio sent to satellite'
+  } catch (e) { error.value = e.message }
+  ttsPlaying.value = false
+}
+
+async function playFiller(target) {
+  fillerPlaying.value = true
+  try {
+    if (target === 'browser') {
+      const resp = await fetch(`/admin/tts/filler_preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + btoa('admin:atlas-admin') },
+        body: JSON.stringify({ sentiment: fillerSentiment.value, target: 'browser' })
+      })
+      if (!resp.ok) throw new Error(await resp.text())
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audio.onended = () => { URL.revokeObjectURL(url); fillerPlaying.value = false }
+      audio.play()
+      return
+    }
+    const result = await api.post('/admin/tts/filler_preview', { sentiment: fillerSentiment.value, target: satId.value })
+    success.value = `Filler sent: "${result.filler}"`
+  } catch (e) { error.value = e.message }
+  fillerPlaying.value = false
+}
+
+async function fetchLedConfig() {
+  try {
+    const data = await api.get(`/admin/satellites/${satId.value}/led_config`)
+    ledPatterns.value = data.patterns || {}
+  } catch { /* use defaults */ }
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => Math.max(0, Math.min(255, x)).toString(16).padStart(2, '0')).join('')
+}
+
+function hexToRgb(hex) {
+  const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i)
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 }
+}
+
+function patternColor(name) {
+  const p = ledPatterns.value[name]
+  return p ? rgbToHex(p.r, p.g, p.b) : '#000000'
+}
+
+function patternBrightness(name) {
+  return ledPatterns.value[name]?.brightness ?? 0.4
+}
+
+let _ledTimer = null
+function onLedChange(name, hex, brightness) {
+  const rgb = hexToRgb(hex)
+  ledPatterns.value[name] = { ...rgb, brightness: parseFloat(brightness) }
+  clearTimeout(_ledTimer)
+  _ledTimer = setTimeout(() => {
+    api.patch(`/admin/satellites/${satId.value}/led_config`, {
+      patterns: { [name]: ledPatterns.value[name] }
+    }).catch(() => {})
+  }, 200)
+}
+
+function previewPattern(name) {
+  api.post(`/admin/satellites/${satId.value}/command`, { action: 'led', params: { pattern: name } }).catch(() => {})
+  setTimeout(() => {
+    api.post(`/admin/satellites/${satId.value}/command`, { action: 'led', params: { pattern: 'idle' } }).catch(() => {})
+  }, 2000)
+}
+
+function addCustomPattern() {
+  const name = newPatternName.value.trim().toLowerCase().replace(/\s+/g, '_')
+  if (!name) return
+  ledPatterns.value[name] = { r: 100, g: 100, b: 255, brightness: 0.4 }
+  api.patch(`/admin/satellites/${satId.value}/led_config`, {
+    patterns: { [name]: ledPatterns.value[name] }
+  }).catch(() => {})
+  newPatternName.value = ''
+  showAddPattern.value = false
+}
+
+function removePattern(name) {
+  if (ledStates.includes(name)) return
+  delete ledPatterns.value[name]
+  api.patch(`/admin/satellites/${satId.value}/led_config`, {
+    patterns: { [name]: { r: 0, g: 0, b: 0, brightness: 0 } }
+  }).catch(() => {})
+}
+
 const hardwareInfo = computed(() => {
   if (!satellite.value?.hardware_info) return null
   try { return JSON.parse(satellite.value.hardware_info) } catch { return null }
@@ -42,7 +186,7 @@ const capabilities = computed(() => {
   try { return JSON.parse(satellite.value.capabilities) } catch { return null }
 })
 
-onMounted(() => fetchSatellite())
+onMounted(() => { fetchSatellite(); fetchLedConfig(); fetchTtsVoices() })
 
 async function fetchSatellite() {
   loading.value = true
@@ -213,7 +357,7 @@ async function removeSatellite() {
         </div>
         <div class="form-row">
           <label>Volume ({{ Math.round(form.volume * 100) }}%)</label>
-          <input type="range" v-model.number="form.volume" min="0" max="1" step="0.05" />
+          <input type="range" v-model.number="form.volume" min="0" max="1" step="0.05" @input="onVolumeInput" />
         </div>
         <div class="form-row">
           <label>Mic Gain ({{ Math.round(form.mic_gain * 100) }}%)</label>
@@ -229,6 +373,78 @@ async function removeSatellite() {
         <div v-if="form.filler_enabled" class="form-row">
           <label>Filler threshold ({{ form.filler_threshold_ms }}ms)</label>
           <input type="range" v-model.number="form.filler_threshold_ms" min="500" max="5000" step="100" />
+        </div>
+      </section>
+
+      <!-- LED Configuration -->
+      <section class="card led-card" v-if="capabilities?.led_type && capabilities.led_type !== 'none'">
+        <h2>💡 LED Patterns
+          <button class="btn-sm" @click="showAddPattern = true" title="Add custom pattern">＋</button>
+        </h2>
+        <div class="led-grid">
+          <div v-for="name in Object.keys(ledPatterns)" :key="name" class="led-row">
+            <div class="led-preview" :style="{ backgroundColor: patternColor(name), opacity: patternBrightness(name) || 0.1 }" @click="previewPattern(name)" title="Click to preview"></div>
+            <div class="led-name">{{ name }}</div>
+            <input type="color" :value="patternColor(name)" @input="e => onLedChange(name, e.target.value, patternBrightness(name))" />
+            <div class="led-brightness">
+              <input type="range" :value="patternBrightness(name)" min="0" max="1" step="0.05" @input="e => onLedChange(name, patternColor(name), e.target.value)" />
+              <span>{{ Math.round(patternBrightness(name) * 100) }}%</span>
+            </div>
+            <button v-if="!ledStates.includes(name)" class="btn-sm btn-danger-sm" @click="removePattern(name)">✕</button>
+          </div>
+        </div>
+
+        <div v-if="showAddPattern" class="add-pattern-row">
+          <input v-model="newPatternName" placeholder="Pattern name" @keyup.enter="addCustomPattern" />
+          <button class="btn-sm" @click="addCustomPattern">Add</button>
+          <button class="btn-sm" @click="showAddPattern = false">Cancel</button>
+        </div>
+      </section>
+
+      <!-- Voice Preview -->
+      <section class="card voice-card">
+        <h2>🗣️ Voice Preview</h2>
+        <div class="form-row">
+          <label>Text</label>
+          <textarea v-model="ttsText" rows="2" class="tts-input"></textarea>
+        </div>
+        <div class="form-row" v-if="ttsVoices.length">
+          <label>Voice</label>
+          <select v-model="selectedVoice">
+            <option value="">Default</option>
+            <option v-for="v in ttsVoices" :key="v.name" :value="v.name">{{ v.name }}</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" @click="playTtsPreview('browser')" :disabled="ttsPlaying">
+            {{ ttsPlaying ? '⏳' : '🔊' }} Play in Browser
+          </button>
+          <button class="btn btn-secondary" @click="playTtsPreview('satellite')" :disabled="ttsPlaying">
+            📡 Play on Satellite
+          </button>
+        </div>
+      </section>
+
+      <!-- Filler Phrases -->
+      <section class="card">
+        <h2>💬 Filler Phrases</h2>
+        <div class="form-row">
+          <label>Sentiment</label>
+          <select v-model="fillerSentiment">
+            <option value="greeting">Greeting</option>
+            <option value="question">Question</option>
+            <option value="excited">Excited</option>
+            <option value="frustrated">Frustrated</option>
+            <option value="late_night">Late Night</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" @click="playFiller('browser')" :disabled="fillerPlaying">
+            🔊 Preview in Browser
+          </button>
+          <button class="btn btn-secondary" @click="playFiller('satellite')" :disabled="fillerPlaying">
+            📡 Play on Satellite
+          </button>
         </div>
       </section>
 
@@ -426,4 +642,96 @@ async function removeSatellite() {
   color: var(--text-primary);
 }
 .form-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; }
+
+/* LED configuration */
+.led-card { grid-column: 1 / -1; }
+.led-grid { display: flex; flex-direction: column; gap: 0.5rem; }
+.led-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+}
+.led-preview {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: box-shadow 0.2s;
+}
+.led-preview:hover { box-shadow: 0 0 8px currentColor; }
+.led-name {
+  min-width: 80px;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  color: var(--text-primary);
+}
+.led-row input[type="color"] {
+  width: 32px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.led-brightness {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+}
+.led-brightness input { flex: 1; }
+.led-brightness span { font-size: 0.75rem; color: var(--text-muted); min-width: 35px; }
+.btn-danger-sm {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.add-pattern-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  align-items: center;
+}
+.add-pattern-row input {
+  padding: 0.3rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+/* Voice & Filler */
+.voice-card { grid-column: 1 / -1; }
+.tts-input {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  resize: vertical;
+}
+select {
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  width: 100%;
+}
+.btn-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
 </style>
