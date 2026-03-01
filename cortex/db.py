@@ -653,6 +653,9 @@ CREATE TABLE IF NOT EXISTS satellites (
     service_port    INTEGER DEFAULT 5110,
     filler_enabled  BOOLEAN DEFAULT TRUE,
     filler_threshold_ms INTEGER DEFAULT 1500,
+    tts_voice       TEXT DEFAULT '',
+    vad_enabled     BOOLEAN DEFAULT TRUE,
+    led_brightness  REAL DEFAULT 1.0,
     is_active       BOOLEAN DEFAULT TRUE,
     last_seen       TIMESTAMP,
     last_audio      TIMESTAMP,
@@ -689,6 +692,9 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     # column is already present.
     _add_column_if_missing(conn, "ha_devices", "area_name", "TEXT")
     _add_column_if_missing(conn, "satellites", "led_config", "TEXT")
+    _add_column_if_missing(conn, "satellites", "tts_voice", "TEXT DEFAULT ''")
+    _add_column_if_missing(conn, "satellites", "vad_enabled", "BOOLEAN DEFAULT 1")
+    _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
 
 
 def _add_column_if_missing(

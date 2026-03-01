@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 class LEDController(ABC):
     """Abstract LED controller interface."""
 
+    def __init__(self):
+        self._master_brightness: float = 1.0
+
+    def set_master_brightness(self, brightness: float) -> None:
+        """Set master brightness (0.0-1.0) that scales all patterns."""
+        self._master_brightness = max(0.0, min(1.0, brightness))
+
     @abstractmethod
     def set_color(self, r: int, g: int, b: int, brightness: float = 1.0) -> None:
         """Set all LEDs to a solid color."""
@@ -67,6 +74,7 @@ class ReSpeakerLED(LEDController):
     }
 
     def __init__(self, num_leds: int = 3, patterns: dict | None = None):
+        super().__init__()
         self.num_leds = num_leds
         self._spi = None
         self._lock = threading.Lock()
@@ -93,6 +101,8 @@ class ReSpeakerLED(LEDController):
     def _write_leds(self, r: int, g: int, b: int, brightness: float) -> None:
         if not self._spi:
             return
+        # Scale by master brightness
+        brightness = brightness * self._master_brightness
         with self._lock:
             bright_byte = 0xE0 | int(max(0.0, min(1.0, brightness)) * 31)
             # APA102 protocol: start frame + LED frames + end frame
@@ -179,6 +189,7 @@ class GPIOLED(LEDController):
     }
 
     def __init__(self, pin: int = 25):
+        super().__init__()
         self.pin = pin
         self._gpio = None
         try:
@@ -193,7 +204,7 @@ class GPIOLED(LEDController):
 
     def set_color(self, r: int, g: int, b: int, brightness: float = 1.0) -> None:
         if self._gpio:
-            state = brightness > 0.1
+            state = (brightness * self._master_brightness) > 0.1
             self._gpio.output(self.pin, self._gpio.HIGH if state else self._gpio.LOW)
 
     def set_pattern(self, pattern: str) -> None:

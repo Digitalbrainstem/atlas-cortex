@@ -121,10 +121,22 @@ class WyomingClient:
         try:
             await self._send_event(writer, "describe")
             evt_type, data, payload = await self._read_event(reader)
-            if evt_type == "info" and payload:
-                info = json.loads(payload)
-                return info.get("tts", [])
-            return []
+            if evt_type != "info":
+                return []
+            # Voice list may be in data dict or payload
+            info = data
+            if payload:
+                try:
+                    info = json.loads(payload)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+            # Voices are nested under tts[0].voices
+            tts_list = info.get("tts", [])
+            voices = []
+            for tts_engine in tts_list:
+                for v in tts_engine.get("voices", []):
+                    voices.append(v)
+            return voices
         finally:
             writer.close()
             await writer.wait_closed()

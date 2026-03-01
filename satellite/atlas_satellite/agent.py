@@ -186,6 +186,7 @@ class SatelliteAgent:
 
         # LED
         self.led = create_led(cfg.led_type, cfg.led_count, cfg.led_patterns)
+        self.led.set_master_brightness(cfg.led_brightness)
 
         # WebSocket
         self.ws = SatelliteWSClient(
@@ -294,7 +295,7 @@ class SatelliteAgent:
             if confidence >= self.config.wake_word_threshold:
                 logger.info("Wake word detected (confidence: %.2f)", confidence)
                 await self._transition_to_listening(confidence)
-        else:
+        elif self.config.vad_enabled:
             # VAD-only mode: speech_start triggers listening
             result = self.vad.process(audio)
             if result == "speech_start":
@@ -456,6 +457,14 @@ class SatelliteAgent:
             self.config.led_patterns.update(patterns)
         if "vad_sensitivity" in msg:
             self.config.vad_sensitivity = msg["vad_sensitivity"]
+        if "vad_enabled" in msg:
+            self.config.vad_enabled = bool(msg["vad_enabled"])
+            logger.info("VAD %s", "enabled" if self.config.vad_enabled else "disabled")
+        if "led_brightness" in msg:
+            self.config.led_brightness = float(msg["led_brightness"])
+            if hasattr(self.led, "set_master_brightness"):
+                self.led.set_master_brightness(self.config.led_brightness)
+            logger.info("LED brightness set to %.0f%%", self.config.led_brightness * 100)
         if "features" in msg:
             self.config.features = msg["features"]
         logger.info("Config updated from server")

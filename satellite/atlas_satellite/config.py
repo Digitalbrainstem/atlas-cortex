@@ -41,12 +41,18 @@ class SatelliteConfig:
     wake_word_threshold: float = 0.5
     wake_word_model: str = ""
 
+    # VAD control
+    vad_enabled: bool = True  # when False, only wake word triggers listening
+
     # Filler
     filler_enabled: bool = True
 
     # Silence detection
     silence_threshold_frames: int = 30  # ~900ms at 30ms/frame
     speech_threshold_frames: int = 10  # ~300ms to confirm speech
+
+    # LED master brightness (0.0-1.0, scales all pattern brightnesses)
+    led_brightness: float = 1.0
 
     # LED patterns: state → {"r": int, "g": int, "b": int, "brightness": float}
     led_patterns: dict = field(default_factory=lambda: {
