@@ -99,7 +99,7 @@ class SatelliteManager:
         if not sat:
             raise ValueError(f"Satellite not found: {satellite_id}")
 
-        username = ssh_username or sat.get("ssh_username", "atlas")
+        username = ssh_username or sat.get("ssh_username") or "atlas"
         password = ssh_password or "atlas"
         ip = sat["ip_address"]
 
@@ -147,7 +147,7 @@ class SatelliteManager:
             mode=sat.get("mode", "dedicated"),
             room=room,
             display_name=display_name or f"{room.title()} Satellite",
-            ssh_username=sat.get("ssh_username", "atlas"),
+            ssh_username=sat.get("ssh_username") or "atlas",
             ssh_password=ssh_password,
             service_port=sat.get("service_port", 5110),
             server_url=self._server_url,
