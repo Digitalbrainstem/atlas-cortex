@@ -20,8 +20,11 @@ const form = ref({
   volume: 0.7,
   mic_gain: 0.8,
   vad_sensitivity: 0.5,
+  vad_enabled: true,
   filler_enabled: true,
   filler_threshold_ms: 1500,
+  tts_voice: '',
+  led_brightness: 1.0,
 })
 
 // Provision form
@@ -39,6 +42,22 @@ function onVolumeInput() {
   _volumeTimer = setTimeout(() => {
     api.post(`/admin/satellites/${satId.value}/command`, { action: 'volume', params: { level: form.value.volume } }).catch(() => {})
   }, 150)
+}
+
+let _brightnessTimer = null
+function onBrightnessInput() {
+  clearTimeout(_brightnessTimer)
+  _brightnessTimer = setTimeout(() => {
+    api.patch(`/admin/satellites/${satId.value}`, { led_brightness: form.value.led_brightness }).catch(() => {})
+  }, 150)
+}
+
+function onVadToggle() {
+  api.patch(`/admin/satellites/${satId.value}`, { vad_enabled: form.value.vad_enabled }).catch(() => {})
+}
+
+function onVoiceChange() {
+  api.patch(`/admin/satellites/${satId.value}`, { tts_voice: form.value.tts_voice }).catch(() => {})
 }
 
 // LED configuration
@@ -63,6 +82,8 @@ async function fetchTtsVoices() {
   try {
     const data = await api.get('/admin/tts/voices')
     ttsVoices.value = data.voices || []
+    // Sync selected preview voice with satellite's default
+    if (form.value.tts_voice) selectedVoice.value = form.value.tts_voice
   } catch { /* ignore */ }
 }
 
@@ -201,8 +222,11 @@ async function fetchSatellite() {
       volume: data.volume ?? 0.7,
       mic_gain: data.mic_gain ?? 0.8,
       vad_sensitivity: data.vad_sensitivity ?? 0.5,
+      vad_enabled: data.vad_enabled ?? true,
       filler_enabled: data.filler_enabled ?? true,
       filler_threshold_ms: data.filler_threshold_ms ?? 1500,
+      tts_voice: data.tts_voice || '',
+      led_brightness: data.led_brightness ?? 1.0,
     }
   } catch (e) {
     error.value = e.message
@@ -363,7 +387,10 @@ async function removeSatellite() {
           <label>Mic Gain ({{ Math.round(form.mic_gain * 100) }}%)</label>
           <input type="range" v-model.number="form.mic_gain" min="0" max="1" step="0.05" />
         </div>
-        <div class="form-row">
+        <div class="form-row toggle-row">
+          <label><input type="checkbox" v-model="form.vad_enabled" @change="onVadToggle" /> Enable VAD (Voice Activity Detection)</label>
+        </div>
+        <div v-if="form.vad_enabled" class="form-row">
           <label>VAD Sensitivity ({{ Math.round(form.vad_sensitivity * 100) }}%)</label>
           <input type="range" v-model.number="form.vad_sensitivity" min="0" max="1" step="0.05" />
         </div>
@@ -374,6 +401,14 @@ async function removeSatellite() {
           <label>Filler threshold ({{ form.filler_threshold_ms }}ms)</label>
           <input type="range" v-model.number="form.filler_threshold_ms" min="500" max="5000" step="100" />
         </div>
+        <div class="form-row" v-if="ttsVoices.length">
+          <label>Default Voice</label>
+          <select v-model="form.tts_voice" @change="onVoiceChange">
+            <option value="">Service Default</option>
+            <option v-for="v in ttsVoices" :key="v.name" :value="v.name">{{ v.name }}</option>
+          </select>
+          <p class="hint">Fillers and responses will use this voice</p>
+        </div>
       </section>
 
       <!-- LED Configuration -->
@@ -381,6 +416,10 @@ async function removeSatellite() {
         <h2>💡 LED Patterns
           <button class="btn-sm" @click="showAddPattern = true" title="Add custom pattern">＋</button>
         </h2>
+        <div class="form-row">
+          <label>Master Brightness ({{ Math.round(form.led_brightness * 100) }}%)</label>
+          <input type="range" v-model.number="form.led_brightness" min="0" max="1" step="0.05" @input="onBrightnessInput" />
+        </div>
         <div class="led-grid">
           <div v-for="name in Object.keys(ledPatterns)" :key="name" class="led-row">
             <div class="led-preview" :style="{ backgroundColor: patternColor(name), opacity: patternBrightness(name) || 0.1 }" @click="previewPattern(name)" title="Click to preview"></div>
@@ -409,9 +448,9 @@ async function removeSatellite() {
           <textarea v-model="ttsText" rows="2" class="tts-input"></textarea>
         </div>
         <div class="form-row" v-if="ttsVoices.length">
-          <label>Voice</label>
+          <label>Preview Voice</label>
           <select v-model="selectedVoice">
-            <option value="">Default</option>
+            <option value="">{{ form.tts_voice ? `Satellite Default (${form.tts_voice})` : 'Service Default' }}</option>
             <option v-for="v in ttsVoices" :key="v.name" :value="v.name">{{ v.name }}</option>
           </select>
         </div>
@@ -555,6 +594,8 @@ async function removeSatellite() {
   color: var(--text-primary);
 }
 .form-row input[type="range"] { width: 100%; }
+.hint { font-size: 0.75rem; color: var(--text-muted); margin: 0.2rem 0 0; }
+.toggle-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
 
 .status-badge {
   padding: 0.1rem 0.5rem;

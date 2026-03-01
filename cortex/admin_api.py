@@ -707,6 +707,9 @@ class SatelliteUpdateRequest(BaseModel):
     features: dict | None = None
     filler_enabled: bool | None = None
     filler_threshold_ms: int | None = None
+    tts_voice: str | None = None
+    vad_enabled: bool | None = None
+    led_brightness: float | None = None
 
 
 @router.get("/satellites")
@@ -1037,20 +1040,29 @@ async def preview_filler(body: dict, admin: dict = Depends(require_admin)):
     host = os.environ.get("TTS_HOST", "localhost")
     port = int(os.environ.get("TTS_PORT", "10200"))
     tts = WyomingClient(host, port, timeout=15.0)
-    audio_data, audio_info = await tts.synthesize(filler_text)
+
+    # Use the target satellite's configured voice (if pushing to a satellite)
+    voice = body.get("voice")
+    if not voice and target != "browser":
+        from cortex.db import get_db
+        try:
+            db = get_db()
+            row = db.execute("SELECT tts_voice FROM satellites WHERE id = ?", (target,)).fetchone()
+            voice = (row["tts_voice"] or "") if row else ""
+        except Exception:
+            voice = ""
+    audio_data, audio_info = await tts.synthesize(filler_text, voice=voice or None)
 
     if target != "browser":
         import base64
-        from cortex.satellite.websocket import _resample_pcm, get_connection
+        from cortex.satellite.websocket import get_connection
         rate = audio_info.get("rate", 22050)
-        channels = audio_info.get("channels", 1)
-        sat_audio = audio_data if rate == 16000 else _resample_pcm(audio_data, rate, 16000, channels)
         conn = get_connection(target)
         if not conn:
             raise HTTPException(status_code=404, detail="Satellite not connected")
-        await conn.send({"type": "TTS_START", "sample_rate": 16000, "format": "pcm_16k_16bit_mono"})
-        for off in range(0, len(sat_audio), 4096):
-            await conn.send({"type": "TTS_CHUNK", "audio": base64.b64encode(sat_audio[off:off+4096]).decode()})
+        await conn.send({"type": "TTS_START", "sample_rate": rate, "format": f"pcm_{rate//1000}k_16bit_mono"})
+        for off in range(0, len(audio_data), 4096):
+            await conn.send({"type": "TTS_CHUNK", "audio": base64.b64encode(audio_data[off:off+4096]).decode()})
         await conn.send({"type": "TTS_END"})
         return {"sent": True, "filler": filler_text}
 

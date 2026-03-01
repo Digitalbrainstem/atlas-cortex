@@ -192,6 +192,7 @@ class SatelliteManager:
         allowed = {
             "display_name", "room", "wake_word", "volume", "mic_gain",
             "vad_sensitivity", "features", "filler_enabled", "filler_threshold_ms",
+            "tts_voice", "vad_enabled", "led_brightness",
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
