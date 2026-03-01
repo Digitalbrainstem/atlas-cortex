@@ -50,6 +50,7 @@ _server_announcer = ServerAnnouncer(port=5100)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start/stop server-level services."""
+    init_db()
     await _server_announcer.start()
     yield
     await _server_announcer.stop()

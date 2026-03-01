@@ -260,13 +260,15 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
 
 
 def _update_satellite_status(satellite_id: str, status: str) -> None:
-    """Update the satellite status in the database."""
+    """Update the satellite status in the database (upsert)."""
     try:
         db = get_db()
         now = datetime.now(timezone.utc).isoformat()
         db.execute(
-            "UPDATE satellites SET status = ?, last_seen = ? WHERE id = ?",
-            (status, now, satellite_id),
+            """INSERT INTO satellites (id, display_name, status, last_seen)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET status = ?, last_seen = ?""",
+            (satellite_id, satellite_id, status, now, status, now),
         )
         db.commit()
     except Exception:
