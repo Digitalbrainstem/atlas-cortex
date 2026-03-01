@@ -11,6 +11,7 @@ import asyncio
 import base64
 import json
 import logging
+import socket
 import time
 from typing import Any, Awaitable, Callable, Optional
 
@@ -63,6 +64,7 @@ class SatelliteWSClient:
             await self._send({
                 "type": "ANNOUNCE",
                 "satellite_id": self.satellite_id,
+                "hostname": socket.gethostname(),
                 "room": self.room,
                 "capabilities": self.capabilities,
                 "hw_info": self.hw_info,
