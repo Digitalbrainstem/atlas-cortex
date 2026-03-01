@@ -1,0 +1,15 @@
+# GPU override for AMD ROCm systems.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up -d
+#
+# Requirements:
+#   - AMD GPU with ROCm support (RX 6000/7000 series)
+#   - /dev/kfd and /dev/dri available on host
+
+services:
+  atlas-ollama:
+    image: ollama/ollama:rocm
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
