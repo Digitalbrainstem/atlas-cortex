@@ -37,6 +37,18 @@ _TTS_HOST = os.environ.get("TTS_HOST", "localhost")
 _TTS_PORT = int(os.environ.get("TTS_PORT", "10200"))
 
 
+def _get_satellite_voice(satellite_id: str) -> str:
+    """Read the configured TTS voice for a satellite from DB."""
+    try:
+        db = get_db()
+        row = db.execute(
+            "SELECT tts_voice FROM satellites WHERE id = ?", (satellite_id,)
+        ).fetchone()
+        return (row["tts_voice"] or "") if row else ""
+    except Exception:
+        return ""
+
+
 # ── Connection registry ───────────────────────────────────────────
 
 _connected_satellites: dict[str, SatelliteConnection] = {}
@@ -330,8 +342,11 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
         # ── Step 3: TTS ──────────────────────────────────────────
         tts = WyomingClient(_TTS_HOST, _TTS_PORT, timeout=30.0)
 
+        # Use satellite's configured voice (if any)
+        tts_voice = _get_satellite_voice(satellite_id)
+
         try:
-            tts_audio, audio_info = await tts.synthesize(full_response)
+            tts_audio, audio_info = await tts.synthesize(full_response, voice=tts_voice or None)
         except WyomingError as e:
             logger.error("TTS failed for %s: %s", satellite_id, e)
             return
