@@ -955,7 +955,7 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
     """List available TTS voices from the Piper Wyoming service."""
     import os
     from cortex.voice.wyoming import WyomingClient
-    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    host = os.environ.get("TTS_HOST", "localhost")
     port = int(os.environ.get("TTS_PORT", "10200"))
     tts = WyomingClient(host, port)
     try:
@@ -978,7 +978,7 @@ async def preview_tts(body: dict, admin: dict = Depends(require_admin)):
     voice = body.get("voice")
     target = body.get("target", "browser")  # "browser" or satellite_id
 
-    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    host = os.environ.get("TTS_HOST", "localhost")
     port = int(os.environ.get("TTS_PORT", "10200"))
     tts = WyomingClient(host, port, timeout=30.0)
 
@@ -1034,7 +1034,7 @@ async def preview_filler(body: dict, admin: dict = Depends(require_admin)):
     if not filler_text:
         filler_text = "Hmm, let me think..."
 
-    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    host = os.environ.get("TTS_HOST", "localhost")
     port = int(os.environ.get("TTS_PORT", "10200"))
     tts = WyomingClient(host, port, timeout=15.0)
     audio_data, audio_info = await tts.synthesize(filler_text)

@@ -1,0 +1,13 @@
+# GPU override for Intel Arc / iGPU systems.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-intel.yml up -d
+#
+# Requirements:
+#   - Intel Arc or integrated GPU with OpenCL/oneAPI support
+#   - /dev/dri available on host
+
+services:
+  atlas-ollama:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video

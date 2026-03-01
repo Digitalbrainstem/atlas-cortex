@@ -31,9 +31,9 @@ from cortex.db import get_db, init_db
 logger = logging.getLogger(__name__)
 
 # Wyoming service addresses (configurable via env)
-_STT_HOST = os.environ.get("STT_HOST", "172.17.0.5")
+_STT_HOST = os.environ.get("STT_HOST", "localhost")
 _STT_PORT = int(os.environ.get("STT_PORT", "10300"))
-_TTS_HOST = os.environ.get("TTS_HOST", "172.17.0.4")
+_TTS_HOST = os.environ.get("TTS_HOST", "localhost")
 _TTS_PORT = int(os.environ.get("TTS_PORT", "10200"))
 
 
