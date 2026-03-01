@@ -35,3 +35,4 @@ asyncssh>=2.14.0
 # ── Testing ──────────────────────────────────────────────────────
 pytest>=7.0
 pytest-asyncio>=0.21
+websockets>=12.0
