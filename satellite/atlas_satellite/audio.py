@@ -148,22 +148,25 @@ class AudioPlayback:
     def _play_pcm_sync(self, audio_data: bytes, sample_rate: int) -> None:
         with self._lock:
             try:
-                pcm = alsaaudio.PCM(
-                    alsaaudio.PCM_PLAYBACK,
-                    alsaaudio.PCM_NORMAL,
-                    device=self.device,
-                )
-                pcm.setchannels(self.channels)
-                pcm.setrate(sample_rate)
-                pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
-                period = 1024
-                pcm.setperiodsize(period)
+                hw_channels = self.channels
+                pcm = self._open_playback(hw_channels, sample_rate)
+                if pcm is None and self.channels == 1:
+                    hw_channels = 2
+                    pcm = self._open_playback(hw_channels, sample_rate)
+                if pcm is None:
+                    logger.error("Could not open playback device %s", self.device)
+                    return
 
                 if self.volume != 1.0:
                     audio_data = AudioCapture._apply_gain(audio_data, self.volume)
 
+                # Upmix mono to stereo if hardware requires it
+                if hw_channels == 2 and self.channels == 1:
+                    audio_data = self._mono_to_stereo(audio_data)
+
                 # Write in chunks
-                chunk_bytes = period * 2 * self.channels
+                period = 1024
+                chunk_bytes = period * 2 * hw_channels
                 for i in range(0, len(audio_data), chunk_bytes):
                     chunk = audio_data[i : i + chunk_bytes]
                     pcm.write(chunk)
@@ -171,6 +174,31 @@ class AudioPlayback:
                 pcm.close()
             except Exception:
                 logger.exception("Audio playback error")
+
+    def _open_playback(self, channels: int, sample_rate: int):
+        """Try to open ALSA playback device. Returns PCM or None."""
+        try:
+            pcm = alsaaudio.PCM(
+                alsaaudio.PCM_PLAYBACK,
+                alsaaudio.PCM_NORMAL,
+                device=self.device,
+            )
+            pcm.setchannels(channels)
+            pcm.setrate(sample_rate)
+            pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
+            pcm.setperiodsize(1024)
+            return pcm
+        except alsaaudio.ALSAAudioError:
+            return None
+
+    @staticmethod
+    def _mono_to_stereo(data: bytes) -> bytes:
+        """Upmix mono S16_LE to stereo by duplicating each sample."""
+        samples = struct.unpack(f"<{len(data) // 2}h", data)
+        stereo = []
+        for s in samples:
+            stereo.extend([s, s])
+        return struct.pack(f"<{len(stereo)}h", *stereo)
 
     async def play_wav(self, path: str | Path) -> None:
         """Play a WAV file asynchronously."""
@@ -181,21 +209,25 @@ class AudioPlayback:
         with self._lock:
             try:
                 with wave.open(path, "rb") as wf:
-                    pcm = alsaaudio.PCM(
-                        alsaaudio.PCM_PLAYBACK,
-                        alsaaudio.PCM_NORMAL,
-                        device=self.device,
-                    )
-                    pcm.setchannels(wf.getnchannels())
-                    pcm.setrate(wf.getframerate())
-                    pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
-                    period = 1024
-                    pcm.setperiodsize(period)
+                    wav_ch = wf.getnchannels()
+                    rate = wf.getframerate()
+                    pcm = self._open_playback(wav_ch, rate)
+                    if pcm is None and wav_ch == 1:
+                        pcm = self._open_playback(2, rate)
+                        wav_ch = 2  # will upmix
 
+                    if pcm is None:
+                        logger.error("Could not open playback for WAV: %s", path)
+                        return
+
+                    need_upmix = wav_ch == 2 and wf.getnchannels() == 1
+                    period = 1024
                     data = wf.readframes(period)
                     while data:
                         if self.volume != 1.0:
                             data = AudioCapture._apply_gain(data, self.volume)
+                        if need_upmix:
+                            data = self._mono_to_stereo(data)
                         pcm.write(data)
                         data = wf.readframes(period)
 
