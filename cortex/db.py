@@ -688,6 +688,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     # ALTER TABLE ADD COLUMN is idempotent — we just ignore the error if the
     # column is already present.
     _add_column_if_missing(conn, "ha_devices", "area_name", "TEXT")
+    _add_column_if_missing(conn, "satellites", "led_config", "TEXT")
 
 
 def _add_column_if_missing(

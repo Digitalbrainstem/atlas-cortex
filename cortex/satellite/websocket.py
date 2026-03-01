@@ -14,8 +14,11 @@ satellite devices:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import os
+import struct
 import time
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +29,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 from cortex.db import get_db, init_db
 
 logger = logging.getLogger(__name__)
+
+# Wyoming service addresses (configurable via env)
+_STT_HOST = os.environ.get("STT_HOST", "172.17.0.5")
+_STT_PORT = int(os.environ.get("STT_PORT", "10300"))
+_TTS_HOST = os.environ.get("TTS_HOST", "172.17.0.4")
+_TTS_PORT = int(os.environ.get("TTS_PORT", "10200"))
 
 
 # ── Connection registry ───────────────────────────────────────────
@@ -42,6 +51,8 @@ class SatelliteConnection:
         self.connected_at = time.time()
         self.last_heartbeat = time.time()
         self.session_id: str | None = None
+        self.audio_buffer: bytearray = bytearray()
+        self.audio_format: dict = {}
 
     async def send(self, message: dict) -> None:
         """Send a JSON message to the satellite."""
@@ -207,31 +218,28 @@ async def _handle_wake(conn: SatelliteConnection, msg: dict) -> None:
 
 async def _handle_audio_start(conn: SatelliteConnection, msg: dict) -> None:
     """Audio streaming has started from the satellite."""
+    conn.audio_buffer = bytearray()
+    conn.audio_format = msg.get("format_info", {"rate": 16000, "width": 2, "channels": 1})
     logger.debug("Audio start from %s (format: %s)", conn.satellite_id, msg.get("format"))
 
 
 async def _handle_audio_chunk(conn: SatelliteConnection, msg: dict) -> None:
-    """Receive an audio chunk from the satellite.
-
-    In a full implementation, this would buffer audio and feed it to the
-    STT engine. For now we just acknowledge receipt.
-    """
-    # TODO: Buffer audio chunks and feed to STT pipeline
-    pass
+    """Receive an audio chunk from the satellite and buffer it."""
+    audio_b64 = msg.get("audio", "")
+    if audio_b64:
+        conn.audio_buffer.extend(base64.b64decode(audio_b64))
 
 
 async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
-    """Audio streaming has ended — process the utterance.
-
-    In a full implementation, this would:
-    1. Run STT on the buffered audio
-    2. Feed the transcript through the pipeline (Layer 1-3)
-    3. Generate TTS response
-    4. Stream TTS back via TTS_START/TTS_CHUNK/TTS_END
-    5. If processing > filler_threshold, send PLAY_FILLER first
-    """
+    """Audio streaming has ended — run STT → Pipeline → TTS."""
     reason = msg.get("reason", "vad_silence")
-    logger.info("Audio end from %s (reason: %s)", conn.satellite_id, reason)
+    audio_data = bytes(conn.audio_buffer)
+    conn.audio_buffer = bytearray()
+
+    logger.info(
+        "Audio end from %s (reason: %s, %d bytes)",
+        conn.satellite_id, reason, len(audio_data),
+    )
 
     # Update session
     if conn.session_id:
@@ -245,23 +253,177 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
         except Exception:
             pass
 
-    # TODO: Full STT → Pipeline → TTS implementation
-    # For now, send a placeholder acknowledgment
-    await conn.send({
-        "type": "TTS_START",
-        "session_id": conn.session_id,
-        "format": "pcm_22k_16bit_mono",
-    })
-    await conn.send({
-        "type": "TTS_END",
-        "session_id": conn.session_id,
-    })
+    if len(audio_data) < 1600:
+        # Too short to be meaningful speech (~50ms)
+        logger.debug("Audio too short (%d bytes), ignoring", len(audio_data))
+        return
+
+    # Run the voice pipeline in a background task so websocket stays responsive
+    asyncio.create_task(_process_voice_pipeline(conn, audio_data))
 
 
 async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
     """Update satellite status (idle, listening, speaking)."""
     status = msg.get("status", "idle")
     logger.debug("Satellite %s status: %s", conn.satellite_id, status)
+
+
+# ── Voice pipeline ────────────────────────────────────────────────
+
+
+async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) -> None:
+    """Full STT → Pipeline → TTS → stream back to satellite."""
+    from cortex.voice.wyoming import WyomingClient, WyomingError
+
+    satellite_id = conn.satellite_id
+
+    try:
+        # ── Step 1: STT ──────────────────────────────────────────
+        stt = WyomingClient(_STT_HOST, _STT_PORT, timeout=30.0)
+        logger.info("Running STT on %d bytes from %s", len(audio_data), satellite_id)
+
+        try:
+            transcript = await stt.transcribe(audio_data, sample_rate=16000)
+        except WyomingError as e:
+            logger.error("STT failed for %s: %s", satellite_id, e)
+            try:
+                await conn.send({"type": "PIPELINE_ERROR", "detail": f"STT failed: {e}"})
+            except Exception:
+                pass
+            return
+
+        transcript = transcript.strip()
+        if not transcript:
+            logger.info("Empty transcript from %s, ignoring", satellite_id)
+            try:
+                await conn.send({"type": "PIPELINE_ERROR", "detail": "Empty transcript"})
+            except Exception:
+                pass
+            return
+
+        logger.info("STT result from %s: %r", satellite_id, transcript)
+
+        # ── Step 2: Pipeline ─────────────────────────────────────
+        from cortex.providers import get_provider
+        from cortex.pipeline import run_pipeline
+
+        provider = get_provider()
+
+        # Collect full response text from pipeline
+        response_parts: list[str] = []
+        pipeline_gen = await run_pipeline(
+            message=transcript,
+            provider=provider,
+            satellite_id=satellite_id,
+            model_fast="qwen2.5:7b",
+        )
+        async for token in pipeline_gen:
+            response_parts.append(token)
+
+        full_response = "".join(response_parts).strip()
+        if not full_response:
+            logger.warning("Empty pipeline response for %r", transcript)
+            return
+
+        logger.info("Pipeline response for %s: %r", satellite_id, full_response[:200])
+
+        # ── Step 3: TTS ──────────────────────────────────────────
+        tts = WyomingClient(_TTS_HOST, _TTS_PORT, timeout=30.0)
+
+        try:
+            tts_audio, audio_info = await tts.synthesize(full_response)
+        except WyomingError as e:
+            logger.error("TTS failed for %s: %s", satellite_id, e)
+            return
+
+        if not tts_audio:
+            logger.warning("Empty TTS audio for %s", satellite_id)
+            return
+
+        tts_rate = audio_info.get("rate", 22050)
+        tts_width = audio_info.get("width", 2)
+        tts_channels = audio_info.get("channels", 1)
+
+        logger.info(
+            "TTS produced %d bytes (%dHz %dch) for %s",
+            len(tts_audio), tts_rate, tts_channels, satellite_id,
+        )
+
+        # ── Step 4: Send at native rate (hardware handles conversion) ──
+        playback_audio = tts_audio
+        playback_rate = tts_rate
+
+        # ── Step 5: Stream back to satellite ─────────────────────
+        await conn.send({
+            "type": "TTS_START",
+            "session_id": conn.session_id,
+            "format": f"pcm_{playback_rate // 1000}k_16bit_mono",
+            "sample_rate": playback_rate,
+            "text": full_response,
+        })
+
+        # Send in chunks (~4KB each)
+        chunk_size = 4096
+        for offset in range(0, len(playback_audio), chunk_size):
+            chunk = playback_audio[offset:offset + chunk_size]
+            await conn.send({
+                "type": "TTS_CHUNK",
+                "session_id": conn.session_id,
+                "audio": base64.b64encode(chunk).decode("ascii"),
+            })
+
+        await conn.send({
+            "type": "TTS_END",
+            "session_id": conn.session_id,
+        })
+
+        logger.info("Streamed TTS to %s (%d bytes)", satellite_id, len(playback_audio))
+
+    except WebSocketDisconnect:
+        logger.warning("Satellite %s disconnected during pipeline", satellite_id)
+    except Exception:
+        logger.exception("Voice pipeline error for %s", satellite_id)
+        # Notify satellite to return to IDLE on failure
+        try:
+            await conn.send({"type": "PIPELINE_ERROR", "detail": "Voice pipeline failed"})
+        except Exception:
+            pass
+
+
+def _resample_pcm(data: bytes, src_rate: int, dst_rate: int, channels: int = 1) -> bytes:
+    """Simple linear interpolation resampling for 16-bit PCM."""
+    if src_rate == dst_rate:
+        return data
+    samples_per_frame = channels
+    n_frames = len(data) // (2 * samples_per_frame)
+    if n_frames == 0:
+        return data
+
+    # Decode to samples (mono for simplicity)
+    if channels > 1:
+        # Mix to mono first
+        all_samples = struct.unpack(f"<{n_frames * channels}h", data[:n_frames * channels * 2])
+        mono = []
+        for i in range(0, len(all_samples), channels):
+            mono.append(sum(all_samples[i:i+channels]) // channels)
+    else:
+        mono = list(struct.unpack(f"<{n_frames}h", data[:n_frames * 2]))
+
+    # Resample via linear interpolation
+    ratio = src_rate / dst_rate
+    new_len = int(n_frames / ratio)
+    resampled = []
+    for i in range(new_len):
+        src_pos = i * ratio
+        idx = int(src_pos)
+        frac = src_pos - idx
+        if idx + 1 < len(mono):
+            val = int(mono[idx] * (1 - frac) + mono[idx + 1] * frac)
+        else:
+            val = mono[min(idx, len(mono) - 1)]
+        resampled.append(max(-32768, min(32767, val)))
+
+    return struct.pack(f"<{len(resampled)}h", *resampled)
 
 
 # ── Helpers ───────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
 pyalsaaudio>=0.10.0
 
 # Voice Activity Detection (lightweight C library, ~1MB)
-webrtcvad>=2.0.10
+webrtcvad-wheels>=2.0.14
 
 # WebSocket client (async)
 websockets>=12.0

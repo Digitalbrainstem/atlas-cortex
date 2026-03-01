@@ -56,21 +56,25 @@ class ReSpeakerLED(LEDController):
     ReSpeaker 4-Mic Array: 12 LEDs
     """
 
-    PATTERNS = {
+    DEFAULT_PATTERNS = {
         "idle": (0, 0, 0, 0.0),
         "listening": (0, 100, 255, 0.4),
         "thinking": (255, 165, 0, 0.3),
         "speaking": (0, 200, 100, 0.4),
         "error": (255, 0, 0, 0.5),
         "muted": (255, 0, 0, 0.1),
+        "wakeword": (0, 200, 255, 0.6),
     }
 
-    def __init__(self, num_leds: int = 3):
+    def __init__(self, num_leds: int = 3, patterns: dict | None = None):
         self.num_leds = num_leds
         self._spi = None
         self._lock = threading.Lock()
         self._pulse_thread = None
         self._pulsing = False
+        self.patterns: dict[str, tuple[int, int, int, float]] = dict(self.DEFAULT_PATTERNS)
+        if patterns:
+            self.update_patterns(patterns)
 
         try:
             import spidev
@@ -102,8 +106,27 @@ class ReSpeakerLED(LEDController):
             except Exception:
                 logger.exception("SPI write error")
 
+    def update_patterns(self, patterns: dict) -> None:
+        """Update LED patterns from config dict.
+
+        Accepts either:
+          {"state": {"r": int, "g": int, "b": int, "brightness": float}}
+        or:
+          {"state": [r, g, b, brightness]}
+        """
+        for name, val in patterns.items():
+            if isinstance(val, dict):
+                self.patterns[name] = (
+                    int(val.get("r", 0)),
+                    int(val.get("g", 0)),
+                    int(val.get("b", 0)),
+                    float(val.get("brightness", 0.4)),
+                )
+            elif isinstance(val, (list, tuple)) and len(val) >= 4:
+                self.patterns[name] = tuple(val[:4])
+
     def set_pattern(self, pattern: str) -> None:
-        color = self.PATTERNS.get(pattern, (0, 0, 0, 0.0))
+        color = self.patterns.get(pattern, (0, 0, 0, 0.0))
         if pattern == "thinking":
             self._start_pulse(*color)
         else:
@@ -188,11 +211,11 @@ class GPIOLED(LEDController):
             self._gpio.cleanup(self.pin)
 
 
-def create_led(led_type: str, led_count: int = 3) -> LEDController:
+def create_led(led_type: str, led_count: int = 3, patterns: dict | None = None) -> LEDController:
     """Factory: create the appropriate LED controller."""
     lt = led_type.lower()
     if lt in ("respeaker", "respeaker_2mic", "respeaker_4mic", "respeaker_apa102"):
-        return ReSpeakerLED(num_leds=led_count)
+        return ReSpeakerLED(num_leds=led_count, patterns=patterns)
     elif lt == "gpio":
         return GPIOLED()
     else:
