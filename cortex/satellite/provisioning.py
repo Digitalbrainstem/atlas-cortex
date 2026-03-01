@@ -67,7 +67,7 @@ class ProvisionConfig:
     display_name: str = ""
     hostname: str = ""  # computed: atlas-sat-{room}
     ssh_username: str = "atlas"
-    ssh_password: str = "atlas-setup"
+    ssh_password: str = "atlas"
     ssh_port: int = 22
     service_port: int = 5110
     server_url: str = ""  # ws://server:5100/ws/satellite
@@ -327,6 +327,12 @@ class ProvisioningEngine:
             "wake_word": config.wake_word,
             "volume": config.volume,
             "mic_gain": config.mic_gain,
+            "vad_sensitivity": 2,
+            "audio_device_in": config.features.get("audio_device_in", "default"),
+            "audio_device_out": config.features.get("audio_device_out", "default"),
+            "led_type": config.features.get("led_type", "none"),
+            "wake_word_enabled": False,
+            "filler_enabled": True,
             "features": config.features,
         }
         config_json = json.dumps(sat_config, indent=2)
