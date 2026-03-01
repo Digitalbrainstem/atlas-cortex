@@ -1,7 +1,9 @@
-version: "3.9"
-
 services:
-  # ── Atlas Cortex main server ──────────────────────────────────
+  # ── Atlas Cortex — main server + admin UI ───────────────────────
+  # Uses host networking so satellites on the LAN can connect via
+  # WebSocket and mDNS, and so the server can SSH to satellites for
+  # provisioning. Internal services are reached via localhost ports
+  # forwarded from the atlas bridge network.
   atlas-cortex:
     build:
       context: ..
@@ -9,51 +11,122 @@ services:
     image: atlas-cortex:latest
     container_name: atlas-cortex
     restart: unless-stopped
-    ports:
-      - "5100:5100"
+    network_mode: host
     volumes:
       - atlas-data:/data
     environment:
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
-      - LLM_URL=${LLM_URL:-http://host.docker.internal:11434}
+      - LLM_URL=${LLM_URL:-http://localhost:11434}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - MODEL_FAST=${MODEL_FAST:-qwen2.5:14b}
+      - MODEL_FAST=${MODEL_FAST:-qwen2.5:7b}
       - MODEL_THINKING=${MODEL_THINKING:-qwen3:30b-a3b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
+      - TTS_HOST=${TTS_HOST:-localhost}
+      - TTS_PORT=${TTS_PORT:-10200}
+      - STT_HOST=${STT_HOST:-localhost}
+      - STT_PORT=${STT_PORT:-10300}
       - CORTEX_DATA_DIR=/data
-      - CORTEX_PORT=5100
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - CORTEX_PORT=${CORTEX_PORT:-5100}
+      - PIPER_URL=http://localhost:10200
+      - ORPHEUS_URL=${ORPHEUS_URL:-http://localhost:11434}
+    depends_on:
+      atlas-piper:
+        condition: service_started
+      atlas-whisper:
+        condition: service_started
+      atlas-ollama:
+        condition: service_started
 
-  # ── Speaker ID sidecar (optional, Part 1 C3a) ─────────────────
-  # atlas-speaker-id:
-  #   image: atlas-speaker-id:latest
-  #   container_name: atlas-speaker-id
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8890:8890"
-  #   volumes:
-  #     - atlas-data:/data
+  # ── Piper TTS — Wyoming protocol (port 10200) ──────────────────
+  # Lightweight CPU-only TTS. ~140MB RAM, sub-second synthesis.
+  atlas-piper:
+    image: lscr.io/linuxserver/piper:latest
+    container_name: atlas-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - atlas-piper-data:/config
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-America/New_York}
+      - PIPER_VOICE=${PIPER_VOICE:-en_US-lessac-medium}
+      - PIPER_LENGTH=${PIPER_LENGTH:-1.0}
+      - PIPER_NOISE=${PIPER_NOISE:-0.667}
+      - PIPER_NOISEW=${PIPER_NOISEW:-0.333}
+      - PIPER_SPEAKER=${PIPER_SPEAKER:-0}
+      - PIPER_PROCS=${PIPER_PROCS:-1}
+    networks:
+      - atlas
+    healthcheck:
+      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10200 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
-  # ── Avatar sidecar (optional, Part 1 C7) ─────────────────────
-  # atlas-avatar:
-  #   image: atlas-avatar:latest
-  #   container_name: atlas-avatar
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8891:8891"
+  # ── Faster-Whisper STT — Wyoming protocol (port 10300) ─────────
+  # Speech-to-text. ~3GB RAM with distil-large-v3.
+  # GPU: Attach AMD ROCm or Intel devices via .env overrides.
+  atlas-whisper:
+    image: lscr.io/linuxserver/faster-whisper:latest
+    container_name: atlas-whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - atlas-whisper-data:/config
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-America/New_York}
+      - WHISPER_MODEL=${WHISPER_MODEL:-distil-large-v3}
+      - WHISPER_BEAM=${WHISPER_BEAM:-1}
+      - WHISPER_LANG=${WHISPER_LANG:-en}
+    networks:
+      - atlas
+    healthcheck:
+      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10300 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
-  # ── Nightly evolution job (optional, Part 2) ─────────────────
-  # atlas-evolution:
-  #   image: atlas-cortex:latest
-  #   container_name: atlas-evolution
-  #   restart: "no"
-  #   volumes:
-  #     - atlas-data:/data
-  #   environment:
-  #     - CORTEX_DATA_DIR=/data
-  #   command: ["python", "-m", "cortex.evolution"]
+  # ── Ollama LLM — REST API (port 11434) ─────────────────────────
+  # Language model backend. GPU strongly recommended.
+  # Override OLLAMA_IMAGE in .env for GPU variants:
+  #   AMD ROCm:  ollama/ollama:rocm
+  #   CPU-only:  ollama/ollama:latest
+  atlas-ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    container_name: atlas-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - atlas-ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - atlas
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  atlas:
+    driver: bridge
 
 volumes:
   atlas-data:
+    driver: local
+  atlas-piper-data:
+    driver: local
+  atlas-whisper-data:
+    driver: local
+  atlas-ollama-data:
     driver: local

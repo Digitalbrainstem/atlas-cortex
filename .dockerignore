@@ -1,0 +1,10 @@
+.git
+.github
+.gitignore
+*.md
+__pycache__
+*.pyc
+.venv
+node_modules
+admin/node_modules
+satellite/atlas_satellite/__pycache__

@@ -1,0 +1,32 @@
+# GPU override for NVIDIA CUDA systems.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d
+#
+# Requirements:
+#   - NVIDIA GPU with CUDA support
+#   - nvidia-container-toolkit installed on host
+
+services:
+  atlas-ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  atlas-whisper:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - PUID=${PUID:-99}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-America/New_York}
+      - WHISPER_MODEL=${WHISPER_MODEL:-distil-large-v3}
+      - WHISPER_BEAM=${WHISPER_BEAM:-1}
+      - WHISPER_LANG=${WHISPER_LANG:-en}
