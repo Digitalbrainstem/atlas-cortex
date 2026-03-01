@@ -15,6 +15,7 @@ import base64
 import enum
 import logging
 import os
+import struct
 import time
 from pathlib import Path
 from typing import Optional
@@ -384,6 +385,15 @@ class SatelliteAgent:
                 self.led.off()
                 await asyncio.sleep(0.3)
             self.led.set_pattern("idle")
+        elif action == "test_audio":
+            # Generate a short test tone (440Hz, 1 second)
+            await self._play_test_tone()
+        elif action == "test_leds":
+            # Cycle through LED patterns for visual confirmation
+            for pattern in ("listening", "thinking", "speaking", "error"):
+                self.led.set_pattern(pattern)
+                await asyncio.sleep(1.5)
+            self.led.set_pattern("idle")
         else:
             logger.warning("Unknown command: %s", action)
 
@@ -401,6 +411,26 @@ class SatelliteAgent:
         if "features" in msg:
             self.config.features = msg["features"]
         logger.info("Config updated from server")
+
+    async def _play_test_tone(self) -> None:
+        """Generate and play a short 440Hz test tone."""
+        import math
+
+        sample_rate = 16000
+        duration = 1.0
+        freq = 440
+        n_samples = int(sample_rate * duration)
+        samples = []
+        for i in range(n_samples):
+            t = i / sample_rate
+            # Fade in/out to avoid clicks
+            envelope = min(1.0, t * 10, (duration - t) * 10)
+            val = int(16000 * envelope * math.sin(2 * math.pi * freq * t))
+            samples.append(max(-32768, min(32767, val)))
+        pcm_data = struct.pack(f"<{len(samples)}h", *samples)
+        self.led.set_pattern("speaking")
+        await self.audio_out.play_pcm(pcm_data, sample_rate)
+        self.led.set_pattern("idle")
 
     async def _on_sync_fillers(self, msg: dict) -> None:
         """Sync filler phrase cache with server."""

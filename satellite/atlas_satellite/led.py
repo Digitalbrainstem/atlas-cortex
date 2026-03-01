@@ -190,9 +190,10 @@ class GPIOLED(LEDController):
 
 def create_led(led_type: str, led_count: int = 3) -> LEDController:
     """Factory: create the appropriate LED controller."""
-    if led_type == "respeaker":
+    lt = led_type.lower()
+    if lt in ("respeaker", "respeaker_2mic", "respeaker_4mic", "respeaker_apa102"):
         return ReSpeakerLED(num_leds=led_count)
-    elif led_type == "gpio":
+    elif lt == "gpio":
         return GPIOLED()
     else:
         return NullLED()
