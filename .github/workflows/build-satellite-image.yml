@@ -127,19 +127,119 @@ jobs:
           HASH=$(openssl passwd -6 "atlas-setup")
           echo "atlas:${HASH}" | sudo tee /mnt/pi-boot/userconf.txt > /dev/null
 
-          # Optional config file on boot partition (FAT32 — accessible on Windows)
-          # All settings are OPTIONAL — the satellite auto-discovers the server
-          # via mDNS (_atlas-cortex._tcp.local). Wi-Fi should be configured in
-          # your flashing tool (Raspberry Pi Imager, etc.)
+          # ── WiFi config file (user edits this after flashing) ──
+          sudo tee /mnt/pi-boot/atlas-wifi.txt > /dev/null << 'WIFICFG'
+          # =============================================
+          #  Atlas Satellite — WiFi Configuration
+          # =============================================
+          #  Edit these values, then eject the SD card.
+          #  The satellite connects to WiFi on first boot.
+          #
+          WIFI_SSID=YOUR_WIFI_NAME
+          WIFI_PASSWORD=YOUR_WIFI_PASSWORD
+          WIFI_COUNTRY=US
+          WIFICFG
+
+          # ── Optional satellite overrides ──
           sudo tee /mnt/pi-boot/atlas-satellite.conf > /dev/null << 'ATLASCONF'
           # Atlas Satellite Configuration (OPTIONAL)
-          # All fields are optional. The satellite auto-discovers the Atlas
-          # server via mDNS. Configure WiFi in your imaging tool.
-          #
-          # Only edit this if you need to override defaults:
+          # The satellite auto-discovers the server via mDNS.
+          # Only edit if you need to override defaults:
           # ATLAS_SERVER_URL=ws://192.168.1.100:5100/ws/satellite
           # ATLAS_HOSTNAME=atlas-sat-kitchen
           ATLASCONF
+
+      - name: Install WiFi early-boot service
+        run: |
+          # This runs BEFORE network-online.target to configure WiFi
+          # from the user-editable atlas-wifi.txt on the boot partition.
+          sudo tee /mnt/pi-root/usr/local/bin/atlas-wifi-setup > /dev/null << 'WIFISCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          WIFI_CONF="/boot/firmware/atlas-wifi.txt"
+          [ ! -f "$WIFI_CONF" ] && WIFI_CONF="/boot/atlas-wifi.txt"
+          [ ! -f "$WIFI_CONF" ] && exit 0
+
+          # Source the config (strip leading whitespace from heredoc indentation)
+          eval "$(sed 's/^[[:space:]]*//' "$WIFI_CONF" | grep -v '^#' | grep '=')"
+
+          # Skip if still placeholder values
+          if [ -z "${WIFI_SSID:-}" ] || [ "$WIFI_SSID" = "YOUR_WIFI_NAME" ]; then
+              echo "atlas-wifi-setup: No WiFi configured in atlas-wifi.txt"
+              exit 0
+          fi
+
+          echo "atlas-wifi-setup: Configuring WiFi for $WIFI_SSID"
+
+          # Set regulatory domain
+          iw reg set "${WIFI_COUNTRY:-US}" 2>/dev/null || true
+
+          # Create NetworkManager connection file
+          NM_DIR="/etc/NetworkManager/system-connections"
+          mkdir -p "$NM_DIR"
+          cat > "$NM_DIR/atlas-wifi.nmconnection" << NMEOF
+          [connection]
+          id=atlas-wifi
+          type=wifi
+          autoconnect=true
+          autoconnect-priority=10
+
+          [wifi]
+          ssid=${WIFI_SSID}
+          mode=infrastructure
+
+          [wifi-security]
+          key-mgmt=wpa-psk
+          psk=${WIFI_PASSWORD}
+
+          [ipv4]
+          method=auto
+
+          [ipv6]
+          method=auto
+          NMEOF
+          # Fix indentation from heredoc
+          sed -i 's/^[[:space:]]*//' "$NM_DIR/atlas-wifi.nmconnection"
+          chmod 600 "$NM_DIR/atlas-wifi.nmconnection"
+
+          # Restart NetworkManager to pick up the new connection
+          systemctl restart NetworkManager 2>/dev/null || true
+
+          # Wait for connection (up to 30s)
+          for i in $(seq 1 15); do
+              if nmcli -t -f STATE general 2>/dev/null | grep -q "connected"; then
+                  echo "atlas-wifi-setup: Connected!"
+                  exit 0
+              fi
+              sleep 2
+          done
+          echo "atlas-wifi-setup: WiFi configured, waiting for connection..."
+          WIFISCRIPT
+          sudo chmod +x /mnt/pi-root/usr/local/bin/atlas-wifi-setup
+
+          # Systemd service — runs early, before network-online.target
+          sudo tee /mnt/pi-root/etc/systemd/system/atlas-wifi-setup.service > /dev/null << 'WIFIUNIT'
+          [Unit]
+          Description=Atlas Satellite WiFi Setup
+          DefaultDependencies=no
+          Before=network-pre.target
+          After=systemd-udevd.service
+          Wants=network-pre.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/atlas-wifi-setup
+          RemainAfterExit=yes
+          TimeoutStartSec=60
+
+          [Install]
+          WantedBy=multi-user.target
+          WIFIUNIT
+
+          sudo mkdir -p /mnt/pi-root/etc/systemd/system/multi-user.target.wants
+          sudo ln -sf /etc/systemd/system/atlas-wifi-setup.service \
+              /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-wifi-setup.service
 
       - name: Install atlas-announce service into root partition
         run: |
