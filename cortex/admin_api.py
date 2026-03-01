@@ -882,9 +882,189 @@ async def test_satellite_audio(satellite_id: str, admin: dict = Depends(require_
     return {"sent": sent}
 
 
+@router.post("/satellites/{satellite_id}/command")
+async def send_satellite_command(satellite_id: str, body: dict, admin: dict = Depends(require_admin)):
+    """Send an arbitrary command to a connected satellite."""
+    from cortex.satellite.websocket import send_command
+    action = body.get("action", "")
+    params = body.get("params")
+    if not action:
+        raise HTTPException(status_code=400, detail="Missing action")
+    sent = await send_command(satellite_id, action, params)
+    return {"sent": sent}
+
+
+@router.patch("/satellites/{satellite_id}/led_config")
+async def update_led_config(satellite_id: str, body: dict, admin: dict = Depends(require_admin)):
+    """Update LED pattern colors for a satellite and push live."""
+    import json as _json
+    from cortex.satellite.websocket import send_command
+    patterns = body.get("patterns", {})
+    if not patterns:
+        raise HTTPException(status_code=400, detail="Missing patterns")
+    # Store in DB
+    db = get_db()
+    existing = db.execute("SELECT led_config FROM satellites WHERE id = ?", (satellite_id,)).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    current = _json.loads(existing["led_config"]) if existing["led_config"] else {}
+    current.update(patterns)
+    db.execute("UPDATE satellites SET led_config = ? WHERE id = ?", (_json.dumps(current), satellite_id))
+    db.commit()
+    # Push to satellite
+    sent = await send_command(satellite_id, "led_config", {"patterns": patterns})
+    return {"saved": True, "pushed": sent}
+
+
+@router.get("/satellites/{satellite_id}/led_config")
+async def get_led_config(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Get the LED pattern configuration for a satellite."""
+    import json as _json
+    db = get_db()
+    row = db.execute("SELECT led_config FROM satellites WHERE id = ?", (satellite_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    config = _json.loads(row["led_config"]) if row["led_config"] else {}
+    # Return defaults merged with custom
+    defaults = {
+        "idle": {"r": 0, "g": 0, "b": 0, "brightness": 0.0},
+        "listening": {"r": 0, "g": 100, "b": 255, "brightness": 0.4},
+        "thinking": {"r": 255, "g": 165, "b": 0, "brightness": 0.3},
+        "speaking": {"r": 0, "g": 200, "b": 100, "brightness": 0.4},
+        "error": {"r": 255, "g": 0, "b": 0, "brightness": 0.5},
+        "muted": {"r": 255, "g": 0, "b": 0, "brightness": 0.1},
+        "wakeword": {"r": 0, "g": 200, "b": 255, "brightness": 0.6},
+    }
+    merged = {**defaults, **config}
+    return {"patterns": merged}
+
+
 @router.delete("/satellites/{satellite_id}")
 async def remove_satellite(satellite_id: str, admin: dict = Depends(require_admin)):
     """Remove and deregister a satellite."""
     mgr = _get_satellite_manager()
     await mgr.remove(satellite_id)
     return {"removed": True}
+
+
+# ── TTS Preview & Voice Management ─────────────────────────────
+
+
+@router.get("/tts/voices")
+async def list_tts_voices(admin: dict = Depends(require_admin)):
+    """List available TTS voices from the Piper Wyoming service."""
+    import os
+    from cortex.voice.wyoming import WyomingClient
+    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    port = int(os.environ.get("TTS_PORT", "10200"))
+    tts = WyomingClient(host, port)
+    try:
+        voices = await tts.list_voices()
+        return {"voices": voices}
+    except Exception as e:
+        return {"voices": [], "error": str(e)}
+
+
+@router.post("/tts/preview")
+async def preview_tts(body: dict, admin: dict = Depends(require_admin)):
+    """Synthesize text and return WAV audio for browser playback or push to satellite."""
+    import io
+    import os
+    import wave
+    from fastapi.responses import Response
+    from cortex.voice.wyoming import WyomingClient, WyomingError
+
+    text = body.get("text", "Hello, I am Atlas.")
+    voice = body.get("voice")
+    target = body.get("target", "browser")  # "browser" or satellite_id
+
+    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    port = int(os.environ.get("TTS_PORT", "10200"))
+    tts = WyomingClient(host, port, timeout=30.0)
+
+    try:
+        audio_data, audio_info = await tts.synthesize(text, voice=voice)
+    except WyomingError as e:
+        raise HTTPException(status_code=502, detail=f"TTS error: {e}")
+
+    if not audio_data:
+        raise HTTPException(status_code=500, detail="TTS returned empty audio")
+
+    rate = audio_info.get("rate", 22050)
+    width = audio_info.get("width", 2)
+    channels = audio_info.get("channels", 1)
+
+    if target != "browser":
+        # Push to satellite speaker at native TTS rate (hardware handles conversion)
+        import base64
+        conn = _connected_satellites_ref().get(target)
+        if not conn:
+            raise HTTPException(status_code=404, detail="Satellite not connected")
+        await conn.send({"type": "TTS_START", "sample_rate": rate, "format": f"pcm_{rate}_{width*8}bit_{channels}ch"})
+        for off in range(0, len(audio_data), 4096):
+            await conn.send({"type": "TTS_CHUNK", "audio": base64.b64encode(audio_data[off:off+4096]).decode()})
+        await conn.send({"type": "TTS_END"})
+        return {"sent": True, "bytes": len(audio_data)}
+
+    # Return WAV for browser playback
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(width)
+        wf.setframerate(rate)
+        wf.writeframes(audio_data)
+    wav_bytes = buf.getvalue()
+
+    return Response(content=wav_bytes, media_type="audio/wav",
+                    headers={"Content-Disposition": "inline; filename=preview.wav"})
+
+
+@router.post("/tts/filler_preview")
+async def preview_filler(body: dict, admin: dict = Depends(require_admin)):
+    """Synthesize a filler phrase and optionally push to satellite."""
+    import os
+    from cortex.filler import select_filler
+    from cortex.voice.wyoming import WyomingClient
+
+    sentiment = body.get("sentiment", "greeting")
+    target = body.get("target", "browser")
+
+    # Pick a filler
+    filler_text = select_filler(sentiment, confidence=0.8, user_id="admin")
+    if not filler_text:
+        filler_text = "Hmm, let me think..."
+
+    host = os.environ.get("TTS_HOST", "172.17.0.4")
+    port = int(os.environ.get("TTS_PORT", "10200"))
+    tts = WyomingClient(host, port, timeout=15.0)
+    audio_data, audio_info = await tts.synthesize(filler_text)
+
+    if target != "browser":
+        import base64
+        from cortex.satellite.websocket import _resample_pcm, get_connection
+        rate = audio_info.get("rate", 22050)
+        channels = audio_info.get("channels", 1)
+        sat_audio = audio_data if rate == 16000 else _resample_pcm(audio_data, rate, 16000, channels)
+        conn = get_connection(target)
+        if not conn:
+            raise HTTPException(status_code=404, detail="Satellite not connected")
+        await conn.send({"type": "TTS_START", "sample_rate": 16000, "format": "pcm_16k_16bit_mono"})
+        for off in range(0, len(sat_audio), 4096):
+            await conn.send({"type": "TTS_CHUNK", "audio": base64.b64encode(sat_audio[off:off+4096]).decode()})
+        await conn.send({"type": "TTS_END"})
+        return {"sent": True, "filler": filler_text}
+
+    import io, wave
+    from fastapi.responses import Response
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(audio_info.get("channels", 1))
+        wf.setsampwidth(audio_info.get("width", 2))
+        wf.setframerate(audio_info.get("rate", 22050))
+        wf.writeframes(audio_data)
+    return Response(content=buf.getvalue(), media_type="audio/wav")
+
+
+def _connected_satellites_ref():
+    from cortex.satellite.websocket import get_connected_satellites
+    return get_connected_satellites()

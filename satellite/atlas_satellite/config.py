@@ -46,7 +46,18 @@ class SatelliteConfig:
 
     # Silence detection
     silence_threshold_frames: int = 30  # ~900ms at 30ms/frame
-    speech_threshold_frames: int = 3  # ~90ms to confirm speech
+    speech_threshold_frames: int = 10  # ~300ms to confirm speech
+
+    # LED patterns: state → {"r": int, "g": int, "b": int, "brightness": float}
+    led_patterns: dict = field(default_factory=lambda: {
+        "idle": {"r": 0, "g": 0, "b": 0, "brightness": 0.0},
+        "listening": {"r": 0, "g": 100, "b": 255, "brightness": 0.4},
+        "thinking": {"r": 255, "g": 165, "b": 0, "brightness": 0.3},
+        "speaking": {"r": 0, "g": 200, "b": 100, "brightness": 0.4},
+        "error": {"r": 255, "g": 0, "b": 0, "brightness": 0.5},
+        "muted": {"r": 255, "g": 0, "b": 0, "brightness": 0.1},
+        "wakeword": {"r": 0, "g": 200, "b": 255, "brightness": 0.6},
+    })
 
     # Features
     features: dict = field(default_factory=dict)
