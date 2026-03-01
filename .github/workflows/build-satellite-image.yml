@@ -345,7 +345,7 @@ jobs:
           sudo ln -sf /etc/systemd/system/atlas-firstboot.service \
               /mnt/pi-root/etc/systemd/system/multi-user.target.wants/atlas-firstboot.service
 
-      - name: Unmount and compress image
+      - name: Unmount and finalize image
         run: |
           sudo umount /mnt/pi-boot /mnt/pi-root
           sudo losetup -d "$LOOP"
@@ -354,12 +354,10 @@ jobs:
           IMG_NAME="atlas-satellite-pi-${{ matrix.arch }}-${DATE}.img"
           mv rpios.img "$IMG_NAME"
 
-          echo "Compressing image..."
-          xz -9 -T0 "$IMG_NAME"
-          echo "IMG_FILE=${IMG_NAME}.xz" >> $GITHUB_ENV
+          echo "IMG_FILE=${IMG_NAME}" >> $GITHUB_ENV
           echo "IMG_NAME=${IMG_NAME}" >> $GITHUB_ENV
 
-          ls -lh "${IMG_NAME}.xz"
+          ls -lh "${IMG_NAME}"
 
       - name: Generate SHA256 checksum
         run: |
@@ -373,6 +371,7 @@ jobs:
           path: |
             ${{ env.IMG_FILE }}
             ${{ env.IMG_FILE }}.sha256
+          compression-level: 6
           retention-days: 90
 
       - name: Upload to release
@@ -389,7 +388,7 @@ jobs:
             Pre-built Raspberry Pi OS image with Atlas satellite agent.
 
             ### Quick Start
-            1. Flash this image to an SD card (use [Raspberry Pi Imager](https://www.raspberrypi.com/software/), [balenaEtcher](https://etcher.balena.io/), or `dd`)
+            1. Flash the `.img` file to an SD card using [Raspberry Pi Imager](https://www.raspberrypi.com/software/), [balenaEtcher](https://etcher.balena.io/), or Rufus
             2. Open the SD card's boot partition on your computer
             3. Edit `atlas-satellite.conf` — set your WiFi and Atlas server URL
             4. Eject, insert into Pi, power on
