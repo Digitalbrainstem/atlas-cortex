@@ -68,7 +68,7 @@ class SatelliteManager:
         ip_address: str,
         mode: str = "dedicated",
         ssh_username: str = "atlas",
-        ssh_password: str = "atlas-setup",
+        ssh_password: str = "atlas",
         service_port: int = 5110,
     ) -> dict:
         """Manually add a satellite by IP address."""
@@ -100,7 +100,7 @@ class SatelliteManager:
             raise ValueError(f"Satellite not found: {satellite_id}")
 
         username = ssh_username or sat.get("ssh_username", "atlas")
-        password = ssh_password or "atlas-setup"
+        password = ssh_password or "atlas"
         ip = sat["ip_address"]
 
         self._update(satellite_id, status="detecting")
@@ -132,7 +132,7 @@ class SatelliteManager:
         room: str,
         display_name: str = "",
         features: dict | None = None,
-        ssh_password: str = "atlas-setup",
+        ssh_password: str = "atlas",
     ) -> ProvisionResult:
         """Provision a satellite with the given configuration."""
         sat = self._get_satellite(satellite_id)

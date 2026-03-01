@@ -26,7 +26,7 @@ const form = ref({
 
 // Provision form
 const showProvision = ref(false)
-const provisionForm = ref({ room: '', display_name: '', ssh_password: 'atlas-setup' })
+const provisionForm = ref({ room: '', display_name: '', ssh_password: 'atlas' })
 const provisioning = ref(false)
 const provisionSteps = ref([])
 

@@ -100,8 +100,16 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
         # Register connection
         _connected_satellites[satellite_id] = conn
 
-        # Update DB status
-        _update_satellite_status(satellite_id, "online")
+        # Extract client IP and metadata from ANNOUNCE
+        client_ip = websocket.client.host if websocket.client else None
+        _update_satellite_status(
+            satellite_id, "online",
+            ip_address=client_ip,
+            hostname=raw.get("hostname"),
+            room=raw.get("room"),
+            capabilities=raw.get("capabilities"),
+            hardware_info=raw.get("hw_info"),
+        )
 
         # Send ACCEPTED
         await conn.send({
@@ -259,16 +267,42 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
 # ── Helpers ───────────────────────────────────────────────────────
 
 
-def _update_satellite_status(satellite_id: str, status: str) -> None:
+def _update_satellite_status(
+    satellite_id: str,
+    status: str,
+    ip_address: str | None = None,
+    hostname: str | None = None,
+    room: str | None = None,
+    capabilities: list | None = None,
+    hardware_info: dict | None = None,
+) -> None:
     """Update the satellite status in the database (upsert)."""
     try:
+        import json as _json
+
         db = get_db()
         now = datetime.now(timezone.utc).isoformat()
+        caps_json = _json.dumps(capabilities) if capabilities else None
+        hw_json = _json.dumps(hardware_info) if hardware_info else None
+
         db.execute(
-            """INSERT INTO satellites (id, display_name, status, last_seen)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET status = ?, last_seen = ?""",
-            (satellite_id, satellite_id, status, now, status, now),
+            """INSERT INTO satellites (id, display_name, status, last_seen,
+                   ip_address, hostname, room, capabilities, hardware_info)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                   status = ?,
+                   last_seen = ?,
+                   ip_address = COALESCE(?, ip_address),
+                   hostname = COALESCE(?, hostname),
+                   room = COALESCE(?, room),
+                   capabilities = COALESCE(?, capabilities),
+                   hardware_info = COALESCE(?, hardware_info)""",
+            (
+                satellite_id, satellite_id, status, now,
+                ip_address, hostname, room, caps_json, hw_json,
+                status, now,
+                ip_address, hostname, room, caps_json, hw_json,
+            ),
         )
         db.commit()
     except Exception:

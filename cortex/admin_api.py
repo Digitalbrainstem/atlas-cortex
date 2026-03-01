@@ -686,7 +686,7 @@ class SatelliteAddRequest(BaseModel):
     ip_address: str
     mode: str = "dedicated"
     ssh_username: str = "atlas"
-    ssh_password: str = "atlas-setup"
+    ssh_password: str = "atlas"
     service_port: int = 5110
 
 
@@ -694,7 +694,7 @@ class SatelliteProvisionRequest(BaseModel):
     room: str
     display_name: str = ""
     features: dict = Field(default_factory=dict)
-    ssh_password: str = "atlas-setup"
+    ssh_password: str = "atlas"
 
 
 class SatelliteUpdateRequest(BaseModel):
@@ -793,7 +793,7 @@ async def add_satellite(req: SatelliteAddRequest, admin: dict = Depends(require_
 @router.post("/satellites/{satellite_id}/detect")
 async def detect_hardware(
     satellite_id: str,
-    ssh_password: str = "atlas-setup",
+    ssh_password: str = "atlas",
     admin: dict = Depends(require_admin),
 ):
     """SSH into a satellite and detect its hardware."""
