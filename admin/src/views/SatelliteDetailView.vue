@@ -25,6 +25,7 @@ const form = ref({
   filler_threshold_ms: 1500,
   tts_voice: '',
   led_brightness: 1.0,
+  audio_device_out: '',
 })
 
 // Provision form
@@ -227,6 +228,7 @@ async function fetchSatellite() {
       filler_threshold_ms: data.filler_threshold_ms ?? 1500,
       tts_voice: data.tts_voice || '',
       led_brightness: data.led_brightness ?? 1.0,
+      audio_device_out: data.audio_device_out || '',
     }
   } catch (e) {
     error.value = e.message
@@ -386,6 +388,14 @@ async function removeSatellite() {
         <div class="form-row">
           <label>Mic Gain ({{ Math.round(form.mic_gain * 100) }}%)</label>
           <input type="range" v-model.number="form.mic_gain" min="0" max="1" step="0.05" />
+        </div>
+        <div class="form-row" v-if="capabilities?.playback_devices?.length > 1">
+          <label>Audio Output</label>
+          <select v-model="form.audio_device_out">
+            <option value="">Default</option>
+            <option v-for="d in capabilities.playback_devices" :key="d.alsa_id" :value="d.alsa_id">{{ d.name }} ({{ d.alsa_id }})</option>
+          </select>
+          <p class="hint">Requires satellite restart to take effect</p>
         </div>
         <div class="form-row toggle-row">
           <label><input type="checkbox" v-model="form.vad_enabled" @change="onVadToggle" /> Enable VAD (Voice Activity Detection)</label>

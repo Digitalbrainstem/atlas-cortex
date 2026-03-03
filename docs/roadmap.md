@@ -71,6 +71,31 @@ Connects Atlas to real-world services discovered on your network.
 - Wake word detection runs locally (openWakeWord) to minimize network traffic
 - Graceful degradation: if server is unreachable, satellite announces "Atlas is offline"
 
+#### MVP Blockers (must complete before release)
+
+| Item | Description | Status |
+|------|-------------|--------|
+| **Wake Word Reliability** | Cold-start detection needs 2-3 tries on ReSpeaker 2-mic (scores 0.26-0.38 vs threshold 0.25). Investigate model fine-tuning, mic AGC, or alternative engine. | 🔴 Pending |
+| **Button Config in Admin UI** | Add button_mode dropdown (toggle/press/hold) to satellite detail view. Backend API field exists. | 🟡 Pending |
+
+#### Conversational Engine (pre-MVP)
+
+Transform the voice pipeline from a rigid state machine (wake → listen → process → speak → idle) into a continuous, natural conversational flow.
+
+| Phase | Feature | Description | Depends On |
+|-------|---------|-------------|------------|
+| CE-1 | **Streaming STT + Extended Listening** | Keep mic active longer after wake word. Run local phrase/sentence boundary detection (not LLM) to segment speech in real-time. Only send complete phrases to pipeline. Don't cut off slow speakers. | — |
+| CE-2 | **Multi-Question Queuing** | Queue multiple detected phrases and process in order. If user asks 3 questions before first answer, queue all 3. Filler may be unnecessary if TTS finishes before user stops talking. | CE-1 |
+| CE-3 | **Barge-In / Interruption** | Keep mics hot during TTS playback. Detect "stop", "nevermind", or user speaking over Atlas. Kill current TTS stream immediately. Natural conversation: if someone talks over you, you stop. | — |
+| CE-4 | **Conversational Pause & Pivot** | When user interrupts Atlas mid-speech, pause TTS (don't kill). Listen to what they say. If it's a correction or new question, pivot to new response. If it's just "uh huh", resume after a few seconds. | CE-3 |
+| CE-5 | **Adaptive Dual-State LEDs** | Outer LEDs show listening state, inner LEDs show activity/processing state. Auto-configure layout by satellite hardware (ReSpeaker 2-mic has 3 LEDs, 4-mic has 12, etc). Satellite reports LED count in capabilities. | — |
+
+**Architecture notes:**
+- CE-1 and CE-3 are independent — can be built in parallel
+- CE-2 builds on CE-1's phrase detection; CE-4 builds on CE-3's barge-in detection
+- CE-5 (LEDs) is independent and can ship with any phase
+- Filler cache (18 pre-generated phrases, already implemented) becomes less important as CE-1/CE-2 reduce dead time
+
 ---
 
 ### Part 2.7: Fast-Path Plugins

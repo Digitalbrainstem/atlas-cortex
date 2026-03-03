@@ -34,9 +34,9 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Self-learning** — commands that go to the LLM are analyzed nightly and converted into fast regex patterns
 
 ### 🗣️ Voice & Speech Engine
-- **Emotional TTS** — Orpheus speech synthesis with natural pauses, breathing, laughter, and emotion tags
+- **Emotional TTS** — Kokoro speech synthesis with natural, expressive voices (Orpheus available for emotion tags)
 - **Voice identification** — recognizes family members by voice, personalizes responses per person
-- **Multiple providers** — Orpheus (emotional, GPU), Piper (fast, CPU fallback), extensible provider interface
+- **Multiple providers** — Kokoro (natural, CPU primary), Orpheus (emotional, GPU), Piper (fast, CPU fallback)
 - **Sentence-boundary streaming** — starts speaking before the full response is generated
 
 ### 🛡️ Safety & Content Policy
@@ -92,9 +92,9 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
   ┌─────────▼──────────┐ ┌─────────▼──────────┐ ┌─────────▼──────────┐
   │   Input Pipeline    │ │  Safety Guardrails  │ │   Voice Engine      │
   │                     │ │                     │ │                     │
-  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Orpheus TTS       │
-  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Piper fallback    │
-  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Emotion tags      │
+  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Kokoro TTS        │
+  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Orpheus fallback  │
+  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Piper fallback    │
   │ L3: LLM   (500ms+)  │ │ • Crisis detection  │ │ • Voice streaming   │
   └─────────┬──────────┘ └─────────────────────┘ └─────────────────────┘
             │
@@ -266,10 +266,9 @@ curl http://localhost:5100/v1/chat/completions \
 curl http://localhost:5100/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "orpheus",
+    "model": "kokoro",
     "input": "Good morning! The weather looks beautiful today.",
-    "voice": "tara",
-    "emotion": "happy"
+    "voice": "af_bella"
   }' --output speech.wav
 
 # List available voices
@@ -327,8 +326,9 @@ atlas-cortex/
 │   │   ├── ollama.py              #   Ollama provider
 │   │   └── openai_compat.py       #   Any OpenAI-compatible backend
 │   ├── voice/                     # Voice & TTS engine
-│   │   ├── providers/orpheus.py   #   Orpheus emotional TTS
+│   │   ├── providers/orpheus.py   #   Orpheus emotional TTS (GPU)
 │   │   ├── providers/piper.py     #   Piper CPU fallback
+│   │   ├── kokoro.py              #   Kokoro TTS client (primary)
 │   │   ├── composer.py            #   Emotion composition
 │   │   ├── streaming.py           #   Sentence-boundary streaming
 │   │   ├── spatial.py             #   Room resolution & spatial awareness
@@ -396,7 +396,7 @@ python -m pytest tests/test_voice.py -v
 | C7 | Avatar System | ✅ Complete | Phoneme-to-viseme lip-sync, emotion expressions |
 | C9 | Backup & Restore | ✅ Complete | Automated nightly backups, one-command restore |
 | C10 | Context Management | ✅ Complete | Context windows, compaction, overflow recovery |
-| C11 | Voice & Speech | ✅ Complete | TTS providers (Orpheus + Piper), emotion, streaming |
+| C11 | Voice & Speech | ✅ Complete | TTS providers (Kokoro primary + Orpheus + Piper), emotion, streaming |
 | C12 | Safety Guardrails | ✅ Complete | Content tiers, jailbreak defense, PII redaction |
 | — | Admin Web Panel | ✅ Complete | Vue 3 dashboard, JWT auth, 30+ REST endpoints |
 

@@ -25,7 +25,7 @@ class SatelliteConfig:
     wake_word: str = "hey atlas"
     volume: float = 0.7
     mic_gain: float = 0.8
-    vad_sensitivity: int = 2  # 0-3, webrtcvad aggressiveness
+    vad_sensitivity: int = 1  # 0-3, webrtcvad aggressiveness (1=best for noisy mics)
     sample_rate: int = 16000
     channels: int = 1
     chunk_ms: int = 30  # 30ms chunks for webrtcvad
@@ -44,12 +44,23 @@ class SatelliteConfig:
     # VAD control
     vad_enabled: bool = True  # when False, only wake word triggers listening
 
+    # Button (ReSpeaker 2-mic HAT GPIO 17)
+    button_enabled: bool = True
+    button_mode: str = "toggle"  # toggle | press | hold
+
     # Filler
     filler_enabled: bool = True
 
     # Silence detection
-    silence_threshold_frames: int = 30  # ~900ms at 30ms/frame
-    speech_threshold_frames: int = 10  # ~300ms to confirm speech
+    silence_threshold_frames: int = 15  # ~450ms at 30ms/frame
+    speech_threshold_frames: int = 3  # ~90ms to confirm speech start
+    max_speech_frames: int = 333  # ~10s max recording
+
+    # Energy-based VAD gating (RMS threshold for 16-bit PCM)
+    vad_energy_threshold: float = 80.0
+    vad_window_size: int = 40  # sliding window frames
+    vad_silence_ratio: float = 0.70  # ratio of silence in window to trigger end
+    vad_speech_energy_ratio: float = 2.2  # RMS must exceed ambient * this to be speech
 
     # LED master brightness (0.0-1.0, scales all pattern brightnesses)
     led_brightness: float = 1.0

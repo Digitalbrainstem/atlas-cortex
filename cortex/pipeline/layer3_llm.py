@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, AsyncGenerator
 
 from cortex.filler import select_filler
@@ -39,8 +40,8 @@ _FAST_KEYWORDS = frozenset([
 def select_model(
     message: str,
     conversation_length: int = 0,
-    model_fast: str = "qwen2.5:14b",
-    model_thinking: str = "qwen3:30b-a3b",
+    model_fast: str = os.environ.get("MODEL_FAST", "qwen2.5:14b"),
+    model_thinking: str = os.environ.get("MODEL_THINKING", "qwen3:30b-a3b"),
 ) -> str:
     """Rule-based model selection.
 
@@ -85,7 +86,12 @@ def build_messages(
     base_system = system_prompt or (
         "You are Atlas Cortex, a helpful AI assistant with a warm, direct "
         "personality. You are honest about what you know and don't know. "
-        "You never hallucinate facts. If you are uncertain, say so."
+        "You never hallucinate facts. If you are uncertain, say so.\n\n"
+        "IMPORTANT: Your responses will be spoken aloud via text-to-speech. "
+        "Be concise — answer the question directly in 1-2 sentences. "
+        "Give the specific fact asked for (a date, a name, a number) without "
+        "extra context, background, or synopsis unless the user explicitly "
+        "asks for more detail. Avoid lists and bullet points."
     )
     system_parts.append(base_system)
 
@@ -117,8 +123,8 @@ async def stream_llm_response(
     message: str,
     context: dict[str, Any],
     provider: LLMProvider,
-    model_fast: str = "qwen2.5:14b",
-    model_thinking: str = "qwen3:30b-a3b",
+    model_fast: str = os.environ.get("MODEL_FAST", "qwen2.5:14b"),
+    model_thinking: str = os.environ.get("MODEL_THINKING", "qwen3:30b-a3b"),
     memory_context: str = "",
     system_prompt: str = "",
     confidence: float = 1.0,

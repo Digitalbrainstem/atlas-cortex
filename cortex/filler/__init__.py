@@ -15,6 +15,7 @@ Falls back to built-in default pools when no DB rows are present.
 from __future__ import annotations
 
 import random
+from collections import deque
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -26,12 +27,38 @@ if TYPE_CHECKING:
 # ──────────────────────────────────────────────────────────────
 
 DEFAULT_FILLERS: dict[str, list[str]] = {
-    "greeting":   ["Hey! ", "Morning! ", "What's up? ", "Yo! ", "Hey there. "],
-    "question":   ["Hmm — ", "Let me think... ", "So — ", "Alright — ", "Okay, "],
-    "frustrated": ["I hear you. ", "Yeah, that's annoying. ", "Ugh, let me look at this. "],
-    "excited":    ["Nice! ", "Oh cool — ", "Hell yeah! "],
-    "late_night": ["Still at it? ", "Alright, ", "Late one, huh? "],
-    "follow_up":  ["So — ", "Right, ", "Okay — "],
+    "greeting":   [
+        "Hey! ",
+        "Hey there! ",
+        "Morning! ",
+    ],
+    "question":   [
+        "Let me check. ",
+        "Hmm, one moment. ",
+        "Let me look into that. ",
+        "Good question, one sec. ",
+        "Let me think. ",
+    ],
+    "frustrated": [
+        "I hear you. Let me look. ",
+        "Let me see what I can do. ",
+        "Let me dig into that. ",
+    ],
+    "excited":    [
+        "Oh nice! Let me check. ",
+        "Love it! One sec. ",
+        "Let me see! ",
+    ],
+    "late_night": [
+        "Let me check. ",
+        "One moment. ",
+        "Let me take a look. ",
+    ],
+    "follow_up":  [
+        "Right — ",
+        "Okay — ",
+        "Sure thing. ",
+    ],
     # command / casual → no filler
     "command":    [],
     "casual":     [],
@@ -59,6 +86,11 @@ CONFIDENCE_FILLERS: dict[str, list[str]] = {
 
 # Sentiments where no filler is ever appropriate
 _NO_FILLER_SENTIMENTS = {"command", "casual"}
+
+# In-memory dedup: track last N fillers per sentiment to avoid repetition
+# even when no DB connection is available.
+_recent_fillers: dict[str, deque[str]] = {}
+_RECENT_DEDUP_SIZE = 3
 
 
 def select_filler(
@@ -136,11 +168,19 @@ def _pick_sentiment_filler(
         except Exception:
             pass
 
-    # Fall back to built-in defaults
+    # Fall back to built-in defaults with in-memory dedup
     pool = DEFAULT_FILLERS.get(sentiment, [])
     if not pool:
         return ""
-    return random.choice(pool)
+    recent = _recent_fillers.get(sentiment, deque(maxlen=_RECENT_DEDUP_SIZE))
+    candidates = [p for p in pool if p not in recent]
+    if not candidates:
+        candidates = pool  # all used recently — reset
+    choice = random.choice(candidates)
+    if sentiment not in _recent_fillers:
+        _recent_fillers[sentiment] = deque(maxlen=_RECENT_DEDUP_SIZE)
+    _recent_fillers[sentiment].append(choice)
+    return choice
 
 
 def _pick_confidence_filler(confidence: float) -> str:

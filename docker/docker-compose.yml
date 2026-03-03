@@ -2,8 +2,7 @@ services:
   # ── Atlas Cortex — main server + admin UI ───────────────────────
   # Uses host networking so satellites on the LAN can connect via
   # WebSocket and mDNS, and so the server can SSH to satellites for
-  # provisioning. Internal services are reached via localhost ports
-  # forwarded from the atlas bridge network.
+  # provisioning. Internal services are reached via localhost ports.
   atlas-cortex:
     build:
       context: ..
@@ -15,20 +14,28 @@ services:
     volumes:
       - atlas-data:/data
     environment:
+      # LLM — runs on primary GPU (atlas-ollama, port 11434)
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - LLM_URL=${LLM_URL:-http://localhost:11434}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - MODEL_FAST=${MODEL_FAST:-qwen2.5:7b}
       - MODEL_THINKING=${MODEL_THINKING:-qwen3:30b-a3b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
-      - TTS_HOST=${TTS_HOST:-localhost}
-      - TTS_PORT=${TTS_PORT:-10200}
+      # TTS — Kokoro primary (port 8880), Piper fallback (port 10200), Orpheus optional (port 5005)
+      - TTS_PROVIDER=${TTS_PROVIDER:-kokoro}
+      - KOKORO_HOST=${KOKORO_HOST:-localhost}
+      - KOKORO_PORT=${KOKORO_PORT:-8880}
+      - KOKORO_VOICE=${KOKORO_VOICE:-af_bella}
+      - ORPHEUS_FASTAPI_URL=${ORPHEUS_FASTAPI_URL:-http://localhost:5005}
+      - PIPER_HOST=${PIPER_HOST:-localhost}
+      - PIPER_PORT=${PIPER_PORT:-10200}
+      # STT — whisper.cpp Vulkan (port 10300)
+      - STT_BACKEND=${STT_BACKEND:-whisper_cpp}
       - STT_HOST=${STT_HOST:-localhost}
       - STT_PORT=${STT_PORT:-10300}
       - CORTEX_DATA_DIR=/data
       - CORTEX_PORT=${CORTEX_PORT:-5100}
-      - PIPER_URL=http://localhost:10200
-      - ORPHEUS_URL=${ORPHEUS_URL:-http://localhost:11434}
+      - TZ=${TZ:-America/New_York}
     depends_on:
       atlas-piper:
         condition: service_started
@@ -38,7 +45,8 @@ services:
         condition: service_started
 
   # ── Piper TTS — Wyoming protocol (port 10200) ──────────────────
-  # Lightweight CPU-only TTS. ~140MB RAM, sub-second synthesis.
+  # CPU-only fallback TTS. ~140MB RAM, sub-second synthesis.
+  # Used for instant responses when Orpheus latency is too high.
   atlas-piper:
     image: lscr.io/linuxserver/piper:latest
     container_name: atlas-piper
@@ -66,40 +74,96 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── Faster-Whisper STT — Wyoming protocol (port 10300) ─────────
-  # Speech-to-text. ~3GB RAM with distil-large-v3.
-  # GPU: Attach AMD ROCm or Intel devices via .env overrides.
-  atlas-whisper:
-    image: lscr.io/linuxserver/faster-whisper:latest
-    container_name: atlas-whisper
+  # ── Kokoro TTS — OpenAI-compatible API (port 8880) ──────────────
+  # Non-autoregressive 82M-param model: sub-second to ~5s synthesis
+  # on CPU. Much faster than autoregressive Orpheus for real-time use.
+  # 67 built-in voice packs, natural sounding.
+  atlas-kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: atlas-kokoro
     restart: unless-stopped
     ports:
-      - "10300:10300"
-    volumes:
-      - atlas-whisper-data:/config
-    environment:
-      - PUID=${PUID:-99}
-      - PGID=${PGID:-100}
-      - TZ=${TZ:-America/New_York}
-      - WHISPER_MODEL=${WHISPER_MODEL:-distil-large-v3}
-      - WHISPER_BEAM=${WHISPER_BEAM:-1}
-      - WHISPER_LANG=${WHISPER_LANG:-en}
+      - "8880:8880"
     networks:
       - atlas
     healthcheck:
-      test: ["CMD-SHELL", "echo | nc -w 2 localhost 10300 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8880/v1/audio/voices > /dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 60s
 
-  # ── Ollama LLM — REST API (port 11434) ─────────────────────────
-  # Language model backend. GPU strongly recommended.
-  # Override OLLAMA_IMAGE in .env for GPU variants:
-  #   AMD ROCm:  ollama/ollama:rocm
-  #   CPU-only:  ollama/ollama:latest
+  # ── Whisper.cpp STT — HTTP API (port 10300) ──────────────────────
+  # Speech-to-text via whisper.cpp with Vulkan GPU acceleration.
+  # GPU: Intel Arc B580 shares GPU 1 with Orpheus TTS.
+  atlas-whisper:
+    image: ghcr.io/ggml-org/whisper.cpp:main-vulkan
+    container_name: atlas-whisper
+    restart: unless-stopped
+    depends_on:
+      atlas-whisper-init:
+        condition: service_completed_successfully
+    ports:
+      - "10300:10300"
+    volumes:
+      - atlas-whisper-data:/models
+    environment:
+      - GGML_VK_VISIBLE_DEVICES=${WHISPER_VK_DEVICE:-0}
+    entrypoint: ["/app/build/bin/whisper-server"]
+    command:
+      - -m
+      - /models/ggml-${WHISPER_MODEL:-large-v3-turbo-q5_0}.bin
+      - -l
+      - ${WHISPER_LANG:-en}
+      - -bs
+      - ${WHISPER_BEAM:-5}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "10300"
+      - --convert
+      - --suppress-nst
+      - --no-speech-thold
+      - "0.6"
+    networks:
+      - atlas
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:10300/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+  # ── Whisper model downloader (init container) ──────────────────
+  atlas-whisper-init:
+    image: alpine:latest
+    container_name: atlas-whisper-init
+    restart: "no"
+    volumes:
+      - atlas-whisper-data:/models
+    environment:
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3-turbo-q5_0}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        MODEL="ggml-$${WHISPER_MODEL}.bin"
+        if [ -f "/models/$$MODEL" ]; then
+          echo "Model $$MODEL already exists, skipping download"
+          exit 0
+        fi
+        echo "Downloading whisper model: $$MODEL"
+        apk add --no-cache curl
+        curl -L --retry 3 -o "/models/$$MODEL" \
+          "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$$MODEL"
+        echo "Download complete: $$MODEL ($$(du -h /models/$$MODEL | cut -f1))"
+    networks:
+      - atlas
+
+  # ── Ollama LLM — primary GPU (port 11434) ──────────────────────
+  # Main LLM backend on the largest GPU. Runs qwen2.5/qwen3.
+  # GPU: Use override files for AMD ROCm, Intel, or NVIDIA.
   atlas-ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    image: ${OLLAMA_LLM_IMAGE:-ollama/ollama:latest}
     container_name: atlas-ollama
     restart: unless-stopped
     ports:
@@ -108,14 +172,114 @@ services:
       - atlas-ollama-data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-0}
     networks:
       - atlas
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'echo -e \"GET / HTTP/1.0\\n\\n\" > /dev/tcp/localhost/11434'"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # ── Orpheus FastAPI — TTS engine (port 5005) ────────────────────
+  # Orpheus TTS with SNAC decoder. Universal GPU support via device.py
+  # (CUDA/ROCm/Intel XPU/MPS/CPU). Connects to llama.cpp for inference.
+  # Built from Betanu701/Orpheus-FastAPI v1.0.0 with Intel Arc support.
+  atlas-orpheus:
+    build:
+      context: ${ORPHEUS_FASTAPI_BUILD_CTX:-https://github.com/Betanu701/Orpheus-FastAPI.git#v1.0.0}
+      dockerfile: Dockerfile.gpu-intel
+    image: atlas-orpheus:latest
+    container_name: atlas-orpheus
+    restart: unless-stopped
+    ports:
+      - "5005:5005"
+    environment:
+      - ORPHEUS_API_URL=http://atlas-llama-voice:5006/v1/completions
+      - ORPHEUS_API_TIMEOUT=${ORPHEUS_API_TIMEOUT:-120}
+      - ORPHEUS_MAX_TOKENS=${ORPHEUS_MAX_TOKENS:-8192}
+      - ORPHEUS_TEMPERATURE=${ORPHEUS_TEMPERATURE:-0.6}
+      - ORPHEUS_TOP_P=${ORPHEUS_TOP_P:-0.9}
+      - ORPHEUS_SAMPLE_RATE=24000
+      - ORPHEUS_MODEL_NAME=${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}
+      - ORPHEUS_HOST=0.0.0.0
+      - ORPHEUS_PORT=5005
+    networks:
+      - atlas
+    depends_on:
+      atlas-llama-voice:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5005/docs || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ── llama.cpp Voice — Orpheus inference on GPU (port 5006) ────────
+  # Runs the Orpheus GGUF model for token generation. Uses Vulkan
+  # backend which benchmarked 25% faster than SYCL on Intel Arc B580
+  # (26.5 vs 21.2 tok/s). GPU device selection via override files.
+  atlas-llama-voice:
+    image: ghcr.io/ggml-org/llama.cpp:full-vulkan
+    container_name: atlas-llama-voice
+    restart: unless-stopped
+    ports:
+      - "5006:5006"
+    volumes:
+      - atlas-orpheus-models:/models
+    networks:
+      - atlas
+    depends_on:
+      atlas-orpheus-init:
+        condition: service_completed_successfully
+    entrypoint: ["/app/llama-server"]
+    command:
+      - "-m"
+      - "/models/${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "5006"
+      - "--n-gpu-layers"
+      - "99"
+      - "--ctx-size"
+      - "4096"
+      - "--n-predict"
+      - "4096"
+      - "--cache-type-k"
+      - "q8_0"
+      - "--cache-type-v"
+      - "q8_0"
+      - "--no-mmap"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5006/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ── Model init — downloads Orpheus GGUF on first run ────────────
+  atlas-orpheus-init:
+    image: alpine:latest
+    volumes:
+      - atlas-orpheus-models:/app/models
+    working_dir: /app
+    environment:
+      - ORPHEUS_MODEL_NAME=${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}
+    command: >
+      sh -c '
+      apk add --no-cache curl;
+      MODEL="$$ORPHEUS_MODEL_NAME";
+      REPO=$$(echo "$$MODEL" | sed "s/\.gguf$$//");
+      if [ ! -f "/app/models/$$MODEL" ]; then
+        echo "Downloading Orpheus model ($$MODEL)...";
+        curl -fL -o "/app/models/$$MODEL" "https://huggingface.co/lex-au/$${REPO}.gguf/resolve/main/$$MODEL";
+      else
+        echo "Orpheus model already exists";
+      fi'
+    restart: "no"
 
 networks:
   atlas:
@@ -129,4 +293,6 @@ volumes:
   atlas-whisper-data:
     driver: local
   atlas-ollama-data:
+    driver: local
+  atlas-orpheus-models:
     driver: local

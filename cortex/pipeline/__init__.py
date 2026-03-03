@@ -7,6 +7,7 @@ interaction logging.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, AsyncGenerator
 
@@ -28,8 +29,8 @@ async def run_pipeline(
     satellite_id: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
-    model_fast: str = "qwen2.5:14b",
-    model_thinking: str = "qwen3:30b-a3b",
+    model_fast: str = os.environ.get("MODEL_FAST", "qwen2.5:14b"),
+    model_thinking: str = os.environ.get("MODEL_THINKING", "qwen3:30b-a3b"),
     system_prompt: str = "",
     memory_context: str = "",
     db_conn: Any = None,
@@ -76,6 +77,7 @@ async def _pipeline_generator(
     start_ms = int(time.monotonic() * 1000)
 
     # ── Layer 0: Context Assembly ─────────────────────────────
+    t0 = time.monotonic()
     context = await assemble_context(
         message=message,
         user_id=user_id,
@@ -84,33 +86,47 @@ async def _pipeline_generator(
         conversation_history=conversation_history,
         metadata=metadata,
     )
+    layer0_ms = (time.monotonic() - t0) * 1000
+    logger.debug("Layer 0 (context): %.1fms", layer0_ms)
 
     # ── Layer 1: Instant Answers ─────────────────────────────
+    t1 = time.monotonic()
     instant_response, instant_confidence = await try_instant_answer(message, context)
+    layer1_ms = (time.monotonic() - t1) * 1000
     if instant_response is not None:
+        total_ms = int(time.monotonic() * 1000) - start_ms
+        logger.info("Layer 1 hit (%.1fms): %r [total %dms]", layer1_ms, instant_response[:80], total_ms)
         yield instant_response
         _log_interaction(
             db_conn, context, message, instant_response,
             matched_layer="instant",
             confidence=instant_confidence,
-            response_time_ms=int(time.monotonic() * 1000) - start_ms,
+            response_time_ms=total_ms,
         )
         return
+    logger.debug("Layer 1 (instant): %.1fms — no match", layer1_ms)
 
     # ── Layer 2: Plugin Dispatch ──────────────────────────────
+    t2 = time.monotonic()
     plugin_response, plugin_confidence, entities = await try_plugin_dispatch(message, context)
+    layer2_ms = (time.monotonic() - t2) * 1000
     if plugin_response is not None:
+        total_ms = int(time.monotonic() * 1000) - start_ms
+        logger.info("Layer 2 hit (%.1fms): %r [total %dms]", layer2_ms, plugin_response[:80], total_ms)
         yield plugin_response
         _log_interaction(
             db_conn, context, message, plugin_response,
             matched_layer="tool",
             confidence=plugin_confidence,
             entities_used=entities,
-            response_time_ms=int(time.monotonic() * 1000) - start_ms,
+            response_time_ms=total_ms,
         )
         return
+    logger.debug("Layer 2 (plugins): %.1fms — no match", layer2_ms)
 
     # ── Layer 3: Filler + LLM ────────────────────────────────
+    t3 = time.monotonic()
+    first_token_ms = 0.0
     full_response_parts: list[str] = []
     async for chunk in stream_llm_response(
         message=message,
@@ -121,15 +137,24 @@ async def _pipeline_generator(
         memory_context=memory_context,
         system_prompt=system_prompt,
     ):
+        if not first_token_ms:
+            first_token_ms = (time.monotonic() - t3) * 1000
         full_response_parts.append(chunk)
         yield chunk
 
+    layer3_ms = (time.monotonic() - t3) * 1000
+    total_ms = int(time.monotonic() * 1000) - start_ms
     full_response = "".join(full_response_parts)
+    logger.info(
+        "Layer 3 (LLM): %.0fms (TTFT %.0fms) [total %dms] L0=%.0f L1=%.0f L2=%.0f",
+        layer3_ms, first_token_ms, total_ms,
+        layer0_ms, layer1_ms, layer2_ms,
+    )
     _log_interaction(
         db_conn, context, message, full_response,
         matched_layer="llm",
         confidence=0.0,  # Will be updated by grounding layer
-        response_time_ms=int(time.monotonic() * 1000) - start_ms,
+        response_time_ms=total_ms,
     )
 
 
