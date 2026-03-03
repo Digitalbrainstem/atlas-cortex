@@ -85,6 +85,25 @@ echo "→ Installing Python dependencies..."
 curl -sL "$REPO_BASE/requirements.txt" -o "$INSTALL_DIR/requirements.txt"
 pip install -q -r "$INSTALL_DIR/requirements.txt"
 
+# ── 5b. Install openwakeword on 64-bit systems ───────────────────
+ARCH=$(uname -m)
+WAKE_WORD_ENABLED=false
+WAKE_WORD_MODEL=""
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "x86_64" ]; then
+    echo "→ 64-bit system detected ($ARCH) — installing openwakeword..."
+    pip install -q openwakeword numpy 2>/dev/null
+    if python3 -c "import openwakeword" 2>/dev/null; then
+        echo "  ✓ openwakeword installed"
+        mkdir -p "$INSTALL_DIR/models"
+        WAKE_WORD_ENABLED=true
+        WAKE_WORD_MODEL="$INSTALL_DIR/models/atlas.onnx"
+    else
+        echo "  ⚠ openwakeword install failed — using VAD-only mode"
+    fi
+else
+    echo "  ℹ 32-bit system ($ARCH) — skipping openwakeword (VAD-only mode)"
+fi
+
 # ── 6. Create cache directories ───────────────────────────────────
 mkdir -p "$INSTALL_DIR/cache/fillers"
 
@@ -113,14 +132,16 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "room": "",
   "mode": "$MODE",
   "service_port": 5110,
-  "wake_word": "hey atlas",
+  "wake_word": "atlas",
   "volume": 0.7,
   "mic_gain": 0.8,
   "vad_sensitivity": 2,
   "audio_device_in": "$AUDIO_DEV",
   "audio_device_out": "$AUDIO_DEV",
   "led_type": "$LED_TYPE",
-  "wake_word_enabled": false,
+  "wake_word_enabled": $WAKE_WORD_ENABLED,
+  "wake_word_model": "$WAKE_WORD_MODEL",
+  "wake_word_threshold": 0.5,
   "filler_enabled": true,
   "features": {}
 }

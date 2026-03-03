@@ -115,6 +115,10 @@ class HardwareProfile:
             "sensor_list": list(self.sensors.identified.values()),
             "aec": any("seeed" in d.name.lower() or "respeaker" in d.name.lower()
                        for d in self.audio.capture_devices),
+            "playback_devices": [
+                {"name": d.name, "alsa_id": f"plughw:{d.card},{d.device}"}
+                for d in self.audio.playback_devices
+            ],
         }
 
 

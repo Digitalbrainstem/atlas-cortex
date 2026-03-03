@@ -72,9 +72,11 @@ class ProvisionConfig:
     service_port: int = 5110
     server_url: str = ""  # ws://server:5100/ws/satellite
     features: dict = field(default_factory=dict)
-    wake_word: str = "hey atlas"
+    wake_word: str = "atlas"
+    wake_word_enabled: bool = True  # auto-detected: enabled on 64-bit, disabled on 32-bit
     volume: float = 0.7
     mic_gain: float = 0.8
+    audio_output: str = "headphone"  # "headphone", "speaker", or ALSA device name
 
 
 @dataclass
@@ -150,15 +152,23 @@ class ProvisioningEngine:
             await self._install_system_deps(ssh)
             self._update_step(config.satellite_id, steps[4], "done")
 
+            # Detect architecture for wake word support
+            arch = await self._detect_arch(ssh)
+            is_64bit = arch in ("aarch64", "x86_64")
+
             # Step 6: Install satellite agent
             self._update_step(config.satellite_id, steps[5], "running")
-            await self._install_agent(ssh)
+            await self._install_agent(ssh, is_64bit=is_64bit)
             self._update_step(config.satellite_id, steps[5], "done")
 
             # Step 7: Write config
             self._update_step(config.satellite_id, steps[6], "running")
-            await self._write_config(ssh, config)
+            await self._write_config(ssh, config, is_64bit=is_64bit)
             self._update_step(config.satellite_id, steps[6], "done")
+
+            # Step 7b: Deploy wake word model (if 64-bit)
+            if is_64bit:
+                await self._deploy_wake_word_model(ssh, config.mode == "dedicated")
 
             # Step 8: Start service
             self._update_step(config.satellite_id, steps[7], "running")
@@ -211,15 +221,23 @@ class ProvisioningEngine:
             )
             self._update_step(config.satellite_id, steps[0], "done")
 
+            # Detect architecture for wake word support
+            arch = await self._detect_arch(ssh)
+            is_64bit = arch in ("aarch64", "x86_64")
+
             # Step 2: Install agent (as user, not system-wide)
             self._update_step(config.satellite_id, steps[1], "running")
-            await self._install_agent(ssh, system_wide=False)
+            await self._install_agent(ssh, system_wide=False, is_64bit=is_64bit)
             self._update_step(config.satellite_id, steps[1], "done")
 
             # Step 3: Write config
             self._update_step(config.satellite_id, steps[2], "running")
-            await self._write_config(ssh, config)
+            await self._write_config(ssh, config, is_64bit=is_64bit)
             self._update_step(config.satellite_id, steps[2], "done")
+
+            # Deploy wake word model if 64-bit
+            if is_64bit:
+                await self._deploy_wake_word_model(ssh, system_wide=False)
 
             # Step 4: Start service
             self._update_step(config.satellite_id, steps[3], "running")
@@ -286,7 +304,15 @@ class ProvisioningEngine:
             "> /dev/null 2>&1"
         )
 
-    async def _install_agent(self, ssh: SSHConnection, system_wide: bool = True) -> None:
+    async def _detect_arch(self, ssh: SSHConnection) -> str:
+        """Detect satellite CPU architecture (aarch64 = 64-bit, armv7l = 32-bit)."""
+        result = await ssh.run("uname -m")
+        arch = result.stdout.strip() if result.stdout else "unknown"
+        logger.info("Satellite architecture: %s", arch)
+        return arch
+
+    async def _install_agent(self, ssh: SSHConnection, system_wide: bool = True,
+                             is_64bit: bool = False) -> None:
         """Install the Atlas satellite agent."""
         if system_wide:
             install_dir = "/opt/atlas-satellite"
@@ -299,6 +325,15 @@ class ProvisioningEngine:
                 f"sudo {install_dir}/.venv/bin/pip install -q -r {install_dir}/requirements.txt 2>/dev/null; "
                 f"sudo rm -rf /tmp/atlas-cortex"
             )
+            # Install openwakeword on 64-bit systems
+            if is_64bit:
+                logger.info("64-bit detected — installing openwakeword dependencies")
+                await ssh.run(
+                    f"sudo {install_dir}/.venv/bin/pip install -q "
+                    "openwakeword numpy 2>/dev/null"
+                )
+                # Create models directory and deploy custom wake word model
+                await ssh.run(f"sudo mkdir -p {install_dir}/models")
         else:
             install_dir = "$HOME/.atlas-satellite"
             await ssh.run(f"mkdir -p {install_dir}")
@@ -310,13 +345,36 @@ class ProvisioningEngine:
                 f"{install_dir}/.venv/bin/pip install -q -r {install_dir}/requirements.txt 2>/dev/null; "
                 f"rm -rf /tmp/atlas-cortex"
             )
+            if is_64bit:
+                logger.info("64-bit detected — installing openwakeword dependencies")
+                await ssh.run(
+                    f"{install_dir}/.venv/bin/pip install -q "
+                    "openwakeword numpy 2>/dev/null"
+                )
+                await ssh.run(f"mkdir -p {install_dir}/models")
 
-    async def _write_config(self, ssh: SSHConnection, config: ProvisionConfig) -> None:
+    async def _write_config(self, ssh: SSHConnection, config: ProvisionConfig,
+                            is_64bit: bool = False) -> None:
         """Write satellite configuration file."""
         if config.mode == "dedicated":
             config_dir = "/opt/atlas-satellite"
         else:
             config_dir = "$HOME/.atlas-satellite"
+
+        # Enable wake word on 64-bit systems (openwakeword installed)
+        wake_word_enabled = is_64bit and config.wake_word_enabled
+        wake_word_model = ""
+        if wake_word_enabled:
+            wake_word_model = f"{config_dir}/models/atlas.onnx"
+
+        # Resolve audio output device
+        audio_device_out = config.features.get("audio_device_out", "default")
+        if audio_device_out == "default" and config.audio_output in ("headphone", "speaker"):
+            # ReSpeaker uses the same wm8960 device for both headphone and speaker
+            audio_device_out = "plughw:CARD=wm8960soundcard,DEV=0"
+        audio_device_in = config.features.get("audio_device_in", "default")
+        if audio_device_in == "default":
+            audio_device_in = "plughw:CARD=wm8960soundcard,DEV=0"
 
         sat_config = {
             "satellite_id": config.satellite_id,
@@ -328,10 +386,12 @@ class ProvisioningEngine:
             "volume": config.volume,
             "mic_gain": config.mic_gain,
             "vad_sensitivity": 2,
-            "audio_device_in": config.features.get("audio_device_in", "default"),
-            "audio_device_out": config.features.get("audio_device_out", "default"),
+            "audio_device_in": audio_device_in,
+            "audio_device_out": audio_device_out,
             "led_type": config.features.get("led_type", "none"),
-            "wake_word_enabled": False,
+            "wake_word_enabled": wake_word_enabled,
+            "wake_word_model": wake_word_model,
+            "wake_word_threshold": 0.5,
             "filler_enabled": True,
             "features": config.features,
         }
@@ -342,8 +402,30 @@ class ProvisioningEngine:
         else:
             await ssh.run(f"cat > {config_dir}/config.json << 'EOF'\n{config_json}\nEOF")
 
+    async def _deploy_wake_word_model(self, ssh: SSHConnection, system_wide: bool = True) -> None:
+        """Deploy the custom atlas wake word model to the satellite."""
+        model_src = Path(os.environ.get("CORTEX_DATA_DIR", "./data")) / "models" / "atlas.onnx"
+        if not model_src.exists():
+            logger.warning("Wake word model not found at %s — satellite will use server-side filter", model_src)
+            return
+
+        if system_wide:
+            dest = "/opt/atlas-satellite/models/atlas.onnx"
+        else:
+            dest = "$HOME/.atlas-satellite/models/atlas.onnx"
+
+        # Read model and write via SSH
+        model_bytes = model_src.read_bytes()
+        import base64
+        b64 = base64.b64encode(model_bytes).decode()
+        await ssh.run(f"echo '{b64}' | base64 -d > {dest}")
+        logger.info("Deployed wake word model (%d bytes) to %s", len(model_bytes), dest)
+
     async def _start_service(self, ssh: SSHConnection, user_service: bool = False) -> None:
         """Create systemd service and start it."""
+        # Set up ALSA mixer for ReSpeaker 2-Mic HAT (wm8960 codec)
+        await self._configure_alsa_mixer(ssh)
+
         if user_service:
             # User-level systemd service (shared mode)
             service = _SYSTEMD_USER_UNIT
@@ -357,6 +439,34 @@ class ProvisioningEngine:
             await ssh.run(f"sudo tee /etc/systemd/system/atlas-satellite.service > /dev/null << 'EOF'\n{service}\nEOF")
             await ssh.run("sudo systemctl daemon-reload")
             await ssh.run("sudo systemctl enable --now atlas-satellite")
+
+    async def _configure_alsa_mixer(self, ssh: SSHConnection) -> None:
+        """Configure ALSA mixer for ReSpeaker 2-Mic HAT (wm8960 codec).
+
+        Enables input boost and sets capture gain for wake word detection.
+        """
+        r = await ssh.run("amixer -c 0 info 2>&1")
+        if "wm8960" not in r.stdout.lower():
+            return
+        logger.info("Configuring WM8960 ALSA mixer for mic boost")
+        for cmd in [
+            # --- Input (mic) ---
+            "amixer -c 0 cset numid=1 55,55",    # Capture Volume (0-63)
+            "amixer -c 0 cset numid=3 on,on",     # Capture Switch
+            "amixer -c 0 cset numid=9 3",          # Left Boost LINPUT1 Vol (+29dB)
+            "amixer -c 0 cset numid=8 3",          # Right Boost RINPUT1 Vol
+            "amixer -c 0 cset numid=50 on",        # Left Input Mixer Boost
+            "amixer -c 0 cset numid=51 on",        # Right Input Mixer Boost
+            "amixer -c 0 cset numid=36 220,220",   # ADC PCM Capture Volume
+            # --- Output (DAC → headphone/speaker) ---
+            "amixer -c 0 cset numid=52 on",        # Left Output Mixer PCM Playback
+            "amixer -c 0 cset numid=55 on",        # Right Output Mixer PCM Playback
+            "amixer -c 0 cset numid=11 110,110",   # Headphone Volume (0-127)
+            "amixer -c 0 cset numid=13 110,110",   # Speaker Volume (0-127)
+            "amixer -c 0 cset numid=10 230,230",   # DAC Playback Volume (0-255)
+        ]:
+            await ssh.run(cmd + " 2>/dev/null")
+        await ssh.run("sudo alsactl store 2>/dev/null")
 
     # ── Server SSH key management ──────────────────────────────────
 

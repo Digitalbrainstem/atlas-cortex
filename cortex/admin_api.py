@@ -8,9 +8,12 @@ All endpoints require a valid admin JWT (see :mod:`cortex.auth`).
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -186,6 +189,29 @@ async def get_user(user_id: str, _: dict = Depends(require_admin)):
     return user
 
 
+class UserCreate(BaseModel):
+    display_name: str
+    user_id: str | None = None
+
+
+@router.post("/users")
+async def create_user(body: UserCreate, _: dict = Depends(require_admin)):
+    """Create a new user profile."""
+    import uuid
+    conn = _db()
+    user_id = body.user_id or f"user-{uuid.uuid4().hex[:8]}"
+    try:
+        conn.execute(
+            "INSERT INTO user_profiles (user_id, display_name) VALUES (?, ?)",
+            (user_id, body.display_name),
+        )
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=f"User already exists: {e}")
+    cur = conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+    return _row(cur)
+
+
 class UserUpdate(BaseModel):
     display_name: str | None = None
     age: int | None = None
@@ -195,6 +221,7 @@ class UserUpdate(BaseModel):
     preferred_tone: str | None = None
     communication_style: str | None = None
     humor_style: str | None = None
+    preferred_voice: str | None = None
     is_parent: bool | None = None
     onboarding_complete: bool | None = None
 
@@ -202,7 +229,8 @@ class UserUpdate(BaseModel):
 @router.patch("/users/{user_id}")
 async def update_user(user_id: str, update: UserUpdate, _: dict = Depends(require_admin)):
     conn = _db()
-    fields = {k: v for k, v in update.model_dump().items() if v is not None}
+    # exclude_unset allows explicit empty strings (e.g. clearing preferred_voice)
+    fields = {k: v for k, v in update.model_dump(exclude_unset=True).items()}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -710,6 +738,8 @@ class SatelliteUpdateRequest(BaseModel):
     tts_voice: str | None = None
     vad_enabled: bool | None = None
     led_brightness: float | None = None
+    audio_device_out: str | None = None
+    button_mode: str | None = None  # toggle | press | hold
 
 
 @router.get("/satellites")
@@ -955,17 +985,98 @@ async def remove_satellite(satellite_id: str, admin: dict = Depends(require_admi
 
 @router.get("/tts/voices")
 async def list_tts_voices(admin: dict = Depends(require_admin)):
-    """List available TTS voices from the Piper Wyoming service."""
+    """List available TTS voices from Kokoro + Orpheus + Piper."""
     import os
     from cortex.voice.wyoming import WyomingClient
-    host = os.environ.get("TTS_HOST", "localhost")
-    port = int(os.environ.get("TTS_PORT", "10200"))
-    tts = WyomingClient(host, port)
+    all_voices = []
+
+    # Kokoro voices (primary)
     try:
-        voices = await tts.list_voices()
-        return {"voices": voices}
-    except Exception as e:
-        return {"voices": [], "error": str(e)}
+        from cortex.voice.kokoro import KokoroClient
+        host = os.environ.get("KOKORO_HOST", "localhost")
+        port = int(os.environ.get("KOKORO_PORT", "8880"))
+        kokoro = KokoroClient(host, port, timeout=5.0)
+        kokoro_voices = await kokoro.list_voices()
+        for v in kokoro_voices:
+            all_voices.append({
+                "name": v,
+                "provider": "kokoro",
+                "description": v,
+                "installed": True,
+            })
+    except Exception:
+        pass
+
+    # Orpheus voices
+    try:
+        from cortex.voice.providers.orpheus import _ORPHEUS_VOICES
+        for v in _ORPHEUS_VOICES:
+            all_voices.append({
+                "name": v["id"],
+                "provider": "orpheus",
+                "description": f"{v['name']} ({v['style']}, {v['gender']})",
+                "installed": True,
+            })
+    except Exception:
+        pass
+
+    # Piper voices (fallback)
+    try:
+        host = os.environ.get("PIPER_HOST", os.environ.get("TTS_HOST", "localhost"))
+        port = int(os.environ.get("PIPER_PORT", os.environ.get("TTS_PORT", "10200")))
+        tts = WyomingClient(host, port)
+        piper_voices = await tts.list_voices()
+        for v in piper_voices:
+            v["provider"] = "piper"
+            all_voices.append(v)
+    except Exception:
+        pass
+
+    # Include system default voice
+    db = get_db()
+    row = db.execute("SELECT value FROM system_settings WHERE key = 'default_tts_voice'").fetchone()
+    system_default = row["value"] if row else ""
+
+    return {"voices": all_voices, "system_default": system_default}
+
+
+@router.get("/settings")
+async def get_system_settings(admin: dict = Depends(require_admin)):
+    """Get all system settings."""
+    db = get_db()
+    rows = db.execute("SELECT key, value FROM system_settings").fetchall()
+    return {row["key"]: row["value"] for row in rows}
+
+
+@router.put("/settings/{key}")
+async def set_system_setting(key: str, body: dict, admin: dict = Depends(require_admin)):
+    """Set a system setting. Body: {\"value\": \"...\"}"""
+    value = body.get("value", "")
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+        (key, value),
+    )
+    db.commit()
+    return {"key": key, "value": value}
+
+
+@router.put("/tts/default_voice")
+async def set_default_voice(body: dict, admin: dict = Depends(require_admin)):
+    """Set the system-wide default TTS voice. Body: {\"voice\": \"af_bella\"}"""
+    voice = body.get("voice", "")
+    if not voice:
+        return {"error": "voice is required"}, 400
+
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('default_tts_voice', ?, CURRENT_TIMESTAMP)",
+        (voice,),
+    )
+    db.commit()
+
+    logger.info("System default TTS voice set to: %s", voice)
+    return {"default_voice": voice}
 
 
 @router.post("/tts/preview")
@@ -981,21 +1092,76 @@ async def preview_tts(body: dict, admin: dict = Depends(require_admin)):
     voice = body.get("voice")
     target = body.get("target", "browser")  # "browser" or satellite_id
 
-    host = os.environ.get("TTS_HOST", "localhost")
-    port = int(os.environ.get("TTS_PORT", "10200"))
-    tts = WyomingClient(host, port, timeout=30.0)
+    audio_data = b""
+    rate = 22050
+    width = 2
+    channels = 1
 
-    try:
-        audio_data, audio_info = await tts.synthesize(text, voice=voice)
-    except WyomingError as e:
-        raise HTTPException(status_code=502, detail=f"TTS error: {e}")
+    # Try Orpheus for orpheus voices
+    orpheus_voices = {"tara", "leah", "jess", "leo", "dan", "mia", "zac", "zoe"}
+    use_orpheus = voice and voice.replace("orpheus_", "") in orpheus_voices
+
+    # Try Kokoro for Kokoro voices (af_*, am_*, bf_*, bm_*, jf_*, etc.)
+    kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "gf_",
+                       "hf_", "if_", "jf_", "pf_", "zf_", "zm_")
+    use_kokoro = voice and voice.startswith(kokoro_prefixes) and not use_orpheus
+
+    if use_kokoro:
+        try:
+            from cortex.voice.kokoro import KokoroClient, KokoroError
+            kokoro_host = os.environ.get("KOKORO_HOST", "localhost")
+            kokoro_port = int(os.environ.get("KOKORO_PORT", "8880"))
+            client = KokoroClient(host=kokoro_host, port=kokoro_port)
+            wav_data, info = await client.synthesize(text, voice=voice, response_format="wav")
+            if wav_data and wav_data[:4] == b"RIFF":
+                with wave.open(io.BytesIO(wav_data), "rb") as wf:
+                    rate = wf.getframerate()
+                    width = wf.getsampwidth()
+                    channels = wf.getnchannels()
+                    audio_data = wf.readframes(wf.getnframes())
+            elif wav_data:
+                audio_data = wav_data
+                rate = info.get("rate", 24000)
+        except Exception as e:
+            logger.warning("Kokoro preview failed, falling back to Piper: %s", e)
+            audio_data = b""
+
+    if use_orpheus and not audio_data:
+        try:
+            from cortex.voice.providers import get_tts_provider, _env_config
+            provider = get_tts_provider(_env_config())
+            chunks = []
+            async for chunk in provider.synthesize(text, voice=voice):
+                chunks.append(chunk)
+            audio_data = b"".join(chunks)
+            if audio_data and audio_data[:4] == b"RIFF":
+                with wave.open(io.BytesIO(audio_data), "rb") as wf:
+                    rate = wf.getframerate()
+                    width = wf.getsampwidth()
+                    channels = wf.getnchannels()
+                    audio_data = wf.readframes(wf.getnframes())
+            elif audio_data:
+                rate = 24000  # SNAC decoder output
+        except Exception as e:
+            logger.warning("Orpheus preview failed, falling back to Piper: %s", e)
+            audio_data = b""
+
+    # Piper fallback
+    if not audio_data:
+        host = os.environ.get("PIPER_HOST", os.environ.get("TTS_HOST", "localhost"))
+        port = int(os.environ.get("PIPER_PORT", os.environ.get("TTS_PORT", "10200")))
+        tts = WyomingClient(host, port, timeout=30.0)
+        piper_voice = voice if voice and not voice.startswith("orpheus_") else None
+        try:
+            audio_data, audio_info = await tts.synthesize(text, voice=piper_voice)
+        except WyomingError as e:
+            raise HTTPException(status_code=502, detail=f"TTS error: {e}")
+        rate = audio_info.get("rate", 22050)
+        width = audio_info.get("width", 2)
+        channels = audio_info.get("channels", 1)
 
     if not audio_data:
         raise HTTPException(status_code=500, detail="TTS returned empty audio")
-
-    rate = audio_info.get("rate", 22050)
-    width = audio_info.get("width", 2)
-    channels = audio_info.get("channels", 1)
 
     if target != "browser":
         # Push to satellite speaker at native TTS rate (hardware handles conversion)

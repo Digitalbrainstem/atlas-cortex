@@ -18,6 +18,7 @@ const form = ref({
   vocabulary_level: '',
   preferred_tone: '',
   communication_style: '',
+  preferred_voice: '',
 })
 
 const ageForm = ref({
@@ -28,16 +29,21 @@ const ageForm = ref({
 const emotional = ref(null)
 const topics = ref([])
 const activityHours = ref([])
+const voices = ref([])
 
 onMounted(async () => {
   try {
-    const data = await api.get(`/admin/users/${userId}`)
+    const [data, voiceData] = await Promise.all([
+      api.get(`/admin/users/${userId}`),
+      api.get('/admin/tts/voices'),
+    ])
     user.value = data
     form.value = {
       display_name: data.display_name || '',
       vocabulary_level: data.vocabulary_level || '',
       preferred_tone: data.preferred_tone || '',
       communication_style: data.communication_style || '',
+      preferred_voice: data.preferred_voice || '',
     }
     ageForm.value = {
       birth_year: data.birth_year || '',
@@ -46,6 +52,7 @@ onMounted(async () => {
     emotional.value = data.emotional_profile || null
     topics.value = data.topics || []
     activityHours.value = data.activity_hours || []
+    voices.value = voiceData.voices || []
   } catch (e) {
     error.value = e.message
   } finally {
@@ -135,6 +142,15 @@ async function setAge() {
               <option value="concise">Concise</option>
               <option value="detailed">Detailed</option>
               <option value="conversational">Conversational</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Preferred Voice</label>
+            <select v-model="form.preferred_voice" class="form-input">
+              <option value="">System Default</option>
+              <option v-for="v in voices" :key="v.name" :value="v.name">
+                {{ v.name }} ({{ v.provider }})
+              </option>
             </select>
           </div>
         </div>

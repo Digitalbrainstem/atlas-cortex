@@ -52,6 +52,17 @@ async def lifespan(app: FastAPI):
     """Start/stop server-level services."""
     init_db()
     await _server_announcer.start()
+
+    # Pre-generate filler audio cache in background (don't block startup)
+    async def _warm_filler_cache() -> None:
+        try:
+            from cortex.filler.cache import get_filler_cache
+            await get_filler_cache().initialize()
+        except Exception as e:
+            logger.warning("Filler cache init failed (will use live TTS): %s", e)
+
+    asyncio.create_task(_warm_filler_cache())
+
     yield
     await _server_announcer.stop()
 

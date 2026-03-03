@@ -1,0 +1,123 @@
+{
+  "short": {
+    "count": 24,
+    "pipeline_ms": {
+      "min": 0,
+      "max": 5287.0,
+      "avg": 2951.5416666666665
+    },
+    "ttft_ms": {
+      "min": 0,
+      "max": 4091.0,
+      "avg": 809.3333333333334
+    },
+    "response_words": {
+      "min": 3,
+      "max": 34,
+      "avg": 13.5
+    },
+    "dead_space_ms": {
+      "min": 996.0,
+      "max": 11169.0,
+      "avg": 5850.0
+    },
+    "tts_synthesis_ms": {
+      "min": 740,
+      "max": 6320,
+      "avg": 2630.0
+    }
+  },
+  "medium": {
+    "count": 6,
+    "pipeline_ms": {
+      "min": 3873.0,
+      "max": 4934.0,
+      "avg": 4216.666666666667
+    },
+    "ttft_ms": {
+      "min": 0.0,
+      "max": 4107.0,
+      "avg": 684.5
+    },
+    "response_words": {
+      "min": 17,
+      "max": 82,
+      "avg": 46.166666666666664
+    },
+    "dead_space_ms": {
+      "min": 7850.0,
+      "max": 19475.5,
+      "avg": 13017.333333333334
+    },
+    "tts_synthesis_ms": {
+      "min": 3260,
+      "max": 14960,
+      "avg": 8510.0
+    }
+  },
+  "complex": {
+    "count": 5,
+    "pipeline_ms": {
+      "min": 4.0,
+      "max": 4819.0,
+      "avg": 3448.4
+    },
+    "ttft_ms": {
+      "min": 0.0,
+      "max": 3854.0,
+      "avg": 771.6
+    },
+    "response_words": {
+      "min": 12,
+      "max": 98,
+      "avg": 48.4
+    },
+    "dead_space_ms": {
+      "min": 6787.5,
+      "max": 18145.5,
+      "avg": 12650.2
+    },
+    "tts_synthesis_ms": {
+      "min": 2360,
+      "max": 17840,
+      "avg": 8912.0
+    }
+  },
+  "satellite_overhead": {
+    "wake_word_detection_ms": 150,
+    "wake_to_listen_transition_ms": 50,
+    "vad_speech_start_ms": 90,
+    "vad_silence_detect_ms": 450,
+    "audio_network_overhead_ms": 30,
+    "echo_suppression_ms": 3000
+  },
+  "tts_model": {
+    "base_ms": 200,
+    "per_word_ms": 180,
+    "audio_per_word_ms": 130,
+    "note": "Derived from Kokoro TTS on Intel Arc B580 GPU"
+  },
+  "voice_pipeline": {
+    "sample_count": 34,
+    "stt_ms": {
+      "min": 176.0,
+      "avg": 190,
+      "max": 251.0
+    },
+    "llm_ms": {
+      "min": 1768.0,
+      "avg": 4371,
+      "max": 6672.0
+    },
+    "time_to_first_tts_ms": {
+      "min": 2259.2743629938923,
+      "avg": 4620,
+      "max": 5190.919654996833
+    },
+    "total_e2e_ms": {
+      "min": 6517.686906998279,
+      "avg": 8567,
+      "max": 11291.104695003014
+    }
+  }
+}
