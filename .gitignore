@@ -46,5 +46,5 @@ admin/.vscode/
 /package.json
 /package-lock.json
 
-# Copilot workspace
-.github/copilot-instructions.md
+# Copilot workspace (tracked — needed for LLM development context)
+# .github/copilot-instructions.md
