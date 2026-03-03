@@ -52,43 +52,44 @@ class TTSProvider:
 
 ### Supported Providers
 
-| Provider | Emotion Support | Streaming | Quality | VRAM/Resource | Best For |
-|----------|----------------|-----------|---------|---------------|----------|
-| **Orpheus TTS** (recommended) | ✅ Inline tags: `<laugh>`, `<sigh>`, `<chuckle>`, `whisper:`, emotion descriptors | ✅ | Excellent — human-like with natural paralinguals | 3B: 6-8GB (Q4), 12-16GB (FP8), 24GB (FP16) | Primary voice engine, emotional speech |
-| **Parler-TTS** | ✅ Prompt-based: "warm female voice, slightly amused, moderate pace" | ✅ | Excellent — fine-grained prosody control | ~2-4GB (Mini), ~8GB (Large) | Alternate voice engine, programmatic control |
-| **Piper** | ❌ Basic SSML only | ✅ | Good — fast, robotic for complex emotion | CPU only, ~100MB RAM | Fallback, low-resource, embedded devices |
-| **Coqui XTTS** | ✅ Reference audio style transfer | ✅ | Very good — multilingual, voice cloning | ~4-6GB | Multilingual, voice cloning |
-| **StyleTTS2** | ✅ Style transfer, emotion disentanglement | ❌ | Excellent — most human-like intonation | ~4-8GB | Audiobook quality, narration |
-| **F5-TTS** | ⚠️ Limited | ✅ | Good | ~2-4GB | Lightweight alternative |
+| Provider | Status | Emotion Support | Streaming | Quality | Resource | Best For |
+|----------|--------|----------------|-----------|---------|----------|----------|
+| **Kokoro** (primary) | ✅ Active | ⚠️ Voice-based (no inline tags) | ✅ | Excellent — natural, expressive, 82M params | CPU: ~100MB RAM | Primary voice engine, fast CPU synthesis |
+| **Orpheus TTS** | ✅ Available | ✅ Inline tags: `<laugh>`, `<sigh>`, emotion descriptors | ✅ | Excellent — human-like paralinguals | 3B: 6-8GB (Q4) | Emotional speech when GPU available |
+| **Piper** | ✅ Available | ❌ Basic SSML only | ✅ | Good — fast, robotic for complex emotion | CPU only, ~100MB RAM | Ultra-low-latency fallback |
+| **Parler-TTS** | 📋 Planned | ✅ Prompt-based style control | ✅ | Excellent | ~2-4GB | Alternate voice engine |
+| **Coqui XTTS** | 📋 Planned | ✅ Reference audio style transfer | ✅ | Very good — multilingual, voice cloning | ~4-6GB | Multilingual, voice cloning |
 
-### Recommendation for Derek's Setup
+### Current Production Stack
 
-With a dual-GPU setup — RX 7900 XT (20GB) + Intel Arc B580 (12GB):
+Kokoro runs as a standalone FastAPI service (Docker container `kokoro-tts`, port 8880). It provides:
+- **Sub-2s synthesis** for typical sentences on CPU
+- **24kHz 16-bit PCM** output (resampled to 16kHz for satellite streaming)
+- **Multiple voices** including `af_bella` (default), `am_adam`, and language-specific variants
+- **200ms base + 180ms/word** timing model (measured from production hardware)
 
-**Primary: Orpheus TTS on dedicated GPU** — The B580 runs Orpheus TTS full-time via IPEX-LLM Ollama. No model switching, no waiting for the LLM to unload. TTS is always ready.
-
-**Strategy: Dedicated GPU Assignment (multi-GPU)**
 ```
-User speaks → STT processes audio (GPU 1: B580, faster-whisper)
-              → Atlas pipeline runs (CPU, except Layer 3 LLM)
-              → LLM generates response text (GPU 0: 7900 XT, qwen3)
-              → TTS generates speech simultaneously (GPU 1: B580, Orpheus)
-              → Audio streams to user while LLM is still loaded
+User speaks → STT processes audio (GPU: B580, whisper.cpp Vulkan)
+              → Atlas pipeline runs (CPU)
+              → LLM generates response text (GPU: B580, Ollama qwen2.5:7b)
+              → Kokoro TTS generates speech (CPU, port 8880)
+              → Audio streams to satellite while TTS still generating
 ```
 
-Both GPUs stay loaded with their models at all times — zero switching latency.
+### Environment Variables
 
-**Single-GPU Fallback** — If only one GPU is detected, Atlas reverts to time-multiplexed sharing:
-```
-              → LLM generates response text (GPU: qwen3, 18.6GB)
-              → LLM unloads (Ollama auto-unload)
-              → Orpheus loads (GPU: ~6-8GB Q4)
-              → TTS generates speech (GPU: Orpheus)
-              → Orpheus unloads after idle timeout
-```
-Model switch takes ~2-3 seconds on first load. Since LLM and TTS never run simultaneously in single-GPU mode, they share safely.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TTS_PROVIDER` | `kokoro` | Primary TTS engine (`kokoro`, `orpheus`, `piper`, `auto`) |
+| `KOKORO_HOST` | `localhost` | Kokoro server hostname |
+| `KOKORO_PORT` | `8880` | Kokoro server port |
+| `KOKORO_VOICE` | `af_bella` | Default Kokoro voice ID |
 
-**CPU Fallback: Piper** — for ultra-fast responses where model switching latency is unacceptable (Layer 1 instant answers, device command confirmations). Piper generates audio in <100ms on CPU.
+### Fallback Chain
+
+1. **Kokoro** (default) — fast CPU synthesis, natural quality
+2. **Orpheus** — used when emotional tags needed and GPU available
+3. **Piper** — ultra-fast fallback if both Kokoro and Orpheus fail
 
 ---
 
@@ -116,10 +117,11 @@ Atlas's sentiment analysis and confidence scoring feed directly into the TTS eng
 │    • Selects voice based on user preference                     │
 │       │                                                          │
 │       ▼                                                          │
-│  TTS Provider (Orpheus):                                         │
-│    Input: "tara, happy: Sure! I turned off the                  │
+│  TTS Provider (Kokoro):                                         │
+│    Input: "Sure! I turned off the                               │
 │            living room lights."                                  │
-│    Output: audio stream + phoneme timing                        │
+│    Voice: af_bella (warm, natural)                              │
+│    Output: audio stream (24kHz PCM)                             │
 │       │                                                          │
 │       ├──▶ Audio → satellite speaker                            │
 │       └──▶ Phonemes → avatar viseme animation                   │
@@ -260,9 +262,9 @@ Users can choose their preferred Atlas voice:
 
 ```sql
 CREATE TABLE tts_voices (
-    id TEXT PRIMARY KEY,               -- 'orpheus_tara', 'orpheus_leo', 'piper_amy'
-    provider TEXT NOT NULL,            -- 'orpheus' | 'parler' | 'piper'
-    display_name TEXT NOT NULL,        -- 'Tara', 'Leo', 'Amy'
+    id TEXT PRIMARY KEY,               -- 'af_bella', 'orpheus_tara', 'piper_amy'
+    provider TEXT NOT NULL,            -- 'kokoro' | 'orpheus' | 'piper'
+    display_name TEXT NOT NULL,        -- 'Bella', 'Tara', 'Amy'
     gender TEXT,                       -- 'female' | 'male' | 'neutral'
     language TEXT DEFAULT 'en',
     accent TEXT,                       -- 'american' | 'british' | 'australian'
@@ -272,6 +274,10 @@ CREATE TABLE tts_voices (
     is_default BOOLEAN DEFAULT FALSE,
     metadata TEXT                      -- provider-specific config (JSON)
 );
+
+-- Kokoro voices (loaded dynamically from Kokoro server at startup)
+-- Naming convention: {lang}{gender}_{name} — e.g. af_bella (American Female Bella)
+-- Common voices: af_bella (default), am_adam, bf_emma, bm_daniel
 
 -- Orpheus built-in voices
 INSERT INTO tts_voices (id, provider, display_name, gender, style) VALUES
@@ -372,19 +378,48 @@ async def stream_speech(text_stream, emotion, voice, user_profile):
             yield {'audio': audio_chunk, 'text': buffer}
 ```
 
-### Latency Targets
+### Latency Targets (Measured)
 
-| Stage | Target | How |
-|-------|--------|-----|
-| LLM first token | <500ms | Filler streaming covers this |
-| First sentence complete | 1-3 seconds | Depends on LLM speed |
-| TTS audio for first sentence | <500ms after sentence | Orpheus streaming via Ollama |
-| Total: user hears Atlas start speaking | 1.5-3.5 seconds | Filler buys time for first sentence |
-| Subsequent sentences | Near-zero gap | Pipeline: sentence N plays while N+1 generates |
+Real production timing from voice pipeline benchmark (35 questions, WebSocket path):
+
+| Stage | Measured | Target | Notes |
+|-------|----------|--------|-------|
+| STT (Whisper.cpp Vulkan) | **190ms avg** (176-251ms) | <300ms | ✅ Exceeds target |
+| LLM first token (TTFT) | **~3800ms avg** | <500ms | ❌ Filler fills this gap |
+| LLM total | **4371ms avg** (1768-6672ms) | <3000ms | Qwen 2.5 7B on Intel B580 |
+| First TTS audio to user | **4620ms avg** | <2000ms | Includes filler delivery |
+| Total end-to-end | **8567ms avg** (6518-11291ms) | <5000ms | Room for optimization |
+
+### Filler Audio Strategy
+
+Pre-generated filler phrases fill the gap between wake word and first real TTS response:
+
+```
+User says "Hey Jarvis, what time is it?"
+    │
+    ▼ (STT: ~190ms)
+Transcribe audio → text
+    │
+    ├──▶ Select cached filler audio (0ms lookup)
+    ├──▶ Stream filler to satellite ("Let me check on that...")
+    │
+    ▼ (Pipeline: 0-5ms for Layer 1, ~4000ms for Layer 3)
+Generate response text
+    │
+    ▼ (Kokoro TTS: ~200ms base + 180ms/word)
+Synthesize response audio, sentence by sentence
+    │
+    ├──▶ Audio stream → satellite speaker
+    ...
+```
+
+Filler cache is populated at satellite connection time with 5+ pre-generated phrases.
+Phrases are deduplicated to avoid repetition. Secondary filler fires if primary
+response takes >3s.
 
 ### Fast-Path for Instant Answers
 
-Layer 1/2 responses (instant answers, device commands) bypass the LLM entirely. These use **Piper on CPU** for <200ms total latency:
+Layer 1/2 responses (instant answers, device commands) bypass the LLM entirely:
 
 ```
 User: "Turn off the lights"
@@ -392,17 +427,55 @@ User: "Turn off the lights"
     ▼ (Layer 2: ~100ms)
 Text: "Done — living room lights off."
     │
-    ▼ (Piper CPU: ~100ms)
+    ▼ (Kokoro TTS: ~500ms for short phrase)
 Audio → satellite speaker
     │
-Total: ~200ms (instant feel)
+Total: ~700ms (near-instant feel)
 ```
-
-Piper doesn't support emotional speech, but for confirmations like "Done" and "Got it", flat delivery is fine — speed matters more.
 
 ---
 
-## TTS Provider: Orpheus via Ollama
+## TTS Provider: Kokoro (Primary)
+
+### Why Kokoro
+
+- **82M parameter model** — lightweight, runs entirely on CPU
+- **Sub-2s synthesis** for typical sentences (200ms base + 180ms/word)
+- **24kHz 16-bit PCM** output — high quality audio
+- **Multiple voices** with language/gender prefix naming (`af_bella`, `am_adam`, etc.)
+- **Standalone Docker container** — `kokoro-tts` on port 8880
+- **OpenAI-compatible API** — `/v1/audio/speech` endpoint
+- **Apache 2.0 license**
+
+### Configuration
+
+```bash
+# Environment variables
+TTS_PROVIDER=kokoro          # Select Kokoro as primary (default)
+KOKORO_HOST=localhost        # Kokoro server hostname
+KOKORO_PORT=8880             # Kokoro server port
+KOKORO_VOICE=af_bella        # Default voice
+```
+
+### Usage in Pipeline
+
+Kokoro is used directly via `KokoroClient` in `cortex/voice/kokoro.py`:
+
+```python
+from cortex.voice.kokoro import KokoroClient
+
+kokoro = KokoroClient(host="localhost", port=8880)
+pcm_audio, info = await kokoro.synthesize(
+    text="Hello there!",
+    voice="af_bella",
+    response_format="wav"
+)
+# info: {"sample_rate": 24000, "duration_ms": 1200}
+```
+
+---
+
+## TTS Provider: Orpheus via Ollama (Alternate)
 
 ### Why Orpheus + Ollama
 
@@ -617,13 +690,13 @@ During C0 (installer), the voice engine is discovered and configured:
 [Voice Engine Setup]
 
 Scanning for TTS options...
+  ✓ Kokoro available at :8880 (primary, fast CPU synthesis)
   ✓ Ollama available — can run Orpheus TTS (emotional, 3B model)
   ✓ Piper available at :10200 (fast fallback)
-  ✗ Coqui XTTS not found
-  ✗ StyleTTS2 not found
 
 Recommended setup:
-  Primary TTS: Orpheus via Ollama (emotional speech, natural pauses)
+  Primary TTS: Kokoro (natural speech, CPU, sub-2s synthesis)
+  Alternate TTS: Orpheus via Ollama (emotional speech, GPU)
   Fallback TTS: Piper (fast, for instant confirmations)
 
   Pull Orpheus model? (~4GB quantized) [Y/n]
@@ -646,10 +719,13 @@ Recommended setup:
 
 | System | Integration |
 |--------|-------------|
-| **Architecture (Layer 3)** | LLM output → emotion composer → TTS provider → audio stream |
-| **Architecture (Layer 1/2)** | Instant answers → Piper fast path → audio in <200ms |
+| **Architecture (Layer 3)** | LLM output → sentence splitter → Kokoro TTS → audio stream |
+| **Architecture (Layer 1/2)** | Instant answers → Kokoro fast path → audio in <700ms |
+| **Filler Cache** | Pre-generated filler audio at satellite connect → 0ms lookup on use |
+| **Sentence Streaming** | Each sentence synthesized and streamed independently as LLM tokens arrive |
+| **Auto-Listen** | Response ends with `?` → satellite auto-transitions to LISTENING |
+| **Hallucination Filter** | Whisper noise patterns detected and blocked before pipeline |
 | **Avatar (C7)** | TTS phoneme output → viseme mapping → lip-sync animation |
-| **Filler Engine (C1.3)** | Filler text can be spoken too (pre-TTS while LLM generates) |
 | **Personality (personality.md)** | Emotion tone shapes TTS delivery |
 | **User Profiles (C6)** | Preferred voice, age-appropriate delivery, parental volume controls |
 | **Context Management (C10)** | Long responses: sentence-boundary streaming keeps audio flowing |

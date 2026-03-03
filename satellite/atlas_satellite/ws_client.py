@@ -99,7 +99,7 @@ class SatelliteWSClient:
         await self._send({
             "type": "WAKE",
             "satellite_id": self.satellite_id,
-            "wake_word_confidence": confidence,
+            "wake_word_confidence": float(confidence),
         })
 
     async def send_audio_start(self) -> None:

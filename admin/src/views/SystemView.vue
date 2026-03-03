@@ -5,6 +5,7 @@ import DataTable from '../components/DataTable.vue'
 import { api } from '../api.js'
 
 const error = ref('')
+const success = ref('')
 
 // Hardware
 const hardware = ref(null)
@@ -36,11 +37,19 @@ const backupColumns = [
   { key: 'type', label: 'Type' },
 ]
 
+// Voice settings
+const voices = ref([])
+const loadingVoices = ref(true)
+const systemDefaultVoice = ref('')
+const selectedVoice = ref('')
+const savingVoice = ref(false)
+
 onMounted(() => {
   fetchHardware()
   fetchModels()
   fetchServices()
   fetchBackups()
+  fetchVoices()
 })
 
 async function fetchHardware() {
@@ -90,6 +99,36 @@ async function fetchBackups() {
   }
 }
 
+async function fetchVoices() {
+  loadingVoices.value = true
+  try {
+    const data = await api.get('/admin/tts/voices')
+    voices.value = data.voices || []
+    systemDefaultVoice.value = data.system_default || ''
+    selectedVoice.value = data.system_default || ''
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loadingVoices.value = false
+  }
+}
+
+async function saveDefaultVoice() {
+  savingVoice.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    await api.put('/admin/tts/default_voice', { voice: selectedVoice.value })
+    systemDefaultVoice.value = selectedVoice.value
+    success.value = 'Default voice updated'
+    setTimeout(() => { success.value = '' }, 3000)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    savingVoice.value = false
+  }
+}
+
 function healthColor(status) {
   if (status === 'healthy' || status === 'running' || status === 'up') return '#42b883'
   if (status === 'degraded' || status === 'warning') return '#f0a500'
@@ -109,6 +148,39 @@ function formatBytes(bytes) {
   <AppLayout>
     <h2 class="page-title">System</h2>
     <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-if="success" class="success-banner">{{ success }}</div>
+
+    <!-- Voice Settings -->
+    <div class="section">
+      <h3>🔊 Voice Settings</h3>
+      <div v-if="loadingVoices" class="loading-text">Loading voices…</div>
+      <div v-else>
+        <div class="voice-setting">
+          <div class="form-group">
+            <label class="form-label">System Default Voice</label>
+            <div class="voice-select-row">
+              <select v-model="selectedVoice" class="form-input voice-select">
+                <option value="">None (use environment default)</option>
+                <option v-for="v in voices" :key="v.name" :value="v.name">
+                  {{ v.name }} — {{ v.provider }}{{ v.description && v.description !== v.name ? ' (' + v.description + ')' : '' }}
+                </option>
+              </select>
+              <button
+                class="btn btn-primary"
+                :disabled="savingVoice || selectedVoice === systemDefaultVoice"
+                @click="saveDefaultVoice"
+              >
+                {{ savingVoice ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+            <div class="form-hint">
+              Voice resolution: User preference → Satellite override → System default → Environment variable
+            </div>
+          </div>
+        </div>
+        <div v-if="voices.length" class="voice-count">{{ voices.length }} voices available across {{ [...new Set(voices.map(v => v.provider))].join(', ') }}</div>
+      </div>
+    </div>
 
     <!-- Hardware -->
     <div class="section">
@@ -289,5 +361,72 @@ function formatBytes(bytes) {
   font-weight: 600;
   text-transform: capitalize;
   margin-top: 0.2rem;
+}
+.success-banner {
+  background: rgba(66, 184, 131, 0.15);
+  border: 1px solid rgba(66, 184, 131, 0.4);
+  color: #42b883;
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.form-label {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+.form-input {
+  background: #16162a;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: #eee;
+  font-size: 0.9rem;
+  outline: none;
+}
+.form-input:focus {
+  border-color: #646cff;
+}
+.form-hint {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 0.2rem;
+}
+.voice-select-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+.voice-select {
+  flex: 1;
+  max-width: 500px;
+}
+.voice-count {
+  font-size: 0.8rem;
+  color: #888;
+  margin-top: 0.8rem;
+}
+.btn {
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.btn-primary {
+  background: #646cff;
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #535bf2;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

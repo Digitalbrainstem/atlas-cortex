@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from .audio import AudioCapture, AudioPlayback
+from .button import ButtonHandler
 from .config import SatelliteConfig
 from .filler_cache import FillerCache
 from .led import LEDController, create_led
@@ -67,12 +68,14 @@ class SatelliteAgent:
         self.announcer: Optional[SatelliteAnnouncer] = None
         self.server_discovery: Optional[ServerDiscovery] = None
         self.fillers: Optional[FillerCache] = None
+        self.button: Optional[ButtonHandler] = None
 
         self._base_dir = base
         self._tts_buffer = bytearray()
         self._tts_sample_rate = 22050
         self._server_url_discovered = asyncio.Event()
         self._echo_suppress_until = 0.0  # timestamp: ignore VAD until this time
+        self._auto_listen_deadline = 0.0  # auto-listen timeout
 
     async def start(self) -> None:
         """Initialize components and run the main loop."""
@@ -117,6 +120,10 @@ class SatelliteAgent:
 
         self.led.set_pattern("idle")
 
+        # Start button handler (needs running event loop)
+        if self.button:
+            self.button.start(asyncio.get_event_loop())
+
         # Run concurrent loops
         try:
             await asyncio.gather(
@@ -137,6 +144,8 @@ class SatelliteAgent:
 
         if self.audio_in:
             self.audio_in.stop()
+        if self.button:
+            self.button.stop()
         if self.announcer:
             self.announcer.stop()
         if self.server_discovery:
@@ -170,6 +179,11 @@ class SatelliteAgent:
             frame_ms=cfg.chunk_ms,
             speech_threshold=cfg.speech_threshold_frames,
             silence_threshold=cfg.silence_threshold_frames,
+            max_speech_frames=cfg.max_speech_frames,
+            energy_threshold=cfg.vad_energy_threshold,
+            window_size=cfg.vad_window_size,
+            silence_ratio=cfg.vad_silence_ratio,
+            speech_energy_ratio=cfg.vad_speech_energy_ratio,
         )
 
         # Wake word (optional)
@@ -207,6 +221,15 @@ class SatelliteAgent:
         # Filler cache
         cache_dir = self._base_dir / "cache" / "fillers"
         self.fillers = FillerCache(cache_dir)
+
+        # Button (ReSpeaker 2-mic HAT GPIO 17)
+        if cfg.button_enabled and cfg.led_type == "respeaker_2mic":
+            self.button = ButtonHandler(mode=cfg.button_mode)
+            self.button.register(
+                on_press=self._on_button_press,
+                on_release=self._on_button_release,
+                on_toggle=self._on_button_toggle,
+            )
 
         # Start audio capture
         try:
@@ -287,13 +310,34 @@ class SatelliteAgent:
     async def _process_idle(self, audio: bytes) -> None:
         """In IDLE state: check for wake word or VAD speech start."""
         if time.monotonic() < self._echo_suppress_until:
-            return  # Suppress echo after TTS playback
+            # Still suppressing echo — feed wake word model to flush its
+            # internal buffers (discard the result) and maintain VAD baseline.
+            if self.wake_word:
+                self.wake_word.process(audio)
+            if self.vad and self.vad.active:
+                self.vad.process(audio)
+            self._echo_active = True
+            return
+
+        # Just exited echo suppression — reset wake word to discard any
+        # residual high-confidence detections from speaker audio.
+        if getattr(self, '_echo_active', False):
+            self._echo_active = False
+            if self.wake_word:
+                self.wake_word.reset()
 
         if self.wake_word:
+            # Feed VAD in idle to maintain ambient calibration
+            if self.vad and self.vad.active:
+                self.vad.process(audio)
+            # Skip wake word detection if button-toggled off
+            if self.button and not self.button.wake_word_enabled:
+                return
             # Wake word mode
             confidence = self.wake_word.process(audio)
             if confidence >= self.config.wake_word_threshold:
                 logger.info("Wake word detected (confidence: %.2f)", confidence)
+                self.wake_word.reset()  # Clear buffers to prevent re-trigger
                 await self._transition_to_listening(confidence)
         elif self.config.vad_enabled:
             # VAD-only mode: speech_start triggers listening
@@ -304,12 +348,30 @@ class SatelliteAgent:
 
     async def _process_listening(self, audio: bytes) -> None:
         """In LISTENING state: stream audio, check for end of speech."""
+        # Auto-listen timeout: if deadline passed without real speech, bail out
+        deadline = getattr(self, '_auto_listen_deadline', 0)
+        if deadline and time.monotonic() > deadline:
+            if not self.vad._in_speech:
+                logger.info("Auto-listen timeout — no speech detected, returning to IDLE")
+                self._auto_listen_deadline = 0
+                self.state = State.IDLE
+                self.led.set_pattern("idle")
+                self.vad.reset()
+                if self.ws.connected:
+                    await self.ws.send_audio_end("auto_listen_timeout")
+                    await self.ws.send_status("idle")
+                return
+
         if self.ws.connected:
             await self.ws.send_audio_chunk(audio)
 
         result = self.vad.process(audio)
+        if result == "speech_start" and deadline:
+            # Real speech detected — clear auto-listen deadline
+            self._auto_listen_deadline = 0
         if result == "speech_end":
             logger.info("Speech ended (VAD silence)")
+            self._auto_listen_deadline = 0
             await self._transition_to_processing()
 
     async def _transition_to_listening(self, confidence: float) -> None:
@@ -355,7 +417,10 @@ class SatelliteAgent:
 
     async def _on_tts_end(self, msg: dict) -> None:
         """TTS stream complete — play the buffered audio."""
-        logger.info("TTS_END received (%d bytes buffered, rate=%d)", len(self._tts_buffer), self._tts_sample_rate)
+        is_filler = msg.get("is_filler", False)
+        auto_listen = msg.get("auto_listen", False)
+        logger.info("TTS_END received (%d bytes buffered, rate=%d, filler=%s)",
+                     len(self._tts_buffer), self._tts_sample_rate, is_filler)
         self.state = State.SPEAKING
         self.led.set_pattern("speaking")
 
@@ -365,8 +430,33 @@ class SatelliteAgent:
             )
             self._tts_buffer.clear()
 
-        # Suppress echo: ignore VAD for 1.5s after playback ends
-        self._echo_suppress_until = time.monotonic() + 1.5
+        # Suppress echo: ignore VAD/wake for a longer window after playback.
+        # The ReSpeaker mic picks up speaker audio which triggers openwakeword
+        # at very high confidence (0.99) — 1.5s is not enough.
+        self._echo_suppress_until = time.monotonic() + 3.0
+
+        # Reset wake word model to clear internal audio buffers
+        # (prevents TTS playback from triggering false wake detections)
+        if self.wake_word:
+            self.wake_word.reset()
+
+        # Fillers: stay in PROCESSING — more audio coming
+        if is_filler:
+            self.state = State.PROCESSING
+            self.led.set_pattern("processing")
+            return
+
+        # Auto-listen: system asked a question, start listening for reply
+        if auto_listen:
+            logger.info("Auto-listen: transitioning to LISTENING for follow-up")
+            self.vad.reset()
+            self.state = State.IDLE
+            # Wait for echo to fully dissipate before listening
+            await asyncio.sleep(1.5)
+            if self.state == State.IDLE:  # not interrupted by something else
+                self._auto_listen_deadline = time.monotonic() + 4.0
+                await self._transition_to_listening(1.0)
+            return
 
         # Return to idle
         self.state = State.IDLE
@@ -391,6 +481,34 @@ class SatelliteAgent:
         self.state = State.IDLE
         self.led.set_pattern("idle")
         self.vad.reset()
+
+    # ── Button callbacks ──────────────────────────────────────────
+
+    async def _on_button_press(self) -> None:
+        """Button pressed in 'press' or 'hold' mode → start listening."""
+        if self.state not in (State.IDLE, State.MUTED):
+            return
+        logger.info("Button: start listening")
+        self._echo_suppress_until = 0  # clear any echo suppression
+        await self._transition_to_listening(1.0)
+
+    async def _on_button_release(self) -> None:
+        """Button released in 'hold' mode → stop listening."""
+        if self.state != State.LISTENING:
+            return
+        logger.info("Button: stop listening (hold release)")
+        await self._transition_to_processing()
+
+    async def _on_button_toggle(self, enabled: bool) -> None:
+        """Button toggled wake word on/off."""
+        if enabled:
+            self.state = State.IDLE
+            self.led.set_pattern("idle")
+            logger.info("Button: wake word enabled")
+        else:
+            self.state = State.MUTED
+            self.led.set_pattern("muted")
+            logger.info("Button: wake word disabled (muted)")
 
     async def _on_command(self, msg: dict) -> None:
         """Execute a command from the server."""

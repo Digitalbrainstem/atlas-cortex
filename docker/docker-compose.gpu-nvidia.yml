@@ -15,18 +15,11 @@ services:
               count: 1
               capabilities: [gpu]
 
-  atlas-whisper:
+  atlas-orpheus:
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
-    environment:
-      - PUID=${PUID:-99}
-      - PGID=${PGID:-100}
-      - TZ=${TZ:-America/New_York}
-      - WHISPER_MODEL=${WHISPER_MODEL:-distil-large-v3}
-      - WHISPER_BEAM=${WHISPER_BEAM:-1}
-      - WHISPER_LANG=${WHISPER_LANG:-en}

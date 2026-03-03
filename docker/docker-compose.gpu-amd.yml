@@ -1,15 +1,44 @@
-# GPU override for AMD ROCm systems.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up -d
+# GPU override for AMD ROCm (primary LLM GPU) + Intel (voice GPU).
+# This is the default for Derek's setup:
+#   GPU 0 (AMD RX 7900 XT, 20GB) → LLM (Ollama ROCm)
+#   GPU 1 (Intel Arc B580, 12GB)  → Orpheus TTS (llama.cpp Vulkan + SNAC XPU)
 #
-# Requirements:
-#   - AMD GPU with ROCm support (RX 6000/7000 series)
-#   - /dev/kfd and /dev/dri available on host
+# Vulkan sees both GPUs; GGML_VK_VISIBLE_DEVICES=1 targets Intel only.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-amd.yml up -d
 
 services:
+  # AMD ROCm for main LLM
   atlas-ollama:
     image: ollama/ollama:rocm
     devices:
       - /dev/kfd:/dev/kfd
+      - /dev/dri/card1:/dev/dri/card1
+      - /dev/dri/renderD129:/dev/dri/renderD129
+    group_add:
+      - video
+
+  # Intel Arc XPU for Orpheus SNAC decoder
+  atlas-orpheus:
+    devices:
       - /dev/dri:/dev/dri
     group_add:
       - video
+
+  # Intel Arc Vulkan for llama.cpp Orpheus inference
+  # GGML_VK_VISIBLE_DEVICES=1 selects Intel (device 0=AMD, 1=Intel)
+  atlas-llama-voice:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - GGML_VK_VISIBLE_DEVICES=1
+
+  # Intel Arc Vulkan for whisper.cpp STT
+  atlas-whisper:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - GGML_VK_VISIBLE_DEVICES=1

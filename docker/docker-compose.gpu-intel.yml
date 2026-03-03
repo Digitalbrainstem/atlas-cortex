@@ -1,12 +1,32 @@
-# GPU override for Intel Arc / iGPU systems.
+# GPU override for Intel-only systems (single GPU).
 # Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-intel.yml up -d
 #
-# Requirements:
-#   - Intel Arc or integrated GPU with OpenCL/oneAPI support
-#   - /dev/dri available on host
+# Both LLM and voice share the same Intel GPU.
 
 services:
   atlas-ollama:
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=0
+      - OLLAMA_VULKAN=1
+    group_add:
+      - video
+
+  atlas-orpheus:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+
+  atlas-llama-voice:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+
+  atlas-whisper:
     devices:
       - /dev/dri:/dev/dri
     group_add:

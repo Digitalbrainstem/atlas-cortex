@@ -100,9 +100,14 @@ class TestVAD:
         vad = VoiceActivityDetector(
             speech_threshold=2,
             silence_threshold=3,
+            energy_threshold=0.0,
         )
         # Mock the internal VAD
         vad._vad = MagicMock()
+        # Pre-calibrate with low ambient so webrtcvad hybrid mode is used
+        vad._calibrated = True
+        vad._ambient_rms = 10.0
+        vad._use_energy_mode = False
 
         # Simulate speech frames
         vad._vad.is_speech.return_value = True
