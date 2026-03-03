@@ -89,9 +89,9 @@
 
 | Service | Auth |
 |---------|------|
-| SSH (all servers) | Key: `~/.ssh/unraid_hive_key` (ed25519) |
-| Open WebUI | admin@example.com (see private credentials) (see private credentials store) |
-| NPM | admin@example.com (see private credentials) (Proxmox LXC) |
+| SSH (all servers) | Key-based auth (ed25519) |
+| Open WebUI | Admin account (see private credentials store) |
+| NPM | Admin account (Proxmox LXC) |
 | AdGuard | Admin account (Proxmox LXC) |
 | Home Assistant | VM on Proxmox (needs long-lived access token for Cortex) |
 
