@@ -25,12 +25,19 @@ CREATE TABLE IF NOT EXISTS tts_voices (
 """
 
 # ---------------------------------------------------------------------------
-# Seed data (Orpheus built-in voices + Piper fallback voices)
+# Seed data (Kokoro primary + Orpheus alternate + Piper fallback)
 # ---------------------------------------------------------------------------
 
 SEED_VOICES: list[dict] = [
-    # Orpheus voices
-    {"id": "orpheus_tara",  "provider": "orpheus", "display_name": "Tara",  "gender": "female", "style": "warm",         "supports_emotion": 1, "is_default": 1},
+    # Kokoro voices (primary — CPU, fast, natural)
+    {"id": "af_bella",      "provider": "kokoro",  "display_name": "Bella",  "gender": "female", "style": "warm",         "supports_emotion": 0, "is_default": 1},
+    {"id": "af_sarah",      "provider": "kokoro",  "display_name": "Sarah",  "gender": "female", "style": "natural",      "supports_emotion": 0},
+    {"id": "am_adam",       "provider": "kokoro",  "display_name": "Adam",   "gender": "male",   "style": "natural",      "supports_emotion": 0},
+    {"id": "am_michael",    "provider": "kokoro",  "display_name": "Michael","gender": "male",   "style": "professional", "supports_emotion": 0},
+    {"id": "bf_emma",       "provider": "kokoro",  "display_name": "Emma",   "gender": "female", "style": "warm",         "supports_emotion": 0},
+    {"id": "bm_daniel",     "provider": "kokoro",  "display_name": "Daniel", "gender": "male",   "style": "casual",       "supports_emotion": 0},
+    # Orpheus voices (alternate — GPU, emotional)
+    {"id": "orpheus_tara",  "provider": "orpheus", "display_name": "Tara",  "gender": "female", "style": "warm",         "supports_emotion": 1},
     {"id": "orpheus_leah",  "provider": "orpheus", "display_name": "Leah",  "gender": "female", "style": "energetic",    "supports_emotion": 1},
     {"id": "orpheus_jess",  "provider": "orpheus", "display_name": "Jess",  "gender": "female", "style": "casual",       "supports_emotion": 1},
     {"id": "orpheus_leo",   "provider": "orpheus", "display_name": "Leo",   "gender": "male",   "style": "professional", "supports_emotion": 1},
@@ -38,7 +45,7 @@ SEED_VOICES: list[dict] = [
     {"id": "orpheus_mia",   "provider": "orpheus", "display_name": "Mia",   "gender": "female", "style": "gentle",       "supports_emotion": 1},
     {"id": "orpheus_zac",   "provider": "orpheus", "display_name": "Zac",   "gender": "male",   "style": "energetic",    "supports_emotion": 1},
     {"id": "orpheus_anna",  "provider": "orpheus", "display_name": "Anna",  "gender": "female", "style": "professional", "supports_emotion": 1},
-    # Piper fallback voices
+    # Piper fallback voices (CPU, fast, basic)
     {"id": "piper_amy",     "provider": "piper",   "display_name": "Amy",   "gender": "female", "style": "neutral",      "supports_emotion": 0},
     {"id": "piper_jenny",   "provider": "piper",   "display_name": "Jenny", "gender": "female", "style": "neutral",      "supports_emotion": 0},
     {"id": "piper_ryan",    "provider": "piper",   "display_name": "Ryan",  "gender": "male",   "style": "neutral",      "supports_emotion": 0},
