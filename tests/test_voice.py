@@ -397,7 +397,7 @@ class TestVoiceRegistry:
         init_voice_registry(conn)
         default = get_default_voice(conn)
         assert default is not None
-        assert default["id"] == "orpheus_tara"
+        assert default["id"] == "af_bella"
 
     def test_list_all_voices(self):
         from cortex.voice.registry import init_voice_registry, list_voices
@@ -405,7 +405,7 @@ class TestVoiceRegistry:
         conn = self._make_db()
         init_voice_registry(conn)
         all_voices = list_voices(conn)
-        assert len(all_voices) == 11  # 8 Orpheus + 3 Piper
+        assert len(all_voices) == 17  # 6 Kokoro + 8 Orpheus + 3 Piper
 
     def test_idempotent_init(self):
         """Calling init twice must not duplicate rows."""
@@ -414,7 +414,7 @@ class TestVoiceRegistry:
         conn = self._make_db()
         init_voice_registry(conn)
         init_voice_registry(conn)
-        assert len(list_voices(conn)) == 11
+        assert len(list_voices(conn)) == 17
 
 
 # ===========================================================================
