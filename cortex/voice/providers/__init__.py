@@ -20,11 +20,10 @@ def get_tts_provider(config: dict | None = None) -> TTSProvider:
 
     Provider selection order:
       1. ``TTS_PROVIDER`` env-var (or config key)
-      2. If Orpheus-FastAPI URL is set → orpheus
-      3. Default → orpheus
+      2. Default → kokoro (primary, CPU)
     """
     cfg = config or _env_config()
-    name = cfg.get("TTS_PROVIDER", "orpheus").lower()
+    name = cfg.get("TTS_PROVIDER", "kokoro").lower()
     if name not in _PROVIDER_REGISTRY:
         raise ValueError(
             f"Unknown TTS provider '{name}'. "
@@ -37,6 +36,9 @@ def _env_config() -> dict:
     """Build a config dict from environment variables."""
     keys = (
         "TTS_PROVIDER",
+        "KOKORO_HOST",
+        "KOKORO_PORT",
+        "KOKORO_VOICE",
         "ORPHEUS_URL",
         "ORPHEUS_MODEL",
         "ORPHEUS_FASTAPI_URL",
@@ -49,14 +51,17 @@ def _env_config() -> dict:
 # Register built-in providers
 # ---------------------------------------------------------------------------
 
+from cortex.voice.providers.kokoro import KokoroTTSProvider    # noqa: E402
 from cortex.voice.providers.orpheus import OrpheusTTSProvider  # noqa: E402
 from cortex.voice.providers.piper import PiperTTSProvider      # noqa: E402
 
+register_provider("kokoro", KokoroTTSProvider)
 register_provider("orpheus", OrpheusTTSProvider)
 register_provider("piper", PiperTTSProvider)
 
 __all__ = [
     "TTSProvider",
+    "KokoroTTSProvider",
     "OrpheusTTSProvider",
     "PiperTTSProvider",
     "get_tts_provider",
