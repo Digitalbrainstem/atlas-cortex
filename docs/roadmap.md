@@ -263,16 +263,23 @@ All plugins are managed from **Admin → Plugins**:
 class WeatherPlugin(CortexPlugin):
     plugin_id = "weather"
     plugin_type = "query"
+    supports_learning = True  # opt into guided discovery for "why" questions
 
     async def match(self, message, context) -> CommandMatch:
         # Regex patterns: "weather", "temperature", "rain", "forecast", etc.
         # Return confidence score based on match quality
 
     async def handle(self, message, match, context) -> CommandResult:
-        # 1. Extract location (from message, user profile, or HA zone)
-        # 2. Hit weather API directly
-        # 3. Format natural-language response from template
-        # 4. Return — never touches LLM
+        intent = classify_intent(message)  # inform / learn / explore
+        if intent == "inform":
+            # 1. Extract location, hit weather API, format response
+            # 2. Return — done, no follow-up
+        elif intent == "learn":
+            # 1. Answer the question ("Rain happens because...")
+            # 2. Inject guided discovery: ask a question, pre-cache answer branches
+            # 3. Enter learning mode for this topic
+        else:  # explore
+            # Enrich context with weather data, fall through to LLM
 ```
 
 **Key design points:**
@@ -283,6 +290,31 @@ class WeatherPlugin(CortexPlugin):
 - Plugins can optionally enrich LLM context (e.g., weather data included when LLM handles a complex weather question)
 - Evolution job tracks which queries still fall through to LLM and suggests new patterns or new plugins
 - Users can write custom plugins following the `CortexPlugin` interface and drop them in
+
+**Query intent detection (inform vs. learn):**
+
+Every fast-path plugin classifies the query intent *before* responding. This is a lightweight, fast-path check (regex + keyword signals, no LLM) that determines how to handle the response:
+
+| Intent | Signal Words | Example | Behavior |
+|--------|-------------|---------|----------|
+| **Inform** | direct questions, "what is", "how much", "when" | *"What's the weather?"*, *"Recipe for pasta"*, *"AAPL stock price?"* | Answer directly, done. No follow-up. |
+| **Learn** | "why", "how does", "explain", "tell me about", "what makes" | *"Why is the sky blue?"*, *"How does sonar work?"*, *"What makes thunder?"* | Answer + guided discovery (ask questions, pre-cache responses, teach) |
+| **Explore** | "what if", "could", "imagine", follow-up after a learn | *"What if dolphins lived on land?"*, *"Could a bat find a submarine?"* | Creative LLM response, open-ended conversation |
+
+**How it works:**
+1. Plugin `match()` fires as normal and identifies the topic (weather, animal, recipe, etc.)
+2. A shared `classify_intent()` utility inspects the query for learn signals — this runs in the same fast-path, no extra latency
+3. **Inform intent** → plugin returns the answer directly (current behavior)
+4. **Learn intent** → plugin returns the answer AND injects a guided discovery prompt into the conversation context. Atlas asks a follow-up question, pre-caches likely answer branches (exact/partial/wrong), and enters learning mode
+5. **Explore intent** → falls through to LLM with the plugin's topic context for rich, creative responses
+
+**Examples across plugins:**
+- Weather: *"What's the forecast?"* → inform (just answer). *"Why does it rain?"* → learn (guided discovery about the water cycle)
+- Stocks: *"What's AAPL at?"* → inform. *"Why do stock prices go up and down?"* → learn
+- Cooking: *"Recipe for banana bread"* → inform. *"Why does bread rise?"* → learn (yeast, CO2, guided questions)
+- Sound Library: *"Play a dolphin sound"* → inform (play clip). *"How do dolphins talk to each other?"* → learn
+
+This is a **cross-cutting concern** — the `classify_intent()` function and guided discovery framework are shared infrastructure that all plugins opt into. Plugins that are purely action-based (timers, alarms, unit conversions) skip learning mode since there's no knowledge to explore. Each plugin declares whether it supports learning mode in its registration.
 
 > **Implementation note:** Timers/Alarms and Calendar overlap with Part 3. The fast-path plugin handles the voice interface; Part 3 adds the full scheduler, recurrence, and multi-room delivery.
 
