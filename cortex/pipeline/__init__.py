@@ -110,10 +110,13 @@ async def _pipeline_generator(
         )
         if _is_joke:
             parts = instant_response.split("\n", 1)
-            for part in parts:
+            _joke_punchline_tts = context.get("_joke_punchline_tts")
+            for i, part in enumerate(parts):
                 part = part.strip()
                 if part:
-                    await _fire_avatar_tts(room, part, expression=_avatar_expression)
+                    # Use TTS-optimized punchline for audio (phonetic pronunciation)
+                    tts_text = _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part
+                    await _fire_avatar_tts(room, tts_text, expression=_avatar_expression)
             # Silly expression after punchline
             await _fire_avatar_expression(room, "neutral", 0.5, f"{message} {instant_response}")
         else:

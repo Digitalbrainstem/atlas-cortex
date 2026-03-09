@@ -210,6 +210,8 @@ async def try_instant_answer(
                 user_id=context.get("user_id"),
             )
             if joke:
+                # Store TTS-optimized punchline in context for the pipeline
+                context["_joke_punchline_tts"] = joke.punchline_for_tts
                 return f"{joke.setup}\n{joke.punchline}", 1.0
         except Exception:
             logger.debug("Joke bank not available, falling through to LLM")
