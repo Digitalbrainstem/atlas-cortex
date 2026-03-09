@@ -105,12 +105,17 @@ def _resolve_skin_for_room(room: str, user_id: str | None = None) -> dict[str, A
 
 async def broadcast_to_room(room: str, message: dict[str, Any]) -> None:
     """Send a JSON message to all avatar display clients in a room."""
+    msg_type = message.get("type", "?")
     async with _clients_lock:
         clients = list(_clients.get(room, []))
+    if not clients:
+        logger.warning("broadcast_to_room: no clients for room=%s msg=%s", room, msg_type)
+        return
     dead: list[WebSocket] = []
     for client in clients:
         try:
             await client.send_json(message)
+            logger.debug("broadcast_to_room: sent %s to room=%s", msg_type, room)
         except Exception:
             dead.append(client)
     if dead:
@@ -250,11 +255,15 @@ async def stream_tts_to_avatar(
     room: str,
     text: str,
     session_id: str | None = None,
+    expression: str | None = None,
 ) -> None:
     """Synthesize TTS for *text* and stream audio chunks to avatar displays.
 
     Uses the configured TTS provider to generate audio, then streams
     base64-encoded PCM chunks over the avatar WebSocket.
+
+    When *expression* is provided, voice speed is adjusted to match the mood
+    (e.g. slightly faster and brighter for jokes/silly).
     """
     if not should_play_on_avatar(room):
         return
@@ -270,6 +279,21 @@ async def stream_tts_to_avatar(
 
     sid = session_id or uuid.uuid4().hex[:12]
 
+    # Expression → voice speed mapping (cheery/upbeat for jokes)
+    _EXPR_SPEED = {
+        "silly": 1.15,
+        "laughing": 1.1,
+        "excited": 1.15,
+        "love": 1.05,
+        "happy": 1.1,
+        "proud": 1.05,
+        "sleepy": 0.85,
+        "scared": 1.2,
+        "angry": 1.1,
+        "crying": 0.9,
+    }
+    speed = _EXPR_SPEED.get(expression, 1.0)
+
     try:
         from cortex.voice.providers import get_tts_provider
         tts = get_tts_provider()
@@ -280,7 +304,7 @@ async def stream_tts_to_avatar(
         chunk_size = 4096  # bytes per chunk
         audio_buffer = b""
 
-        async for audio_chunk in tts.synthesize(text, stream=True):
+        async for audio_chunk in tts.synthesize(text, speed=speed, stream=True):
             audio_buffer += audio_chunk
             # Send in fixed-size chunks
             while len(audio_buffer) >= chunk_size:
@@ -293,7 +317,7 @@ async def stream_tts_to_avatar(
             await broadcast_tts_chunk(room, sid, base64.b64encode(audio_buffer).decode("ascii"))
 
         await broadcast_tts_end(room, sid)
-        logger.info("avatar TTS: streamed %r to room=%s", text[:60], room)
+        logger.info("avatar TTS: streamed %r to room=%s (speed=%.2f)", text[:60], room, speed)
 
     except Exception:
         logger.exception("avatar TTS streaming failed for room=%s", room)
