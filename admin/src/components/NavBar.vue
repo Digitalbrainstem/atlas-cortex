@@ -16,6 +16,7 @@ const navItems = [
   { name: 'Parental Controls', route: 'parental', icon: '👨‍👩‍👧' },
   { name: 'Safety', route: 'safety', icon: '🛡️' },
   { name: 'Voice', route: 'voice', icon: '🎙️' },
+  { name: 'Avatar', route: 'avatar', icon: '🎭' },
   { name: 'Devices', route: 'devices', icon: '📱' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },

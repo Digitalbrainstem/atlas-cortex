@@ -26,7 +26,7 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -36,6 +36,7 @@ from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
 from cortex.satellite.websocket import satellite_ws_handler
+from cortex.avatar.websocket import avatar_ws_handler
 from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,9 @@ app.include_router(admin_router)
 
 # Mount satellite WebSocket endpoint
 app.add_api_websocket_route("/ws/satellite", satellite_ws_handler)
+
+# Mount avatar display WebSocket endpoint
+app.add_api_websocket_route("/ws/avatar", avatar_ws_handler)
 
 _provider = None
 _db_conn = None
@@ -312,6 +316,34 @@ _ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
 
 if _ADMIN_DIST.is_dir():
     app.mount("/admin", StaticFiles(directory=str(_ADMIN_DIST), html=True), name="admin-spa")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Avatar skin file serving
+# ──────────────────────────────────────────────────────────────────
+
+@app.get("/avatar/skin/{skin_id}.svg")
+async def serve_avatar_skin(skin_id: str):
+    """Serve an avatar skin SVG file by skin ID."""
+    from cortex.db import get_db, init_db
+    init_db()
+    conn = get_db()
+    row = conn.execute("SELECT path FROM avatar_skins WHERE id = ?", (skin_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Skin not found")
+    skin_path = Path(row[0])
+    if not skin_path.is_absolute():
+        skin_path = Path(__file__).resolve().parent.parent / skin_path
+    if not skin_path.is_file():
+        raise HTTPException(status_code=404, detail="Skin file not found")
+    return FileResponse(skin_path, media_type="image/svg+xml")
+
+
+@app.get("/avatar")
+async def serve_avatar_display():
+    """Serve the fullscreen avatar display page."""
+    _display_html = Path(__file__).resolve().parent / "avatar" / "display.html"
+    return FileResponse(_display_html, media_type="text/html")
 
 
 # ──────────────────────────────────────────────────────────────────
