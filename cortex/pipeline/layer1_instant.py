@@ -124,6 +124,15 @@ _GREETING_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+_JOKE_PATTERNS = re.compile(
+    r"\b(tell (me |us )?(a )?(joke|funny)|"
+    r"(got|know|have) (a |any )?(joke|jokes)|"
+    r"make me (laugh|giggle)|"
+    r"say something funny|"
+    r"(another|one more) joke)\b",
+    re.IGNORECASE,
+)
+
 
 def _greeting_response(context: dict[str, Any]) -> str:
     tod = context.get("time_of_day", "morning")
@@ -190,5 +199,19 @@ async def try_instant_answer(
     # ── Greetings ───────────────────────────────────────────────
     if _GREETING_PATTERNS.match(lower):
         return _greeting_response(context), 1.0
+
+    # ── Jokes ──────────────────────────────────────────────────
+    if _JOKE_PATTERNS.search(lower):
+        try:
+            from cortex.jokes import get_random_joke, init_joke_bank
+            init_joke_bank()
+            joke = get_random_joke(
+                room=context.get("room", "default"),
+                user_id=context.get("user_id"),
+            )
+            if joke:
+                return f"{joke.setup}\n{joke.punchline}", 1.0
+        except Exception:
+            logger.debug("Joke bank not available, falling through to LLM")
 
     return None, 0.0

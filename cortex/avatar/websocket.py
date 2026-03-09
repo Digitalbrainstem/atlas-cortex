@@ -51,15 +51,15 @@ async def avatar_ws_handler(ws: WebSocket) -> None:
         })
         await ws.send_json({"type": "EXPRESSION", "expression": "neutral", "intensity": 1.0})
 
-        # Keep connection alive — client doesn't send data, just receives.
+        # Keep connection alive — client can send PING or TELL_JOKE.
         while True:
-            # Await pings/pongs or client close
             data = await ws.receive_text()
-            # Client can send {"type": "PING"} for keepalive
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "PING":
                     await ws.send_json({"type": "PONG", "ts": time.time()})
+                elif msg.get("type") == "TELL_JOKE":
+                    asyncio.ensure_future(_handle_tell_joke(room))
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -331,3 +331,35 @@ async def stream_tts_to_avatar(
 def get_connected_rooms() -> list[str]:
     """Return a list of rooms with active avatar display connections."""
     return list(_clients.keys())
+
+
+async def _handle_tell_joke(room: str) -> None:
+    """Handle a TELL_JOKE request from the avatar display."""
+    try:
+        from cortex.jokes import (
+            get_random_joke,
+            init_joke_bank,
+            stream_cached_joke_to_avatar,
+        )
+
+        init_joke_bank()
+        joke = get_random_joke(room=room)
+        if not joke:
+            logger.warning("No jokes available for room=%s", room)
+            return
+
+        logger.info("Telling joke #%d to room=%s: %s", joke.id, room, joke.setup[:40])
+
+        await broadcast_expression(room, "neutral", 1.0)
+        await broadcast_speaking_start(room)
+
+        ok = await stream_cached_joke_to_avatar(room, joke)
+        if not ok:
+            logger.warning("Failed to stream joke TTS for room=%s", room)
+
+        # Post-punchline expression
+        await broadcast_expression(room, "silly", 1.0)
+        await broadcast_speaking_end(room)
+
+    except Exception:
+        logger.exception("TELL_JOKE handler failed for room=%s", room)

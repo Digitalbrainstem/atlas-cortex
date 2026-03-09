@@ -103,7 +103,22 @@ async def _pipeline_generator(
         logger.info("Layer 1 hit (%.1fms): %r [total %dms]", layer1_ms, instant_response[:80], total_ms)
         await _fire_avatar_speaking(room, True)
         _fire_avatar_visemes(room, instant_response)
-        await _fire_avatar_tts(room, instant_response, expression=_avatar_expression)
+
+        # For jokes, try pre-cached TTS (setup + punchline separately)
+        _is_joke = "\n" in instant_response and any(
+            w in message.lower() for w in ("joke", "funny", "laugh", "giggle")
+        )
+        if _is_joke:
+            parts = instant_response.split("\n", 1)
+            for part in parts:
+                part = part.strip()
+                if part:
+                    await _fire_avatar_tts(room, part, expression=_avatar_expression)
+            # Silly expression after punchline
+            await _fire_avatar_expression(room, "neutral", 0.5, f"{message} {instant_response}")
+        else:
+            await _fire_avatar_tts(room, instant_response, expression=_avatar_expression)
+
         yield instant_response
         await _fire_avatar_speaking(room, False)
         _log_interaction(
