@@ -190,12 +190,13 @@ All sounds are kid-friendly, pre-downloaded audio clips served locally — no AP
 3. **Pre-generate a gentle nudge** if they need a hint (*"Here's a clue — it flies at night!"*)
 
 When the child responds, a **lightweight answer evaluator** (not full LLM) classifies the response:
-- ✅ **Expected correct** — play pre-cached response instantly (<200ms)
+- ✅ **Expected correct** — play pre-cached response instantly (<200ms). E.g., *"A bat! That's exactly right!"*
+- ✅ **Partial / nuanced** — answer is in the right direction but needs context (<200ms, also pre-cached). E.g., *"A whale!"* → *"Great answer! Some whales like sperm whales do use clicks to find things — they're cousins of dolphins. Want to hear what a sperm whale sounds like?"* Chains to related sounds and teaches the nuance without making them feel wrong.
 - ✅ **Unexpected but valid** (e.g., *"a submarine!"* — not an animal, but genuinely uses sonar) — LLM evaluates with the question context, gives credit: *"That's really creative! Submarines do use sonar. Can you think of an animal that does it?"*
 - ❌ **Wrong answer** — gentle encouragement + hint, never "wrong": *"Hmm, cats are amazing but they use their whiskers more than sound. Think about an animal that flies at night..."*
 - 🤷 **Off-topic / unclear** — re-engage: *"That's interesting! But back to our sound question..."*
 
-The evaluator uses a combination of: (1) pre-built answer sets per question (fast-path match), (2) semantic similarity for unexpected-but-valid detection, and (3) LLM fallback only when the fast checks are inconclusive. Goal: most responses are instant from cache, LLM only fires for surprising answers worth exploring.
+Each question's answer set is structured with tiers: `exact` (bat), `partial` (whale — correct idea, needs nuance), `common_wrong` (cat — predictable miss), all with pre-generated TTS. The evaluator uses: (1) pre-built answer sets per question (fast-path match for exact/partial/wrong), (2) semantic similarity for unexpected-but-valid detection, and (3) LLM fallback only when the fast checks are inconclusive. Goal: most responses are instant from cache, LLM only fires for surprising answers worth exploring.
 
 #### Cooking & Recipes
 
