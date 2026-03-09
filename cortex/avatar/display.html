@@ -78,7 +78,8 @@
 
   <script>
     const VISEMES = [
-      'IDLE','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU'
+      'IDLE','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU',
+      'CLOSED','OPEN','ROUND','TEETH','FV'
     ];
     const EXPRESSIONS = [
       'neutral','happy','thinking','surprised','sad','excited','concerned','listening',
@@ -121,8 +122,16 @@
     let _syncedVisemeTimers = [];
     let _currentSkinUrl = null;
 
-    // Client-side text → viseme mapping (simple phoneme approximation)
-    const CHAR_VISEME = {
+    // Client-side text → viseme mapping
+    // Cartoon bank: 6 shapes, change on vowels + key consonants only
+    const CARTOON_VISEME = {
+      'a': 'OPEN', 'e': 'TEETH', 'i': 'TEETH', 'o': 'ROUND', 'u': 'ROUND',
+      'b': 'CLOSED', 'p': 'CLOSED', 'm': 'CLOSED',
+      'f': 'FV', 'v': 'FV',
+      'w': 'ROUND',
+    };
+    // Realistic bank: 15 shapes, per-character
+    const REALISTIC_VISEME = {
       'a': 'AA', 'e': 'EH', 'i': 'IH', 'o': 'OH', 'u': 'OU',
       'b': 'PP', 'p': 'PP', 'm': 'PP',
       'f': 'FF', 'v': 'FF',
@@ -133,33 +142,73 @@
       'j': 'SH', 'y': 'SH',
       'h': 'IH',
     };
+    let _visemeBank = 'cartoon'; // detected from SVG data-viseme-bank
+    let CHAR_VISEME = CARTOON_VISEME;
+
     function scheduleSyncedVisemes(text, audioDurationMs, startDelayMs) {
-      // Cancel any pending synced visemes
       _syncedVisemeTimers.forEach(t => clearTimeout(t));
       _syncedVisemeTimers = [];
 
-      // Scale viseme timing to match actual audio duration
+      if (_visemeBank === 'cartoon') {
+        _scheduleCartoonVisemes(text, audioDurationMs, startDelayMs);
+      } else {
+        _scheduleRealisticVisemes(text, audioDurationMs, startDelayMs);
+      }
+    }
+
+    // Cartoon: syllable-based, fewer changes, hold longer, snap between shapes
+    function _scheduleCartoonVisemes(text, audioDurationMs, startDelayMs) {
+      const lower = text.toLowerCase();
+      // Extract syllable beats: vowels + key consonant onsets
+      const beats = [];
+      let lastViseme = null;
+      for (let i = 0; i < lower.length; i++) {
+        const ch = lower[i];
+        const viseme = CARTOON_VISEME[ch];
+        if (viseme && viseme !== lastViseme) {
+          beats.push({ pos: i, viseme, isVowel: 'aeiou'.includes(ch) });
+          lastViseme = viseme;
+        } else if (ch === ' ' || ch === '.' || ch === ',' || ch === '!' || ch === '?') {
+          if (lastViseme !== 'IDLE') {
+            beats.push({ pos: i, viseme: 'IDLE', isVowel: false });
+            lastViseme = 'IDLE';
+          }
+        }
+      }
+      if (beats.length === 0) return;
+
+      // Distribute beats evenly across the audio duration
+      const msPerBeat = audioDurationMs / (beats.length + 1);
+      // Minimum hold time for snappy cartoon feel
+      const minHold = Math.max(80, msPerBeat * 0.7);
+
+      beats.forEach((beat, idx) => {
+        const t = startDelayMs + msPerBeat * (idx + 0.5);
+        _syncedVisemeTimers.push(setTimeout(() => showViseme(beat.viseme), t));
+      });
+      // Return to IDLE
+      _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), startDelayMs + audioDurationMs));
+    }
+
+    // Realistic: per-character timing (for future realistic skins)
+    function _scheduleRealisticVisemes(text, audioDurationMs, startDelayMs) {
       const charCount = text.replace(/[\s.,!?]/g, '').length || 1;
       const msPerChar = audioDurationMs / (charCount + text.length * 0.15);
-
       let elapsed = 0;
       const lower = text.toLowerCase();
       for (let i = 0; i < lower.length; i++) {
         const ch = lower[i];
         if (ch === ' ' || ch === '.' || ch === ',' || ch === '!' || ch === '?') {
           elapsed += msPerChar * 0.5;
-          const pauseDelay = startDelayMs + elapsed;
-          _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), pauseDelay));
+          _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), startDelayMs + elapsed));
           continue;
         }
-        const viseme = CHAR_VISEME[ch];
+        const viseme = REALISTIC_VISEME[ch];
         if (viseme) {
-          const d = startDelayMs + elapsed;
-          _syncedVisemeTimers.push(setTimeout(() => showViseme(viseme), d));
+          _syncedVisemeTimers.push(setTimeout(() => showViseme(viseme), startDelayMs + elapsed));
         }
         elapsed += msPerChar;
       }
-      // Return to IDLE after text completes
       _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), startDelayMs + audioDurationMs));
     }
 
@@ -416,6 +465,11 @@
           svg.setAttribute('height', '100%');
           svg.style.maxWidth = '90vmin';
           svg.style.maxHeight = '90vmin';
+          // Detect viseme bank from skin
+          const bank = svg.getAttribute('data-viseme-bank') || 'cartoon';
+          _visemeBank = bank;
+          CHAR_VISEME = bank === 'realistic' ? REALISTIC_VISEME : CARTOON_VISEME;
+          console.log('Viseme bank:', bank);
         }
         showViseme('IDLE');
         showExpression('neutral');
@@ -603,6 +657,63 @@
       }, 600);
     }
 
+    // ── Goofy eye animations (for jokes) ────────────────────────
+    let _goofyTimer = null;
+
+    function doGoofyEyes(style) {
+      // style: 'dart' (eyes look left-right fast), 'cross' (go cross-eyed briefly)
+      const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
+      const shines = container.querySelectorAll('#eyes-base circle[r="6"]');
+      if (!pupils.length) return;
+
+      // Store originals
+      pupils.forEach(p => {
+        if (!p.dataset.origCx) p.dataset.origCx = p.getAttribute('cx');
+        if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
+      });
+      shines.forEach(s => {
+        if (!s.dataset.origCx) s.dataset.origCx = s.getAttribute('cx');
+        if (!s.dataset.origCy) s.dataset.origCy = s.getAttribute('cy');
+      });
+
+      if (_goofyTimer) { clearTimeout(_goofyTimer); _goofyTimer = null; }
+
+      if (style === 'dart') {
+        // Eyes dart left then right then center — quick and snappy
+        const movePupils = (dx, dy) => {
+          pupils.forEach(p => {
+            p.style.transition = 'cx 0.1s ease, cy 0.1s ease';
+            p.setAttribute('cx', parseFloat(p.dataset.origCx) + dx);
+            p.setAttribute('cy', parseFloat(p.dataset.origCy) + dy);
+          });
+          shines.forEach(s => {
+            s.setAttribute('cx', parseFloat(s.dataset.origCx) + dx);
+            s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
+          });
+        };
+        movePupils(-10, 0); // look left
+        setTimeout(() => movePupils(10, 0), 200);  // look right
+        setTimeout(() => movePupils(-8, 0), 400);   // look left again
+        setTimeout(() => movePupils(8, 0), 550);    // look right again
+        _goofyTimer = setTimeout(() => movePupils(0, 0), 700); // center
+
+      } else if (style === 'cross') {
+        // Go cross-eyed briefly
+        const leftPupil = container.querySelector('.pupil-left');
+        const rightPupil = container.querySelector('.pupil-right');
+        if (leftPupil && rightPupil) {
+          leftPupil.style.transition = 'cx 0.15s ease';
+          rightPupil.style.transition = 'cx 0.15s ease';
+          leftPupil.setAttribute('cx', parseFloat(leftPupil.dataset.origCx) + 10);
+          rightPupil.setAttribute('cx', parseFloat(rightPupil.dataset.origCx) - 10);
+          _goofyTimer = setTimeout(() => {
+            leftPupil.setAttribute('cx', leftPupil.dataset.origCx);
+            rightPupil.setAttribute('cx', rightPupil.dataset.origCx);
+          }, 600);
+        }
+      }
+    }
+
     // ── Drift movement (bubbly personality — gentle sway + little hops) ─
     let swayPhase = 0;
     function startDrift() {
@@ -710,6 +821,7 @@
 
     // ── Idle animations (client-side, no server traffic) ──────
     let idleHopInterval = null;
+    let _goofyIdleInterval = null;
 
     function startIdleAnimations() {
       // Blink every 3-6 seconds
@@ -748,6 +860,15 @@
           doHop();
         }
       }, 8000 + Math.random() * 6000);
+
+      // Random goofy eyes when idle (keeps it playful)
+      if (_goofyIdleInterval) clearInterval(_goofyIdleInterval);
+      _goofyIdleInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          const style = Math.random() < 0.6 ? 'dart' : 'cross';
+          doGoofyEyes(style);
+        }
+      }, 12000 + Math.random() * 10000);
     }
 
     // ── Boot ──────────────────────────────────────────────────

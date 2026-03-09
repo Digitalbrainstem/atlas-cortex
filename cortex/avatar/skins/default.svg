@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" id="atlas-avatar-default">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" id="atlas-avatar-default" data-viseme-bank="cartoon">
   <!--
     Atlas Cortex — Default Avatar Skin (Nick Jr. Face style)
+    Viseme bank: cartoon (6 exaggerated mouth shapes)
+    For realistic skins, use data-viseme-bank="realistic" with all 15 shapes.
     Bright, friendly, expressive cartoon face.
     15 viseme mouth shapes + 16 expression overlays + base face.
     All mouth/expression groups hidden by default; client toggles visibility.
@@ -49,94 +51,60 @@
   </g>
 
   <!-- ── Mouth shapes (visemes) — only one visible at a time ─── -->
+  <!-- Cartoon bank: 6 exaggerated shapes for clear, snappy animation -->
 
-  <!-- IDLE: gentle smile -->
+  <!-- IDLE: big friendly smile -->
   <g id="mouth-IDLE" style="display:none">
-    <path d="M150 270 Q200 300 250 270" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round"/>
+    <path d="M140 268 Q200 310 260 268" fill="none" stroke="#C0392B" stroke-width="6" stroke-linecap="round"/>
   </g>
 
-  <!-- PP: lips pressed (p, b, m) -->
-  <g id="mouth-PP" style="display:none">
-    <path d="M160 275 Q200 280 240 275" fill="#C0392B" stroke="#A93226" stroke-width="3" stroke-linecap="round"/>
+  <!-- CLOSED: lips pressed together (b, p, m) — firm line -->
+  <g id="mouth-CLOSED" style="display:none">
+    <path d="M155 278 Q200 282 245 278" fill="#C0392B" stroke="#A93226" stroke-width="4" stroke-linecap="round"/>
   </g>
 
-  <!-- FF: bottom lip tuck (f, v) -->
-  <g id="mouth-FF" style="display:none">
-    <path d="M160 272 Q200 268 240 272" fill="none" stroke="#C0392B" stroke-width="4" stroke-linecap="round"/>
-    <path d="M170 276 Q200 284 230 276" fill="#E74C3C" opacity="0.5"/>
+  <!-- OPEN: big wide mouth (a, ah) — most exaggerated, shows teeth + tongue hint -->
+  <g id="mouth-OPEN" style="display:none">
+    <ellipse cx="200" cy="284" rx="42" ry="28" fill="#8B1A1A"/>
+    <rect x="168" y="264" width="64" height="7" rx="3" fill="white"/>
+    <ellipse cx="200" cy="298" rx="22" ry="10" fill="#FF8A80" opacity="0.5"/>
   </g>
 
-  <!-- TH: tongue peek (th) -->
-  <g id="mouth-TH" style="display:none">
-    <ellipse cx="200" cy="278" rx="30" ry="14" fill="#C0392B"/>
-    <ellipse cx="200" cy="275" rx="14" ry="6" fill="#FF8A80" opacity="0.7"/>
+  <!-- ROUND: perfect O shape (o, u, w, oo) — big donut -->
+  <g id="mouth-ROUND" style="display:none">
+    <ellipse cx="200" cy="282" rx="22" ry="22" fill="#8B1A1A"/>
+    <ellipse cx="200" cy="281" rx="14" ry="14" fill="#C0392B"/>
   </g>
 
-  <!-- DD: tongue up (t, d, n) -->
-  <g id="mouth-DD" style="display:none">
-    <ellipse cx="200" cy="278" rx="26" ry="12" fill="#C0392B"/>
-    <path d="M190 272 Q200 266 210 272" fill="#FF8A80" opacity="0.5"/>
+  <!-- TEETH: wide grin showing teeth (e, i, s, ee) — stretched smile with chompers -->
+  <g id="mouth-TEETH" style="display:none">
+    <ellipse cx="200" cy="280" rx="38" ry="14" fill="#C0392B"/>
+    <rect x="170" y="274" width="60" height="6" rx="3" fill="white"/>
   </g>
 
-  <!-- KK: back open (k, g) -->
-  <g id="mouth-KK" style="display:none">
-    <ellipse cx="200" cy="280" rx="28" ry="16" fill="#8B1A1A"/>
-    <ellipse cx="200" cy="276" rx="20" ry="8" fill="#C0392B"/>
+  <!-- FV: bottom lip tuck (f, v) — asymmetric lip bite -->
+  <g id="mouth-FV" style="display:none">
+    <path d="M160 274 Q200 270 240 274" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round"/>
+    <rect x="178" y="276" width="44" height="4" rx="2" fill="white" opacity="0.8"/>
+    <path d="M172 280 Q200 290 228 280" fill="#E74C3C" opacity="0.5"/>
   </g>
 
-  <!-- SS: teeth slit (s, z) -->
-  <g id="mouth-SS" style="display:none">
-    <rect x="170" y="272" width="60" height="10" rx="5" fill="#C0392B"/>
-    <rect x="178" y="274" width="44" height="4" rx="2" fill="white" opacity="0.9"/>
-  </g>
-
-  <!-- SH: small round (sh, zh) -->
-  <g id="mouth-SH" style="display:none">
-    <ellipse cx="200" cy="278" rx="20" ry="14" fill="#C0392B"/>
-    <ellipse cx="200" cy="277" rx="12" ry="8" fill="#8B1A1A"/>
-  </g>
-
-  <!-- RR: rounded (r) -->
-  <g id="mouth-RR" style="display:none">
-    <ellipse cx="200" cy="279" rx="18" ry="14" fill="#C0392B"/>
-    <ellipse cx="200" cy="278" rx="10" ry="8" fill="#8B1A1A"/>
-  </g>
-
-  <!-- NN: relaxed open (l, j, w) -->
-  <g id="mouth-NN" style="display:none">
-    <ellipse cx="200" cy="278" rx="24" ry="10" fill="#C0392B"/>
-  </g>
-
-  <!-- IH: wide narrow (i, I) -->
-  <g id="mouth-IH" style="display:none">
-    <ellipse cx="200" cy="278" rx="34" ry="10" fill="#C0392B"/>
-    <rect x="176" y="274" width="48" height="4" rx="2" fill="white" opacity="0.7"/>
-  </g>
-
-  <!-- EH: medium open (e, E) -->
-  <g id="mouth-EH" style="display:none">
-    <ellipse cx="200" cy="280" rx="30" ry="16" fill="#C0392B"/>
-    <rect x="178" y="272" width="44" height="4" rx="2" fill="white" opacity="0.6"/>
-  </g>
-
-  <!-- AA: wide open (a, A) -->
-  <g id="mouth-AA" style="display:none">
-    <ellipse cx="200" cy="282" rx="34" ry="22" fill="#8B1A1A"/>
-    <rect x="174" y="270" width="52" height="5" rx="2.5" fill="white" opacity="0.8"/>
-    <ellipse cx="200" cy="292" rx="18" ry="8" fill="#FF8A80" opacity="0.4"/>
-  </g>
-
-  <!-- OH: round open (o, O) -->
-  <g id="mouth-OH" style="display:none">
-    <ellipse cx="200" cy="280" rx="22" ry="20" fill="#8B1A1A"/>
-    <ellipse cx="200" cy="279" rx="16" ry="12" fill="#C0392B"/>
-  </g>
-
-  <!-- OU: small pucker (u, U) -->
-  <g id="mouth-OU" style="display:none">
-    <ellipse cx="200" cy="280" rx="16" ry="16" fill="#C0392B"/>
-    <ellipse cx="200" cy="279" rx="9" ry="9" fill="#8B1A1A"/>
-  </g>
+  <!-- Legacy viseme aliases (map old 15-viseme IDs to cartoon shapes for compatibility) -->
+  <!-- These are hidden references — the JS cartoon bank maps to the 6 above -->
+  <g id="mouth-PP" style="display:none"><use href="#mouth-CLOSED"/></g>
+  <g id="mouth-FF" style="display:none"><use href="#mouth-FV"/></g>
+  <g id="mouth-TH" style="display:none"><use href="#mouth-TEETH"/></g>
+  <g id="mouth-DD" style="display:none"><use href="#mouth-CLOSED"/></g>
+  <g id="mouth-KK" style="display:none"><use href="#mouth-OPEN"/></g>
+  <g id="mouth-SS" style="display:none"><use href="#mouth-TEETH"/></g>
+  <g id="mouth-SH" style="display:none"><use href="#mouth-ROUND"/></g>
+  <g id="mouth-RR" style="display:none"><use href="#mouth-ROUND"/></g>
+  <g id="mouth-NN" style="display:none"><use href="#mouth-CLOSED"/></g>
+  <g id="mouth-IH" style="display:none"><use href="#mouth-TEETH"/></g>
+  <g id="mouth-EH" style="display:none"><use href="#mouth-TEETH"/></g>
+  <g id="mouth-AA" style="display:none"><use href="#mouth-OPEN"/></g>
+  <g id="mouth-OH" style="display:none"><use href="#mouth-ROUND"/></g>
+  <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND"/></g>
 
   <!-- ── Expression overlays — only one visible at a time ────── -->
   <!--   data-replace-eyes="true" → client hides eyes-base when this is active    -->
