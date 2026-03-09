@@ -51,6 +51,9 @@ async def avatar_ws_handler(ws: WebSocket) -> None:
         })
         await ws.send_json({"type": "EXPRESSION", "expression": "neutral", "intensity": 1.0})
 
+        # Greet on connect (deferred so skin loads first)
+        asyncio.ensure_future(_handle_connect_greeting(room))
+
         # Keep connection alive — client can send PING or TELL_JOKE.
         while True:
             data = await ws.receive_text()
@@ -363,3 +366,53 @@ async def _handle_tell_joke(room: str) -> None:
 
     except Exception:
         logger.exception("TELL_JOKE handler failed for room=%s", room)
+
+
+# Track which rooms have been greeted (reset on server restart)
+_greeted_rooms: set[str] = set()
+
+
+async def _handle_connect_greeting(room: str) -> None:
+    """Play a short audio greeting when the avatar display connects."""
+    import random
+    from datetime import datetime
+
+    # Small delay so the skin and audio context have time to initialize
+    await asyncio.sleep(1.5)
+
+    try:
+        first_visit = room not in _greeted_rooms
+        _greeted_rooms.add(room)
+
+        hour = datetime.now().hour
+        if hour < 12:
+            tod = "morning"
+        elif hour < 17:
+            tod = "afternoon"
+        elif hour < 21:
+            tod = "evening"
+        else:
+            tod = "night"
+
+        if first_visit:
+            greeting = f"Hi, I'm Atlas! Good {tod}!"
+            expression = "excited"
+        else:
+            _return_greetings = {
+                "morning": ["Good morning!", "Morning!", "Hey, good morning!"],
+                "afternoon": ["Hey there!", "Good afternoon!", "Hey!"],
+                "evening": ["Good evening!", "Hey, welcome back!", "Evening!"],
+                "night": ["Hey, still up?", "Welcome back!", "Hey there!"],
+            }
+            greeting = random.choice(_return_greetings.get(tod, ["Hey!"]))
+            expression = "happy"
+
+        logger.info("Connect greeting for room=%s: %r (first=%s)", room, greeting, first_visit)
+
+        await broadcast_expression(room, expression, 1.0)
+        await broadcast_speaking_start(room)
+        await stream_tts_to_avatar(room, greeting, expression=expression)
+        await broadcast_speaking_end(room)
+
+    except Exception:
+        logger.exception("Connect greeting failed for room=%s", room)

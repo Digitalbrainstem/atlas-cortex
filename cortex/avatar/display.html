@@ -403,6 +403,7 @@
           statusEl.textContent = 'speaking';
           statusEl.className = 'active';
           if (msg.skin_url && msg.skin_url !== _currentSkinUrl) loadSkin(msg.skin_url);
+          checkPupilSpeed();
           break;
         case 'SPEAKING_END': {
           // Defer until audio actually finishes playing
@@ -410,6 +411,7 @@
           const deferMs = Math.max(0, remaining);
           const doEnd = () => {
             _isSpeaking = false;
+            checkPupilSpeed();
             statusEl.textContent = 'idle';
             statusEl.className = '';
             if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
@@ -794,21 +796,22 @@
         if (currentExpr !== 'neutral' && currentExpr !== 'listening') return;
         const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
         if (!pupils.length) return;
-        // Subtle random offset (±3px)
-        const dx = (Math.random() - 0.5) * 6;
-        const dy = (Math.random() - 0.5) * 4;
+        // Wider, faster movement while speaking; subtle when idle
+        const range = _isSpeaking ? 10 : 6;
+        const yRange = _isSpeaking ? 6 : 4;
+        const dx = (Math.random() - 0.5) * range;
+        const dy = (Math.random() - 0.5) * yRange;
+        const speed = _isSpeaking ? '0.3s' : '0.8s';
         pupils.forEach(p => {
           const baseCx = parseFloat(p.getAttribute('cx'));
-          // Use data attribute to store original position
           if (!p.dataset.origCx) p.dataset.origCx = baseCx;
           const origCx = parseFloat(p.dataset.origCx);
           const origCy = parseFloat(p.dataset.origCy || p.getAttribute('cy'));
           if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
-          p.style.transition = 'cx 0.8s ease, cy 0.8s ease';
+          p.style.transition = `cx ${speed} ease, cy ${speed} ease`;
           p.setAttribute('cx', origCx + dx);
           p.setAttribute('cy', parseFloat(origCy) + dy);
         });
-        // Also move the shine dots
         const shines = container.querySelectorAll('#eyes-base circle[r="6"]');
         shines.forEach(s => {
           if (!s.dataset.origCx) s.dataset.origCx = s.getAttribute('cx');
@@ -816,7 +819,16 @@
           s.setAttribute('cx', parseFloat(s.dataset.origCx) + dx);
           s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
         });
-      }, 2000 + Math.random() * 1500);
+      }, _isSpeaking ? 800 : (2000 + Math.random() * 1500));
+    }
+
+    // Restart pupil movement when speaking state changes to adjust timing
+    let _lastSpeakingState = false;
+    function checkPupilSpeed() {
+      if (_isSpeaking !== _lastSpeakingState) {
+        _lastSpeakingState = _isSpeaking;
+        startPupilMovement();
+      }
     }
 
     // ── Idle animations (client-side, no server traffic) ──────
