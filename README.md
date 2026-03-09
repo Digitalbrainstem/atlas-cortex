@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-554%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-645%20passing-brightgreen.svg)](#testing)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -38,6 +38,17 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Voice identification** — recognizes family members by voice, personalizes responses per person
 - **Multiple providers** — Kokoro (natural, CPU primary), Orpheus (emotional, GPU), Piper (fast, CPU fallback)
 - **Sentence-boundary streaming** — starts speaking before the full response is generated
+
+### 🎭 Avatar System
+- **Animated face** — Nick Jr. Face-inspired SVG avatar with real-time lip-sync and expressions
+- **Audio-synced visemes** — mouth shapes timed to actual TTS audio duration, not guesswork
+- **Content-aware expressions** — silly grin after joke punchlines, thinking face during processing
+- **Pre-cached joke bank** — 25 kid-friendly jokes with instant TTS playback, weekly rotation
+- **Interactive button** — `#show-joke-button` URL hash enables a "Tell me a joke" button on the display
+- **WebSocket streaming** — TTS audio, visemes, and expressions all delivered in real-time
+
+![Avatar Expressions](docs/images/avatar-expressions.png)
+*Neutral · Talking · Silly grin (after a joke punchline)*
 
 ### 🛡️ Safety & Content Policy
 - **Age-appropriate responses** — automatically adapts vocabulary and content for toddlers, children, teens, and adults
@@ -379,7 +390,7 @@ python -m pytest tests/test_safety.py -v
 python -m pytest tests/test_voice.py -v
 ```
 
-**Current status: 554 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, and multi-room modules.
+**Current status: 645 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, and multi-room modules.
 
 ## 📊 Implementation Status
 
@@ -393,7 +404,7 @@ python -m pytest tests/test_voice.py -v
 | C4 | Emotional Evolution | ✅ Complete | Rapport tracking, personality drift, proactive suggestions |
 | C5 | Memory System | ✅ Complete | HOT/COLD paths, vector search, BM25, RRF fusion |
 | C6 | User Profiles | ✅ Complete | Age-awareness, onboarding, parental controls |
-| C7 | Avatar System | ✅ Complete | Phoneme-to-viseme lip-sync, emotion expressions |
+| C7 | Avatar System | ✅ Complete | SVG face, lip-sync visemes, emotion expressions, joke bank, TTS caching |
 | C9 | Backup & Restore | ✅ Complete | Automated nightly backups, one-command restore |
 | C10 | Context Management | ✅ Complete | Context windows, compaction, overflow recovery |
 | C11 | Voice & Speech | ✅ Complete | TTS providers (Kokoro primary + Orpheus + Piper), emotion, streaming |

@@ -49,6 +49,17 @@
       color: #fff; font-size: 2rem; font-family: sans-serif;
       padding: 1.5rem 3rem; border: 2px solid #fff; border-radius: 1rem;
     }
+    #joke-btn {
+      display: none;
+      position: fixed; bottom: 40px; right: 20px; z-index: 50;
+      background: #f59e0b; color: #0f172a; border: none; border-radius: 2rem;
+      padding: 0.75rem 1.5rem; font: bold 1rem system-ui, sans-serif;
+      cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: transform 0.15s, background 0.15s;
+    }
+    #joke-btn:hover { background: #fbbf24; transform: scale(1.05); }
+    #joke-btn:active { transform: scale(0.95); }
+    #joke-btn.visible { display: block; }
   </style>
 </head>
 <body>
@@ -62,6 +73,7 @@
       </div>
     </div>
   </div>
+  <button id="joke-btn" onclick="tellJoke()">😂 Tell me a joke!</button>
   <div id="status">connecting…</div>
 
   <script>
@@ -156,6 +168,17 @@
     const container = document.getElementById('avatar-svg-wrap');
     const mover = document.getElementById('avatar-mover');
     const scaler = document.getElementById('avatar-scaler');
+
+    // Show joke button if URL hash contains #show-joke-button
+    if (location.hash.includes('show-joke-button')) {
+      document.getElementById('joke-btn').classList.add('visible');
+    }
+
+    function tellJoke() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'TELL_JOKE' }));
+      }
+    }
 
     // ── Web Audio API for TTS playback ────────────────────────
     let audioCtx = null;
