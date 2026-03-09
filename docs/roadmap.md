@@ -182,6 +182,8 @@ All sounds are kid-friendly, pre-downloaded audio clips served locally — no AP
 
 **Follow-up learning:** After playing a sound, follow-up questions like *"Why do dolphins make that sound?"*, *"Tell me more about elephants"*, or *"Where do crickets live?"* are detected as probing questions. The plugin injects the sound context (animal/object just played) into the LLM request so the response is age-appropriate and anchored to what the child just heard. This bridges the fast-path plugin with the LLM — the clip is instant, the curiosity follow-up gets a rich answer.
 
+**Guided discovery mode:** When a sound triggers curiosity (either via follow-up or proactively after the clip), Atlas can initiate a short conversational learning session. For example: *🐬 [dolphin click plays]* → *"Did you know dolphins use those clicks like sonar to find fish in the dark? Can you think of another animal that uses sound to see?"* Atlas asks age-appropriate questions, gives encouraging feedback, and can chain to related sounds (*"Want to hear what a bat sounds like?"*). The session stays conversational — the child leads, Atlas follows their curiosity. Ties into Part 6 (Learning & Education) and the user's content tier for age-appropriate depth.
+
 #### Cooking & Recipes
 
 | Plugin | Example Queries | Data Source | Expected Latency |
