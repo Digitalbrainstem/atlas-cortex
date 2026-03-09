@@ -10,10 +10,26 @@
     #avatar-container {
       width: 100vw; height: 100vh;
       display: flex; align-items: center; justify-content: center;
+      background: #0f172a;
+      perspective: 800px;
     }
-    #avatar-svg { max-width: 90vmin; max-height: 90vmin; }
-    /* Smooth transitions on all avatar groups */
-    #avatar-svg g { transition: opacity 0.15s ease-in-out; }
+    #avatar-mover {
+      position: absolute;
+      width: 60vmin; height: 60vmin;
+      will-change: left, top, transform;
+    }
+    #avatar-scaler {
+      width: 100%; height: 100%;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transform-origin: center center;
+    }
+    #avatar-svg-wrap {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #avatar-svg-wrap svg { width: 100%; height: 100%; }
+    /* Smooth transitions on SVG groups */
+    #avatar-svg-wrap g { transition: opacity 0.12s ease-in-out; }
     /* Status indicator */
     #status {
       position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
@@ -27,7 +43,11 @@
 </head>
 <body>
   <div id="avatar-container">
-    <div id="avatar-svg"></div>
+    <div id="avatar-mover">
+      <div id="avatar-scaler">
+        <div id="avatar-svg-wrap"></div>
+      </div>
+    </div>
   </div>
   <div id="status">connecting…</div>
 
@@ -36,8 +56,31 @@
       'IDLE','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU'
     ];
     const EXPRESSIONS = [
-      'neutral','happy','thinking','surprised','sad','excited','concerned','listening'
+      'neutral','happy','thinking','surprised','sad','excited','concerned','listening',
+      'laughing','crying','silly','winking','angry','confused','love','sleepy','proud','scared'
     ];
+
+    // Expression-to-animation mapping (Nick Jr. style movement behaviors)
+    const EXPR_ANIMATIONS = {
+      neutral:   { drift: true,  scale: 1.0,  squash: false, shake: false, bounce: false, spin: false, tilt: 0 },
+      happy:     { drift: true,  scale: 1.05, squash: false, shake: false, bounce: true,  spin: false, tilt: 0 },
+      thinking:  { drift: false, scale: 1.0,  squash: false, shake: false, bounce: false, spin: false, tilt: 12 },
+      surprised: { drift: false, scale: 1.15, squash: true,  shake: false, bounce: false, spin: false, tilt: 0 },
+      sad:       { drift: true,  scale: 0.92, squash: false, shake: false, bounce: false, spin: false, tilt: -8 },
+      excited:   { drift: true,  scale: 1.12, squash: false, shake: false, bounce: true,  spin: false, tilt: 0 },
+      concerned: { drift: false, scale: 0.97, squash: false, shake: false, bounce: false, spin: false, tilt: 5 },
+      listening: { drift: false, scale: 1.02, squash: false, shake: false, bounce: false, spin: false, tilt: -5 },
+      laughing:  { drift: true,  scale: 1.08, squash: true,  shake: true,  bounce: true,  spin: false, tilt: 0 },
+      crying:    { drift: false, scale: 0.88, squash: false, shake: true,  bounce: false, spin: false, tilt: -6 },
+      silly:     { drift: true,  scale: 1.1,  squash: true,  shake: false, bounce: true,  spin: true,  tilt: 15 },
+      winking:   { drift: true,  scale: 1.05, squash: false, shake: false, bounce: false, spin: false, tilt: 8 },
+      angry:     { drift: false, scale: 1.06, squash: false, shake: true,  bounce: false, spin: false, tilt: 0 },
+      confused:  { drift: true,  scale: 1.0,  squash: false, shake: false, bounce: false, spin: false, tilt: -15 },
+      love:      { drift: true,  scale: 1.08, squash: false, shake: false, bounce: true,  spin: false, tilt: 0 },
+      sleepy:    { drift: true,  scale: 0.9,  squash: false, shake: false, bounce: false, spin: false, tilt: -10 },
+      proud:     { drift: false, scale: 1.1,  squash: false, shake: false, bounce: false, spin: false, tilt: 0 },
+      scared:    { drift: false, scale: 0.85, squash: true,  shake: true,  bounce: false, spin: false, tilt: 0 },
+    };
 
     let ws = null;
     let currentViseme = 'IDLE';
@@ -45,10 +88,102 @@
     let blinkInterval = null;
     let breatheInterval = null;
     let visemeTimeout = null;
+    let driftInterval = null;
+    let pupilInterval = null;
+    let expressionAnimFrame = null;
+    let shakeTimeout = null;
+    let bounceInterval = null;
 
     const room = new URLSearchParams(location.search).get('room') || 'default';
     const statusEl = document.getElementById('status');
-    const container = document.getElementById('avatar-svg');
+    const container = document.getElementById('avatar-svg-wrap');
+    const mover = document.getElementById('avatar-mover');
+    const scaler = document.getElementById('avatar-scaler');
+
+    // ── Web Audio API for TTS playback ────────────────────────
+    let audioCtx = null;
+    let audioQueue = [];       // Queued PCM chunks as Float32Arrays
+    let audioPlaying = false;
+    let audioSampleRate = 24000;
+    let currentSessionId = null;
+
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: audioSampleRate });
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    function handleTtsStart(msg) {
+      currentSessionId = msg.session_id;
+      audioSampleRate = msg.sample_rate || 24000;
+      audioQueue = [];
+      audioPlaying = true;
+      // Recreate context if sample rate changed
+      if (audioCtx && audioCtx.sampleRate !== audioSampleRate) {
+        audioCtx.close();
+        audioCtx = null;
+      }
+      ensureAudioContext();
+      console.log('TTS start:', msg.text?.substring(0, 60), 'rate:', audioSampleRate);
+    }
+
+    function handleTtsChunk(msg) {
+      if (msg.session_id !== currentSessionId) return;
+      const ctx = ensureAudioContext();
+      // Decode base64 → PCM 16-bit LE → Float32
+      const raw = atob(msg.audio);
+      const int16 = new Int16Array(raw.length / 2);
+      for (let i = 0; i < int16.length; i++) {
+        int16[i] = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
+      }
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768.0;
+      }
+      audioQueue.push(float32);
+      scheduleAudioPlayback();
+    }
+
+    let nextPlayTime = 0;
+
+    function scheduleAudioPlayback() {
+      const ctx = ensureAudioContext();
+      while (audioQueue.length > 0) {
+        const samples = audioQueue.shift();
+        const buffer = ctx.createBuffer(1, samples.length, audioSampleRate);
+        buffer.getChannelData(0).set(samples);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        const now = ctx.currentTime;
+        const startAt = Math.max(now, nextPlayTime);
+        source.start(startAt);
+        nextPlayTime = startAt + buffer.duration;
+      }
+    }
+
+    function handleTtsEnd(msg) {
+      if (msg.session_id !== currentSessionId) return;
+      audioPlaying = false;
+      currentSessionId = null;
+      console.log('TTS end');
+    }
+
+    // Center the face initially
+    const centerX = () => (window.innerWidth - mover.offsetWidth) / 2;
+    const centerY = () => (window.innerHeight - mover.offsetHeight) / 2;
+    let posX = 0, posY = 0;
+
+    function initPosition() {
+      posX = centerX();
+      posY = centerY();
+      mover.style.left = posX + 'px';
+      mover.style.top = posY + 'px';
+    }
 
     // ── WebSocket connection ──────────────────────────────────
     function connect() {
@@ -61,7 +196,6 @@
       ws.onopen = () => {
         statusEl.textContent = 'connected';
         statusEl.className = 'active';
-        // Keepalive ping every 30s
         setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'PING' }));
@@ -96,6 +230,7 @@
           break;
         case 'SPEAKING_END':
           setViseme('IDLE', 200, 0);
+          setExpression('neutral', 1.0);
           statusEl.textContent = 'idle';
           statusEl.className = '';
           break;
@@ -112,6 +247,15 @@
           break;
         case 'PONG':
           break;
+        case 'TTS_START':
+          handleTtsStart(msg);
+          break;
+        case 'TTS_CHUNK':
+          handleTtsChunk(msg);
+          break;
+        case 'TTS_END':
+          handleTtsEnd(msg);
+          break;
       }
     }
 
@@ -122,18 +266,28 @@
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         container.innerHTML = await resp.text();
         const svg = container.querySelector('svg');
-        if (svg) svg.id = 'avatar-svg';
-        // Initialize: show IDLE mouth, neutral expression, base elements
+        if (svg) {
+          svg.setAttribute('width', '100%');
+          svg.setAttribute('height', '100%');
+          svg.style.maxWidth = '90vmin';
+          svg.style.maxHeight = '90vmin';
+        }
         showViseme('IDLE');
         showExpression('neutral');
         startIdleAnimations();
+        startDrift();
+        startPupilMovement();
+        console.log('Skin loaded, groups:', container.querySelectorAll('g[id]').length);
       } catch (err) {
         console.error('Failed to load skin:', err);
+        statusEl.textContent = 'skin load failed';
+        statusEl.className = 'error';
       }
     }
 
     // ── Viseme rendering ──────────────────────────────────────
     function showViseme(viseme) {
+      if (_exprReplacesMouth) return; // expression has its own mouth (toothy grin)
       VISEMES.forEach(v => {
         const el = document.getElementById(`mouth-${v}`);
         if (el) el.style.display = (v === viseme) ? 'inline' : 'none';
@@ -144,35 +298,237 @@
     function setViseme(viseme, durationMs, intensity) {
       if (visemeTimeout) clearTimeout(visemeTimeout);
       showViseme(viseme);
-      // Return to IDLE after duration
       visemeTimeout = setTimeout(() => showViseme('IDLE'), durationMs || 80);
     }
 
     // ── Expression rendering ──────────────────────────────────
     function showExpression(expr) {
-      // Hide all expression overlays
       EXPRESSIONS.forEach(e => {
         const el = document.getElementById(`expr-${e}`);
         if (el) el.style.display = 'none';
       });
-      // Show the selected expression
       const el = document.getElementById(`expr-${expr}`);
       if (el) el.style.display = 'inline';
 
-      // When showing an expression with its own eyes, hide base eyes
+      // Use data attributes to control base element visibility
       const baseEyes = document.getElementById('eyes-base');
-      const hasOwnEyes = el && el.querySelector('ellipse');
-      if (baseEyes) {
-        baseEyes.style.display = (expr === 'neutral' || !hasOwnEyes) ? 'inline' : 'none';
+      const replaceEyes = el && el.getAttribute('data-replace-eyes') === 'true';
+      if (baseEyes) baseEyes.style.display = replaceEyes ? 'none' : 'inline';
+
+      // Some expressions have their own mouth (toothy grins) — hide viseme mouths
+      const replaceMouth = el && el.getAttribute('data-replace-mouth') === 'true';
+      if (replaceMouth) {
+        VISEMES.forEach(v => {
+          const m = document.getElementById(`mouth-${v}`);
+          if (m) m.style.display = 'none';
+        });
       }
+
       currentExpr = expr;
+      _exprReplacesMouth = replaceMouth;
     }
 
+    let _exprReplacesMouth = false;
+
     function setExpression(expr, intensity) {
-      showExpression(expr || 'neutral');
+      const exprName = expr || 'neutral';
+      showExpression(exprName);
+      applyExpressionAnimation(exprName);
+    }
+
+    // ── Expression-driven animations (Nick Jr. style) ─────────
+    function applyExpressionAnimation(expr) {
+      const anim = EXPR_ANIMATIONS[expr] || EXPR_ANIMATIONS.neutral;
+
+      // Cancel previous expression-specific animations
+      if (shakeTimeout) { clearTimeout(shakeTimeout); shakeTimeout = null; }
+      if (bounceInterval) { clearInterval(bounceInterval); bounceInterval = null; }
+      if (expressionAnimFrame) { cancelAnimationFrame(expressionAnimFrame); expressionAnimFrame = null; }
+
+      // Scale with squash/stretch
+      if (anim.squash) {
+        squashStretch(anim.scale);
+      } else {
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }
+
+      // Drift control
+      if (anim.drift) {
+        startDrift();
+      } else {
+        stopDrift();
+        // Move toward center when not drifting
+        animateToCenter();
+      }
+
+      // Shake (laughing, crying, angry, scared)
+      if (anim.shake) {
+        startShake(expr === 'laughing' ? 600 : expr === 'angry' ? 400 : 300);
+      }
+
+      // Bounce (happy, excited, laughing, silly, love)
+      if (anim.bounce) {
+        startBounce(expr === 'excited' ? 300 : 500);
+      }
+
+      // Spin (silly)
+      if (anim.spin) {
+        doSpin();
+      }
+    }
+
+    // ── Squash & Stretch ──────────────────────────────────────
+    function squashStretch(targetScale) {
+      // Quick squash then stretch then settle
+      scaler.style.transition = 'transform 0.1s ease-in';
+      scaler.style.transform = `scale(${targetScale * 1.15}, ${targetScale * 0.85})`;
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.15s ease-out';
+        scaler.style.transform = `scale(${targetScale * 0.9}, ${targetScale * 1.1})`;
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.2s ease-in-out';
+          scaler.style.transform = `scale(${targetScale})`;
+        }, 150);
+      }, 100);
+    }
+
+    // ── Shake animation ───────────────────────────────────────
+    function startShake(durationMs) {
+      const startTime = performance.now();
+      const shakeAmount = currentExpr === 'angry' ? 6 : 4;
+
+      function shakeFrame() {
+        const elapsed = performance.now() - startTime;
+        if (elapsed > durationMs) {
+          scaler.style.transform = `scale(${(EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral).scale})`;
+          return;
+        }
+        const decay = 1 - (elapsed / durationMs);
+        const offsetX = (Math.random() - 0.5) * shakeAmount * 2 * decay;
+        const offsetY = (Math.random() - 0.5) * shakeAmount * decay;
+        const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+        scaler.style.transform = `scale(${anim.scale}) translate(${offsetX}px, ${offsetY}px) rotate(${anim.tilt}deg)`;
+        expressionAnimFrame = requestAnimationFrame(shakeFrame);
+      }
+      shakeFrame();
+    }
+
+    // ── Bounce animation ──────────────────────────────────────
+    function startBounce(intervalMs) {
+      let count = 0;
+      bounceInterval = setInterval(() => {
+        doHop();
+        count++;
+        if (count >= 3) {
+          if (bounceInterval) { clearInterval(bounceInterval); bounceInterval = null; }
+        }
+      }, intervalMs);
+    }
+
+    // ── Spin animation (silly) ────────────────────────────────
+    function doSpin() {
+      scaler.style.transition = 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      scaler.style.transform = 'scale(1.1) rotate(360deg)';
+      setTimeout(() => {
+        scaler.style.transition = 'none';
+        scaler.style.transform = 'scale(1.1) rotate(0deg)';
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.3s ease-out';
+          const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+          scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+        }, 50);
+      }, 600);
+    }
+
+    // ── Drift movement (bubbly personality — gentle sway + little hops) ─
+    let swayPhase = 0;
+    function startDrift() {
+      if (driftInterval) return;
+      // Gentle sinusoidal sway — bubbly, not random
+      driftInterval = setInterval(() => {
+        swayPhase += 0.15;
+        const cx = centerX();
+        const cy = centerY();
+        // Smooth figure-8 ish pattern
+        const swayX = Math.sin(swayPhase) * window.innerWidth * 0.08;
+        const swayY = Math.sin(swayPhase * 0.7) * window.innerHeight * 0.04;
+        posX = cx + swayX;
+        posY = cy + swayY;
+        mover.style.left = posX + 'px';
+        mover.style.top = posY + 'px';
+      }, 80);
+    }
+
+    function stopDrift() {
+      if (driftInterval) { clearInterval(driftInterval); driftInterval = null; }
+    }
+
+    function animateToCenter() {
+      posX = centerX();
+      posY = centerY();
+      mover.style.transition = 'left 0.6s ease-out, top 0.6s ease-out';
+      mover.style.left = posX + 'px';
+      mover.style.top = posY + 'px';
+      setTimeout(() => {
+        mover.style.transition = 'left 3s cubic-bezier(0.25, 0.1, 0.25, 1), top 3s cubic-bezier(0.25, 0.1, 0.25, 1)';
+      }, 600);
+    }
+
+    // Little hop (bubbly personality)
+    function doHop() {
+      scaler.style.transition = 'transform 0.15s ease-in';
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      scaler.style.transform = `scale(${anim.scale * 0.95}, ${anim.scale * 1.05})`;
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        scaler.style.transform = `scale(${anim.scale}) translateY(-12px)`;
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.25s ease-in';
+          scaler.style.transform = `scale(${anim.scale * 1.04}, ${anim.scale * 0.96})`;
+          setTimeout(() => {
+            scaler.style.transition = 'transform 0.2s ease-out';
+            scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+          }, 150);
+        }, 200);
+      }, 150);
+    }
+
+    // ── Pupil movement (subtle random eye tracking) ───────────
+    function startPupilMovement() {
+      if (pupilInterval) clearInterval(pupilInterval);
+      pupilInterval = setInterval(() => {
+        // Don't move pupils during expressions that have their own eyes
+        if (currentExpr !== 'neutral' && currentExpr !== 'listening') return;
+        const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
+        if (!pupils.length) return;
+        // Subtle random offset (±3px)
+        const dx = (Math.random() - 0.5) * 6;
+        const dy = (Math.random() - 0.5) * 4;
+        pupils.forEach(p => {
+          const baseCx = parseFloat(p.getAttribute('cx'));
+          // Use data attribute to store original position
+          if (!p.dataset.origCx) p.dataset.origCx = baseCx;
+          const origCx = parseFloat(p.dataset.origCx);
+          const origCy = parseFloat(p.dataset.origCy || p.getAttribute('cy'));
+          if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
+          p.style.transition = 'cx 0.8s ease, cy 0.8s ease';
+          p.setAttribute('cx', origCx + dx);
+          p.setAttribute('cy', parseFloat(origCy) + dy);
+        });
+        // Also move the shine dots
+        const shines = container.querySelectorAll('#eyes-base circle[r="6"]');
+        shines.forEach(s => {
+          if (!s.dataset.origCx) s.dataset.origCx = s.getAttribute('cx');
+          if (!s.dataset.origCy) s.dataset.origCy = s.getAttribute('cy');
+          s.setAttribute('cx', parseFloat(s.dataset.origCx) + dx);
+          s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
+        });
+      }, 2000 + Math.random() * 1500);
     }
 
     // ── Idle animations (client-side, no server traffic) ──────
+    let idleHopInterval = null;
+
     function startIdleAnimations() {
       // Blink every 3-6 seconds
       if (blinkInterval) clearInterval(blinkInterval);
@@ -180,7 +536,8 @@
         const blink = document.getElementById('blink');
         const baseEyes = document.getElementById('eyes-base');
         if (!blink) return;
-        // Quick blink: hide eyes, show blink, restore
+        // Don't blink during expressions with closed eyes
+        if (['happy', 'laughing', 'proud', 'winking', 'sleepy'].includes(currentExpr)) return;
         blink.style.display = 'inline';
         if (baseEyes) baseEyes.style.opacity = '0';
         setTimeout(() => {
@@ -195,15 +552,30 @@
       breatheInterval = setInterval(() => {
         const face = document.getElementById('face-base');
         if (!face) return;
-        const scale = breatheIn ? 'scale(1.003)' : 'scale(1.0)';
+        const scale = breatheIn ? 'scale(1.004)' : 'scale(1.0)';
         face.style.transform = scale;
         face.style.transformOrigin = 'center center';
         face.style.transition = 'transform 2s ease-in-out';
         breatheIn = !breatheIn;
       }, 2000);
+
+      // Occasional happy hop (bubbly personality)
+      if (idleHopInterval) clearInterval(idleHopInterval);
+      idleHopInterval = setInterval(() => {
+        if (currentExpr === 'neutral' || currentExpr === 'listening') {
+          doHop();
+        }
+      }, 8000 + Math.random() * 6000);
     }
 
     // ── Boot ──────────────────────────────────────────────────
+    // Initialize audio context on first click (browser autoplay policy)
+    document.addEventListener('click', () => ensureAudioContext(), { once: true });
+    document.addEventListener('touchstart', () => ensureAudioContext(), { once: true });
+
+    window.addEventListener('resize', initPosition);
+    initPosition();
+    loadSkin('/avatar/skin/default.svg');
     connect();
   </script>
 </body>

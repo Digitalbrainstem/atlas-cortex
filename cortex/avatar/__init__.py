@@ -157,6 +157,16 @@ EXPRESSIONS: dict[str, AvatarExpression] = {
     "excited":   AvatarExpression("excited",   0.6,  0.0, 0.9,  0.0,   0.4),
     "concerned": AvatarExpression("concerned", 0.3,  0.2, -0.2,  0.1,  0.25),
     "listening": AvatarExpression("listening", 0.1,  0.0, 0.1,  0.05,  0.3),
+    "laughing":  AvatarExpression("laughing",  0.3,  0.5, 1.0,  0.0,   0.1),
+    "crying":    AvatarExpression("crying",   -0.4,  0.0, -0.8, -0.1,  0.15),
+    "silly":     AvatarExpression("silly",     0.4,  0.1, 0.6,  0.2,   0.35),
+    "winking":   AvatarExpression("winking",   0.2,  0.0, 0.5,  0.1,   0.25),
+    "angry":     AvatarExpression("angry",    -0.6,  0.4, -0.6,  0.0,  0.2),
+    "confused":  AvatarExpression("confused",  0.4,  0.1, 0.0,  0.2,   0.3),
+    "love":      AvatarExpression("love",      0.3,  0.0, 0.9,  0.0,   0.2),
+    "sleepy":    AvatarExpression("sleepy",   -0.1,  0.5, 0.1, -0.1,   0.1),
+    "proud":     AvatarExpression("proud",     0.3,  0.3, 0.7,  0.0,   0.25),
+    "scared":    AvatarExpression("scared",    0.7,  0.0, -0.3,  0.0,  0.6),
 }
 
 # Pipeline sentiment → avatar expression
@@ -165,11 +175,39 @@ _SENTIMENT_EXPRESSION: dict[str, str] = {
     "casual":     "neutral",
     "question":   "thinking",
     "command":    "neutral",
-    "frustrated": "concerned",
+    "frustrated": "angry",
     "positive":   "happy",
     "negative":   "sad",
     "excited":    "excited",
+    "neutral":    "neutral",
 }
+
+# Content-aware expression hints (pattern → expression)
+# Used by the pipeline to override sentiment-based expression
+_CONTENT_EXPRESSION_PATTERNS: list[tuple[str, str]] = [
+    # Jokes and humor
+    (r"\bjoke\b|\bfunny\b|\blaugh\b|\bhaha\b|\blol\b|\bhumor\b", "silly"),
+    # Love and affection
+    (r"\blove\b|\bheart\b|\badore\b|\bsweet\b|\bcute\b", "love"),
+    # Confusion
+    (r"\bconfus\w*\b|\bwhat\??$|\bhuh\b|\bweird\b", "confused"),
+    # Fear and scary
+    (r"\bscar[ey]\w*\b|\bafraid\b|\bfrightened\b|\bcreepy\b|\bhorror\b", "scared"),
+    # Anger
+    (r"\bangr[iy]\w*\b|\bfurious\b|\bmad\b|\bhate\b", "angry"),
+    # Crying / very sad
+    (r"\bcry\w*\b|\bterribl\w*\b|\bawful\b|\bdevast\w*\b|\bmiss(?:ing)?\b", "crying"),
+    # Pride and accomplishment
+    (r"\bproud\b|\baccomplish\w*\b|\bdid it\b|\bnailed\b|\bawesome\b", "proud"),
+    # Sleepy
+    (r"\btired\b|\bsleep\w*\b|\bbed\s*time\b|\byawn\b|\bnap\b", "sleepy"),
+    # Excitement
+    (r"\bwow\b|\bamazing\b|\bincredible\b|\bexcit\w*\b|\byay\b|\byeah\b", "excited"),
+    # Surprise
+    (r"\breally\?|\bno way\b|\bsurpris\w*\b|\bunbeliev\w*\b|\bwhoa\b", "surprised"),
+    # Winking / playful
+    (r"\bsecret\b|\bguess what\b|\bhint\b|\bwink\b|\bshhh\b", "winking"),
+]
 
 # Vowel visemes get higher mouth openness than consonants
 _VOWEL_VISEMES: set[str] = {"AA", "EH", "IH", "OH", "OU"}
@@ -232,6 +270,22 @@ class AvatarState:
         self.expression = scaled
         logger.debug("sentiment %r (%.2f) → expression %s", sentiment, confidence, scaled.name)
         return scaled
+
+    def expression_from_content(self, text: str) -> AvatarExpression | None:
+        """Detect expression from message content using pattern matching.
+
+        Returns the expression if a content pattern matches, or None to
+        fall back to sentiment-based expression.
+        """
+        lower = text.lower()
+        for pattern, expr_name in _CONTENT_EXPRESSION_PATTERNS:
+            if re.search(pattern, lower):
+                expr = EXPRESSIONS.get(expr_name)
+                if expr:
+                    self.expression = expr
+                    logger.debug("content match %r → expression %s", pattern, expr_name)
+                    return expr
+        return None
 
     # ── lip-sync ──────────────────────────────────────────────────
 

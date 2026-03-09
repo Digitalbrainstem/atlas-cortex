@@ -175,6 +175,135 @@ async def broadcast_viseme_sequence(room: str, frames: list[dict[str, Any]]) -> 
         await broadcast_viseme(room, frame["viseme"], frame["duration_ms"], frame["intensity"])
 
 
+# ── TTS audio streaming to avatar displays ───────────────────────
+
+# Audio routing config per room: "avatar", "satellite", "both"
+_audio_routes: dict[str, str] = {}
+_DEFAULT_AUDIO_ROUTE = "avatar"  # Default: play through avatar display
+
+
+def set_audio_route(room: str, route: str) -> None:
+    """Configure audio routing for a room ('avatar', 'satellite', or 'both')."""
+    if route not in ("avatar", "satellite", "both"):
+        raise ValueError(f"Invalid audio route: {route!r}")
+    _audio_routes[room] = route
+    logger.info("audio route for room=%s set to %s", room, route)
+
+
+def get_audio_route(room: str) -> str:
+    """Return the audio routing mode for a room."""
+    return _audio_routes.get(room, _DEFAULT_AUDIO_ROUTE)
+
+
+def should_play_on_avatar(room: str) -> bool:
+    """Check if audio should be played on the avatar display for this room."""
+    route = get_audio_route(room)
+    return route in ("avatar", "both")
+
+
+def should_play_on_satellite(room: str) -> bool:
+    """Check if audio should be played on the satellite for this room."""
+    route = get_audio_route(room)
+    return route in ("satellite", "both")
+
+
+async def broadcast_tts_start(
+    room: str,
+    session_id: str,
+    sample_rate: int = 24000,
+    text: str = "",
+) -> None:
+    """Notify avatar displays that TTS audio streaming is starting."""
+    if not should_play_on_avatar(room):
+        return
+    await broadcast_to_room(room, {
+        "type": "TTS_START",
+        "session_id": session_id,
+        "format": f"pcm_{sample_rate // 1000}k_16bit_mono",
+        "sample_rate": sample_rate,
+        "text": text,
+    })
+
+
+async def broadcast_tts_chunk(room: str, session_id: str, audio_b64: str) -> None:
+    """Send a base64-encoded PCM audio chunk to avatar displays."""
+    if not should_play_on_avatar(room):
+        return
+    await broadcast_to_room(room, {
+        "type": "TTS_CHUNK",
+        "session_id": session_id,
+        "audio": audio_b64,
+    })
+
+
+async def broadcast_tts_end(room: str, session_id: str) -> None:
+    """Notify avatar displays that TTS audio streaming is complete."""
+    if not should_play_on_avatar(room):
+        return
+    await broadcast_to_room(room, {
+        "type": "TTS_END",
+        "session_id": session_id,
+    })
+
+
+async def stream_tts_to_avatar(
+    room: str,
+    text: str,
+    session_id: str | None = None,
+) -> None:
+    """Synthesize TTS for *text* and stream audio chunks to avatar displays.
+
+    Uses the configured TTS provider to generate audio, then streams
+    base64-encoded PCM chunks over the avatar WebSocket.
+    """
+    if not should_play_on_avatar(room):
+        return
+
+    # Check if anyone is listening
+    async with _clients_lock:
+        clients = _clients.get(room, [])
+    if not clients:
+        return
+
+    import base64
+    import uuid
+
+    sid = session_id or uuid.uuid4().hex[:12]
+
+    try:
+        from cortex.voice.providers import get_tts_provider
+        tts = get_tts_provider()
+        sample_rate = getattr(tts, "sample_rate", 24000)
+
+        await broadcast_tts_start(room, sid, sample_rate, text)
+
+        chunk_size = 4096  # bytes per chunk
+        audio_buffer = b""
+
+        async for audio_chunk in tts.synthesize(text, stream=True):
+            audio_buffer += audio_chunk
+            # Send in fixed-size chunks
+            while len(audio_buffer) >= chunk_size:
+                chunk = audio_buffer[:chunk_size]
+                audio_buffer = audio_buffer[chunk_size:]
+                await broadcast_tts_chunk(room, sid, base64.b64encode(chunk).decode("ascii"))
+
+        # Flush remaining audio
+        if audio_buffer:
+            await broadcast_tts_chunk(room, sid, base64.b64encode(audio_buffer).decode("ascii"))
+
+        await broadcast_tts_end(room, sid)
+        logger.info("avatar TTS: streamed %r to room=%s", text[:60], room)
+
+    except Exception:
+        logger.exception("avatar TTS streaming failed for room=%s", room)
+        # Still send TTS_END so client doesn't hang
+        try:
+            await broadcast_tts_end(room, sid)
+        except Exception:
+            pass
+
+
 def get_connected_rooms() -> list[str]:
     """Return a list of rooms with active avatar display connections."""
     return list(_clients.keys())

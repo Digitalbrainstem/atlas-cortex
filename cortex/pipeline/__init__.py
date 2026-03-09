@@ -91,8 +91,8 @@ async def _pipeline_generator(
     logger.debug("Layer 0 (context): %.1fms", layer0_ms)
 
     # Broadcast avatar expression from sentiment (non-blocking)
-    room = context.get("room")
-    _fire_avatar_expression(room, context.get("sentiment", "neutral"), context.get("sentiment_score", 0.5))
+    room = context.get("room") or "default"
+    _fire_avatar_expression(room, context.get("sentiment", "neutral"), context.get("sentiment_score", 0.5), message)
 
     # ── Layer 1: Instant Answers ─────────────────────────────
     t1 = time.monotonic()
@@ -103,6 +103,7 @@ async def _pipeline_generator(
         logger.info("Layer 1 hit (%.1fms): %r [total %dms]", layer1_ms, instant_response[:80], total_ms)
         _fire_avatar_speaking(room, True)
         _fire_avatar_visemes(room, instant_response)
+        _fire_avatar_tts(room, instant_response)
         yield instant_response
         _fire_avatar_speaking(room, False)
         _log_interaction(
@@ -123,6 +124,7 @@ async def _pipeline_generator(
         logger.info("Layer 2 hit (%.1fms): %r [total %dms]", layer2_ms, plugin_response[:80], total_ms)
         _fire_avatar_speaking(room, True)
         _fire_avatar_visemes(room, plugin_response)
+        _fire_avatar_tts(room, plugin_response)
         yield plugin_response
         _fire_avatar_speaking(room, False)
         _log_interaction(
@@ -158,12 +160,14 @@ async def _pipeline_generator(
         _sentence_buf += chunk
         if any(_sentence_buf.rstrip().endswith(p) for p in (".", "!", "?", "\n")):
             _fire_avatar_visemes(room, _sentence_buf)
+            _fire_avatar_tts(room, _sentence_buf)
             _sentence_buf = ""
         yield chunk
 
     # Flush any remaining text
     if _sentence_buf.strip():
         _fire_avatar_visemes(room, _sentence_buf)
+        _fire_avatar_tts(room, _sentence_buf)
     _fire_avatar_speaking(room, False)
 
     layer3_ms = (time.monotonic() - t3) * 1000
@@ -234,18 +238,25 @@ def _log_interaction(
 
 # ── Avatar broadcasting (best-effort, never blocks pipeline) ─────
 
-def _fire_avatar_expression(room: str | None, sentiment: str, confidence: float) -> None:
+def _fire_avatar_expression(room: str | None, sentiment: str, confidence: float, text: str = "") -> None:
     """Schedule an avatar expression broadcast (non-blocking)."""
     if not room:
         return
     try:
         from cortex.avatar import AvatarState
-        from cortex.avatar.websocket import broadcast_expression
+        from cortex.avatar.websocket import broadcast_expression, get_connected_rooms
         state = AvatarState()
-        expr = state.expression_from_sentiment(sentiment, confidence)
+        # Content-aware expression takes priority over sentiment
+        content_expr = state.expression_from_content(text) if text else None
+        if content_expr:
+            expr = content_expr
+        else:
+            expr = state.expression_from_sentiment(sentiment, confidence)
+        rooms = get_connected_rooms()
+        logger.info("avatar: fire expression %s to room=%s (connected: %s)", expr.name, room, rooms)
         asyncio.ensure_future(broadcast_expression(room, expr.name, confidence))
     except Exception:
-        pass  # Avatar is best-effort
+        logger.exception("avatar: expression fire failed")
 
 
 def _fire_avatar_visemes(room: str | None, text: str) -> None:
@@ -254,16 +265,18 @@ def _fire_avatar_visemes(room: str | None, text: str) -> None:
         return
     try:
         from cortex.avatar import AvatarState
-        from cortex.avatar.websocket import broadcast_viseme_sequence
+        from cortex.avatar.websocket import broadcast_viseme_sequence, get_connected_rooms
         state = AvatarState()
         frames = state.text_to_visemes(text)
         frame_dicts = [
             {"viseme": f.viseme, "start_ms": f.start_ms, "duration_ms": f.duration_ms, "intensity": f.intensity}
             for f in frames
         ]
+        rooms = get_connected_rooms()
+        logger.info("avatar: fire %d visemes to room=%s (connected: %s)", len(frame_dicts), room, rooms)
         asyncio.ensure_future(broadcast_viseme_sequence(room, frame_dicts))
     except Exception:
-        pass
+        logger.exception("avatar: viseme fire failed")
 
 
 def _fire_avatar_speaking(room: str | None, start: bool, user_id: str | None = None) -> None:
@@ -272,10 +285,26 @@ def _fire_avatar_speaking(room: str | None, start: bool, user_id: str | None = N
         return
     try:
         if start:
-            from cortex.avatar.websocket import broadcast_speaking_start
+            from cortex.avatar.websocket import broadcast_speaking_start, get_connected_rooms
+            logger.info("avatar: fire speaking_start to room=%s (connected: %s)", room, get_connected_rooms())
             asyncio.ensure_future(broadcast_speaking_start(room, user_id))
         else:
-            from cortex.avatar.websocket import broadcast_speaking_end
+            from cortex.avatar.websocket import broadcast_speaking_end, get_connected_rooms
+            logger.info("avatar: fire speaking_end to room=%s (connected: %s)", room, get_connected_rooms())
             asyncio.ensure_future(broadcast_speaking_end(room))
     except Exception:
-        pass
+        logger.exception("avatar: speaking fire failed")
+
+
+def _fire_avatar_tts(room: str | None, text: str) -> None:
+    """Schedule TTS audio streaming to avatar displays (non-blocking)."""
+    if not room or not text.strip():
+        return
+    try:
+        from cortex.avatar.websocket import stream_tts_to_avatar, get_connected_rooms
+        rooms = get_connected_rooms()
+        if room in rooms:
+            logger.info("avatar: fire TTS for %d chars to room=%s", len(text), room)
+            asyncio.ensure_future(stream_tts_to_avatar(room, text))
+    except Exception:
+        logger.exception("avatar: TTS fire failed")
