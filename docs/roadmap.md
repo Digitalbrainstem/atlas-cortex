@@ -180,6 +180,8 @@ These plugins intercept frequent request types at Layer 2, hitting external APIs
 
 All sounds are kid-friendly, pre-downloaded audio clips served locally — no API needed. Plays through the nearest satellite speaker or HA media player. Content-tier safe for all ages.
 
+**Follow-up learning:** After playing a sound, follow-up questions like *"Why do dolphins make that sound?"*, *"Tell me more about elephants"*, or *"Where do crickets live?"* are detected as probing questions. The plugin injects the sound context (animal/object just played) into the LLM request so the response is age-appropriate and anchored to what the child just heard. This bridges the fast-path plugin with the LLM — the clip is instant, the curiosity follow-up gets a rich answer.
+
 #### Cooking & Recipes
 
 | Plugin | Example Queries | Data Source | Expected Latency |
