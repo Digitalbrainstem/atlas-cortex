@@ -39,6 +39,11 @@ const routes = [
     component: () => import('../views/VoiceView.vue'),
   },
   {
+    path: '/avatar',
+    name: 'avatar',
+    component: () => import('../views/AvatarView.vue'),
+  },
+  {
     path: '/devices',
     name: 'devices',
     component: () => import('../views/DevicesView.vue'),

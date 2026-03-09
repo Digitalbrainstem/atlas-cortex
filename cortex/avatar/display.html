@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atlas Avatar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0f172a; }
+    #avatar-container {
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #avatar-svg { max-width: 90vmin; max-height: 90vmin; }
+    /* Smooth transitions on all avatar groups */
+    #avatar-svg g { transition: opacity 0.15s ease-in-out; }
+    /* Status indicator */
+    #status {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      font: 12px/1 system-ui, sans-serif; color: #64748b;
+      opacity: 0.5; transition: opacity 0.3s;
+    }
+    #status.active { color: #22c55e; opacity: 1; }
+    #status.listening { color: #3b82f6; opacity: 1; }
+    #status.error { color: #ef4444; opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="avatar-container">
+    <div id="avatar-svg"></div>
+  </div>
+  <div id="status">connecting…</div>
+
+  <script>
+    const VISEMES = [
+      'IDLE','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU'
+    ];
+    const EXPRESSIONS = [
+      'neutral','happy','thinking','surprised','sad','excited','concerned','listening'
+    ];
+
+    let ws = null;
+    let currentViseme = 'IDLE';
+    let currentExpr = 'neutral';
+    let blinkInterval = null;
+    let breatheInterval = null;
+    let visemeTimeout = null;
+
+    const room = new URLSearchParams(location.search).get('room') || 'default';
+    const statusEl = document.getElementById('status');
+    const container = document.getElementById('avatar-svg');
+
+    // ── WebSocket connection ──────────────────────────────────
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${proto}//${location.host}/ws/avatar?room=${encodeURIComponent(room)}`;
+      statusEl.textContent = 'connecting…';
+      statusEl.className = '';
+
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        statusEl.textContent = 'connected';
+        statusEl.className = 'active';
+        // Keepalive ping every 30s
+        setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'PING' }));
+          }
+        }, 30000);
+      };
+      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+      ws.onclose = () => {
+        statusEl.textContent = 'disconnected — reconnecting…';
+        statusEl.className = 'error';
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    // ── Message handler ───────────────────────────────────────
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'SKIN':
+          loadSkin(msg.skin_url);
+          break;
+        case 'EXPRESSION':
+          setExpression(msg.expression, msg.intensity);
+          break;
+        case 'VISEME':
+          setViseme(msg.viseme, msg.duration_ms, msg.intensity);
+          break;
+        case 'SPEAKING_START':
+          statusEl.textContent = 'speaking';
+          statusEl.className = 'active';
+          if (msg.skin_url) loadSkin(msg.skin_url);
+          break;
+        case 'SPEAKING_END':
+          setViseme('IDLE', 200, 0);
+          statusEl.textContent = 'idle';
+          statusEl.className = '';
+          break;
+        case 'LISTENING':
+          if (msg.active) {
+            statusEl.textContent = 'listening';
+            statusEl.className = 'listening';
+            setExpression('listening');
+          } else {
+            statusEl.textContent = 'idle';
+            statusEl.className = '';
+            setExpression('neutral');
+          }
+          break;
+        case 'PONG':
+          break;
+      }
+    }
+
+    // ── Load SVG skin ─────────────────────────────────────────
+    async function loadSkin(url) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        container.innerHTML = await resp.text();
+        const svg = container.querySelector('svg');
+        if (svg) svg.id = 'avatar-svg';
+        // Initialize: show IDLE mouth, neutral expression, base elements
+        showViseme('IDLE');
+        showExpression('neutral');
+        startIdleAnimations();
+      } catch (err) {
+        console.error('Failed to load skin:', err);
+      }
+    }
+
+    // ── Viseme rendering ──────────────────────────────────────
+    function showViseme(viseme) {
+      VISEMES.forEach(v => {
+        const el = document.getElementById(`mouth-${v}`);
+        if (el) el.style.display = (v === viseme) ? 'inline' : 'none';
+      });
+      currentViseme = viseme;
+    }
+
+    function setViseme(viseme, durationMs, intensity) {
+      if (visemeTimeout) clearTimeout(visemeTimeout);
+      showViseme(viseme);
+      // Return to IDLE after duration
+      visemeTimeout = setTimeout(() => showViseme('IDLE'), durationMs || 80);
+    }
+
+    // ── Expression rendering ──────────────────────────────────
+    function showExpression(expr) {
+      // Hide all expression overlays
+      EXPRESSIONS.forEach(e => {
+        const el = document.getElementById(`expr-${e}`);
+        if (el) el.style.display = 'none';
+      });
+      // Show the selected expression
+      const el = document.getElementById(`expr-${expr}`);
+      if (el) el.style.display = 'inline';
+
+      // When showing an expression with its own eyes, hide base eyes
+      const baseEyes = document.getElementById('eyes-base');
+      const hasOwnEyes = el && el.querySelector('ellipse');
+      if (baseEyes) {
+        baseEyes.style.display = (expr === 'neutral' || !hasOwnEyes) ? 'inline' : 'none';
+      }
+      currentExpr = expr;
+    }
+
+    function setExpression(expr, intensity) {
+      showExpression(expr || 'neutral');
+    }
+
+    // ── Idle animations (client-side, no server traffic) ──────
+    function startIdleAnimations() {
+      // Blink every 3-6 seconds
+      if (blinkInterval) clearInterval(blinkInterval);
+      blinkInterval = setInterval(() => {
+        const blink = document.getElementById('blink');
+        const baseEyes = document.getElementById('eyes-base');
+        if (!blink) return;
+        // Quick blink: hide eyes, show blink, restore
+        blink.style.display = 'inline';
+        if (baseEyes) baseEyes.style.opacity = '0';
+        setTimeout(() => {
+          blink.style.display = 'none';
+          if (baseEyes) baseEyes.style.opacity = '1';
+        }, 120);
+      }, 3000 + Math.random() * 3000);
+
+      // Subtle breathing: slight scale pulse on face-base
+      if (breatheInterval) clearInterval(breatheInterval);
+      let breatheIn = true;
+      breatheInterval = setInterval(() => {
+        const face = document.getElementById('face-base');
+        if (!face) return;
+        const scale = breatheIn ? 'scale(1.003)' : 'scale(1.0)';
+        face.style.transform = scale;
+        face.style.transformOrigin = 'center center';
+        face.style.transition = 'transform 2s ease-in-out';
+        breatheIn = !breatheIn;
+      }, 2000);
+    }
+
+    // ── Boot ──────────────────────────────────────────────────
+    connect();
+  </script>
+</body>
+</html>

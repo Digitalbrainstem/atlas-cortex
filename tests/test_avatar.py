@@ -268,3 +268,135 @@ class TestToJson:
         data = state.to_json()
         assert data["expression"]["name"] == "thinking"
         assert data["is_listening"] is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Database schema
+# ──────────────────────────────────────────────────────────────────
+
+class TestAvatarDB:
+    def _setup_db(self):
+        from cortex.db import set_db_path, init_db, get_db
+        set_db_path(":memory:")
+        init_db()
+        return get_db()
+
+    def test_avatar_skins_table_exists(self):
+        conn = self._setup_db()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(avatar_skins)").fetchall()]
+        assert "id" in cols
+        assert "name" in cols
+        assert "metadata" in cols
+        assert "is_default" in cols
+
+    def test_avatar_assignments_table_exists(self):
+        conn = self._setup_db()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(avatar_assignments)").fetchall()]
+        assert "user_id" in cols
+        assert "skin_id" in cols
+
+    def test_default_skin_seeded(self):
+        conn = self._setup_db()
+        row = conn.execute("SELECT id, name, is_default FROM avatar_skins WHERE id = 'default'").fetchone()
+        assert row is not None
+        assert row[0] == "default"
+        assert row[1] == "Atlas Default"
+        assert row[2] == 1
+
+    def test_assignment_references_skin(self):
+        conn = self._setup_db()
+        conn.execute("INSERT INTO avatar_assignments (user_id, skin_id) VALUES ('u1', 'default')")
+        conn.commit()
+        row = conn.execute("SELECT user_id, skin_id FROM avatar_assignments WHERE user_id = 'u1'").fetchone()
+        assert row[0] == "u1"
+        assert row[1] == "default"
+
+    def test_assignment_cascade_delete(self):
+        conn = self._setup_db()
+        conn.execute("INSERT INTO avatar_skins (id, name, type, path) VALUES ('test', 'Test', 'svg', 'test.svg')")
+        conn.execute("INSERT INTO avatar_assignments (user_id, skin_id) VALUES ('u1', 'test')")
+        conn.commit()
+        conn.execute("DELETE FROM avatar_skins WHERE id = 'test'")
+        conn.commit()
+        row = conn.execute("SELECT * FROM avatar_assignments WHERE user_id = 'u1'").fetchone()
+        assert row is None
+
+    def test_metadata_column_stores_json(self):
+        import json
+        conn = self._setup_db()
+        meta = json.dumps({"hair_color": "brown", "hat": True})
+        conn.execute(
+            "INSERT INTO avatar_skins (id, name, type, path, metadata) VALUES ('custom', 'Custom', 'svg', 'c.svg', ?)",
+            (meta,),
+        )
+        conn.commit()
+        row = conn.execute("SELECT metadata FROM avatar_skins WHERE id = 'custom'").fetchone()
+        parsed = json.loads(row[0])
+        assert parsed["hair_color"] == "brown"
+        assert parsed["hat"] is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Skin resolution
+# ──────────────────────────────────────────────────────────────────
+
+class TestSkinResolution:
+    def _setup_db(self):
+        from cortex.db import set_db_path, init_db, get_db
+        set_db_path(":memory:")
+        init_db()
+        return get_db()
+
+    def test_default_skin_resolves(self):
+        self._setup_db()
+        from cortex.avatar.websocket import _resolve_skin_for_room
+        skin = _resolve_skin_for_room("kitchen")
+        assert skin["id"] == "default"
+
+    def test_user_assignment_resolves(self):
+        conn = self._setup_db()
+        conn.execute("INSERT INTO avatar_skins (id, name, type, path) VALUES ('robot', 'Robot', 'svg', 'r.svg')")
+        conn.execute("INSERT INTO avatar_assignments (user_id, skin_id) VALUES ('kid1', 'robot')")
+        conn.commit()
+        from cortex.avatar.websocket import _resolve_skin_for_room
+        skin = _resolve_skin_for_room("kitchen", "kid1")
+        assert skin["id"] == "robot"
+
+    def test_unknown_user_falls_to_default(self):
+        self._setup_db()
+        from cortex.avatar.websocket import _resolve_skin_for_room
+        skin = _resolve_skin_for_room("kitchen", "unknown_user")
+        assert skin["id"] == "default"
+
+
+# ──────────────────────────────────────────────────────────────────
+# WebSocket message format
+# ──────────────────────────────────────────────────────────────────
+
+class TestAvatarWebSocketMessages:
+    def test_broadcast_expression_format(self):
+        """Verify the expression broadcast message structure."""
+        import asyncio
+        from cortex.avatar.websocket import broadcast_to_room
+
+        async def run():
+            await broadcast_to_room("test_room", {
+                "type": "EXPRESSION",
+                "expression": "happy",
+                "intensity": 0.8,
+            })
+
+        asyncio.run(run())
+        # Passes if no exception (no connected clients = no-op)
+
+    def test_viseme_sequence_empty(self):
+        """Empty sequence should not raise."""
+        import asyncio
+        from cortex.avatar.websocket import broadcast_viseme_sequence
+
+        asyncio.run(broadcast_viseme_sequence("test_room", []))
+
+    def test_connected_rooms_empty(self):
+        from cortex.avatar.websocket import get_connected_rooms
+        rooms = get_connected_rooms()
+        assert isinstance(rooms, list)

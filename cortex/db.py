@@ -689,6 +689,24 @@ CREATE TABLE IF NOT EXISTS satellite_audio_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sat_audio_satellite ON satellite_audio_sessions(satellite_id);
 CREATE INDEX IF NOT EXISTS idx_sat_audio_started   ON satellite_audio_sessions(started_at);
+
+-- ── Avatar Skins & Assignments ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS avatar_skins (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    type        TEXT DEFAULT 'svg' CHECK (type IN ('svg', 'sprite', 'custom')),
+    path        TEXT NOT NULL,
+    is_default  BOOLEAN DEFAULT FALSE,
+    metadata    TEXT DEFAULT '{}',
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS avatar_assignments (
+    user_id     TEXT PRIMARY KEY,
+    skin_id     TEXT NOT NULL REFERENCES avatar_skins(id) ON DELETE CASCADE,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_avatar_assign_skin ON avatar_assignments(skin_id);
 """
 
 
@@ -704,6 +722,19 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "satellites", "vad_enabled", "BOOLEAN DEFAULT 1")
     _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
+    _seed_default_avatar_skin(conn)
+
+
+def _seed_default_avatar_skin(conn: sqlite3.Connection) -> None:
+    """Ensure the default avatar skin exists in the database."""
+    row = conn.execute("SELECT id FROM avatar_skins WHERE id = 'default'").fetchone()
+    if row:
+        return
+    conn.execute(
+        "INSERT INTO avatar_skins (id, name, type, path, is_default, metadata) "
+        "VALUES ('default', 'Atlas Default', 'svg', 'cortex/avatar/skins/default.svg', TRUE, '{}')",
+    )
+    conn.commit()
 
 
 def _add_column_if_missing(
