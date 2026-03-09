@@ -343,7 +343,11 @@ async def serve_avatar_skin(skin_id: str):
 async def serve_avatar_display():
     """Serve the fullscreen avatar display page."""
     _display_html = Path(__file__).resolve().parent / "avatar" / "display.html"
-    return FileResponse(_display_html, media_type="text/html")
+    return FileResponse(
+        _display_html,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 # ──────────────────────────────────────────────────────────────────

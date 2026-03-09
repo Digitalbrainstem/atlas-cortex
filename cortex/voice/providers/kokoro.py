@@ -48,7 +48,7 @@ class KokoroTTSProvider(TTSProvider):
         """
         voice = voice or self.default_voice
         audio_bytes, info = await self._client.synthesize(
-            text, voice=voice, response_format="pcm",
+            text, voice=voice, response_format="pcm", speed=speed,
         )
         yield audio_bytes
 

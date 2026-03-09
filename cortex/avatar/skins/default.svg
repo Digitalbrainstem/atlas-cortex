@@ -217,18 +217,20 @@
 
   <!-- laughing: eyes squeezed shut, tears of joy, BIG TOOTHY GRIN -->
   <g id="expr-laughing" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
+    <!-- Both eyes squinted shut -->
     <path d="M113 170 Q145 150 177 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
     <path d="M223 170 Q255 150 287 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
+    <!-- Crinkle lines under eyes -->
     <path d="M118 180 Q145 186 172 180" fill="none" stroke="#E07B00" stroke-width="2" opacity="0.4"/>
     <path d="M228 180 Q255 186 282 180" fill="none" stroke="#E07B00" stroke-width="2" opacity="0.4"/>
+    <!-- Happy tears -->
     <ellipse cx="178" cy="182" rx="4" ry="6" fill="url(#tear-grad)"/>
     <ellipse cx="222" cy="184" rx="3.5" ry="5.5" fill="url(#tear-grad)"/>
-    <circle cx="108" cy="225" r="40" fill="#FF6B35" opacity="0.45"/>
-    <circle cx="292" cy="225" r="40" fill="#FF6B35" opacity="0.45"/>
-    <!-- BIG TOOTHY GRIN -->
-    <path d="M135 262 Q200 338 265 262" fill="#8B1A1A" stroke="#A93226" stroke-width="2"/>
-    <rect x="148" y="260" width="104" height="10" rx="3" fill="white" opacity="0.95"/>
-    <ellipse cx="200" cy="306" rx="24" ry="14" fill="#FF8A80" opacity="0.4"/>
+    <!-- Big rosy cheeks -->
+    <circle cx="108" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
+    <circle cx="292" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
+    <!-- BIG TOOTHY GRIN — plain white, cartoony -->
+    <path d="M140 260 Q200 310 260 260" fill="white" stroke="#2D2D2D" stroke-width="3" stroke-linecap="round"/>
   </g>
 
   <!-- crying: big teary eyes, tear streams -->
@@ -249,19 +251,14 @@
 
   <!-- silly: one eye big, one winking, goofy TOOTHY GRIN + tongue -->
   <g id="expr-silly" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
-    <ellipse cx="145" cy="170" rx="36" ry="40" fill="white"/>
-    <circle cx="150" cy="178" r="18" fill="#2D2D2D"/>
-    <circle cx="158" cy="168" r="7" fill="white"/>
-    <!-- Right eye winking -->
-    <path d="M229 176 Q255 160 281 176" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <circle cx="108" cy="228" r="35" fill="#FF6B35" opacity="0.35"/>
-    <circle cx="292" cy="228" r="35" fill="#FF6B35" opacity="0.35"/>
-    <!-- BIG GOOFY GRIN with teeth -->
-    <path d="M140 262 Q200 332 260 262" fill="#8B1A1A" stroke="#A93226" stroke-width="2"/>
-    <rect x="152" y="260" width="96" height="9" rx="2" fill="white" opacity="0.95"/>
-    <!-- Tongue sticking out to the side -->
-    <ellipse cx="250" cy="302" rx="16" ry="20" fill="#FF6B8A"/>
-    <ellipse cx="250" cy="298" rx="10" ry="13" fill="#FF8FAB" opacity="0.5"/>
+    <!-- Both eyes squinted shut (big cheesy grin) -->
+    <path d="M113 172 Q145 155 177 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
+    <path d="M223 172 Q255 155 287 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
+    <!-- Rosy cheeks -->
+    <circle cx="112" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
+    <circle cx="288" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
+    <!-- BIG TOOTHY GRIN — plain white, cartoony -->
+    <path d="M145 262 Q200 305 255 262" fill="white" stroke="#2D2D2D" stroke-width="3" stroke-linecap="round"/>
   </g>
 
   <!-- winking: left eye closed, right eye open -->

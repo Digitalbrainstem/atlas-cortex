@@ -67,6 +67,16 @@ def _find_response(message: str) -> dict | None:
 
 def _default_response(message: str) -> dict:
     """Generate a default mock response with average timing."""
+    msg_lower = message.lower()
+    # Give a real joke for joke requests
+    if "joke" in msg_lower or "funny" in msg_lower:
+        return {
+            "response_text": "Why don't scientists trust atoms? Because they make up everything!",
+            "filler_text": "",
+            "pipeline_total_ms": 2000,
+            "ttft_ms": 150,
+            "response_word_count": 11,
+        }
     return {
         "response_text": f"I understand you're asking about: {message}. "
                          "This is a mock response for development.",

@@ -39,9 +39,22 @@
     #status.active { color: #22c55e; opacity: 1; }
     #status.listening { color: #3b82f6; opacity: 1; }
     #status.error { color: #ef4444; opacity: 1; }
+    #audio-unlock {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15,23,42,0.85); z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    #audio-unlock span {
+      color: #fff; font-size: 2rem; font-family: sans-serif;
+      padding: 1.5rem 3rem; border: 2px solid #fff; border-radius: 1rem;
+    }
   </style>
 </head>
 <body>
+  <div id="audio-unlock" onclick="this.remove(); window._audioUnlocked=true;">
+    <span>🔊 Tap to enable audio</span>
+  </div>
   <div id="avatar-container">
     <div id="avatar-mover">
       <div id="avatar-scaler">
@@ -93,6 +106,50 @@
     let expressionAnimFrame = null;
     let shakeTimeout = null;
     let bounceInterval = null;
+    let _syncedVisemeTimers = [];
+    let _currentSkinUrl = null;
+
+    // Client-side text → viseme mapping (simple phoneme approximation)
+    const CHAR_VISEME = {
+      'a': 'AA', 'e': 'EH', 'i': 'IH', 'o': 'OH', 'u': 'OU',
+      'b': 'PP', 'p': 'PP', 'm': 'PP',
+      'f': 'FF', 'v': 'FF',
+      't': 'DD', 'd': 'DD', 'l': 'DD', 'n': 'NN',
+      'k': 'KK', 'g': 'KK', 'c': 'KK', 'q': 'KK',
+      's': 'SS', 'z': 'SS', 'x': 'SS',
+      'r': 'RR', 'w': 'RR',
+      'j': 'SH', 'y': 'SH',
+      'h': 'IH',
+    };
+    function scheduleSyncedVisemes(text, audioDurationMs, startDelayMs) {
+      // Cancel any pending synced visemes
+      _syncedVisemeTimers.forEach(t => clearTimeout(t));
+      _syncedVisemeTimers = [];
+
+      // Scale viseme timing to match actual audio duration
+      const charCount = text.replace(/[\s.,!?]/g, '').length || 1;
+      const msPerChar = audioDurationMs / (charCount + text.length * 0.15);
+
+      let elapsed = 0;
+      const lower = text.toLowerCase();
+      for (let i = 0; i < lower.length; i++) {
+        const ch = lower[i];
+        if (ch === ' ' || ch === '.' || ch === ',' || ch === '!' || ch === '?') {
+          elapsed += msPerChar * 0.5;
+          const pauseDelay = startDelayMs + elapsed;
+          _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), pauseDelay));
+          continue;
+        }
+        const viseme = CHAR_VISEME[ch];
+        if (viseme) {
+          const d = startDelayMs + elapsed;
+          _syncedVisemeTimers.push(setTimeout(() => showViseme(viseme), d));
+        }
+        elapsed += msPerChar;
+      }
+      // Return to IDLE after text completes
+      _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), startDelayMs + audioDurationMs));
+    }
 
     const room = new URLSearchParams(location.search).get('room') || 'default';
     const statusEl = document.getElementById('status');
@@ -106,6 +163,9 @@
     let audioPlaying = false;
     let audioSampleRate = 24000;
     let currentSessionId = null;
+    let _isSpeaking = false;   // True from SPEAKING_START to SPEAKING_END
+    let _neutralResetTimer = null;
+    let _hasReceivedAudio = false; // True once first TTS_CHUNK arrives
 
     function ensureAudioContext() {
       if (!audioCtx) {
@@ -117,22 +177,33 @@
       return audioCtx;
     }
 
+    let _sentenceAudioStart = 0; // ctx.currentTime when this sentence's audio begins
+    let _sentenceSamples = 0;    // total PCM samples for this sentence
+
     function handleTtsStart(msg) {
       currentSessionId = msg.session_id;
       audioSampleRate = msg.sample_rate || 24000;
       audioQueue = [];
       audioPlaying = true;
+      _pendingTtsText = msg.text || '';
+      _sentenceSamples = 0;
+      // Cancel any pending neutral reset
+      if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
       // Recreate context if sample rate changed
       if (audioCtx && audioCtx.sampleRate !== audioSampleRate) {
         audioCtx.close();
         audioCtx = null;
       }
-      ensureAudioContext();
-      console.log('TTS start:', msg.text?.substring(0, 60), 'rate:', audioSampleRate);
+      const ctx = ensureAudioContext();
+      // Record where this sentence's audio will start in the playback timeline
+      _sentenceAudioStart = Math.max(ctx.currentTime, nextPlayTime);
+      console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS start:`, msg.text?.substring(0, 60), 'rate:', audioSampleRate);
     }
 
+    let _pendingTtsText = '';
+
     function handleTtsChunk(msg) {
-      if (msg.session_id !== currentSessionId) return;
+      _hasReceivedAudio = true;
       const ctx = ensureAudioContext();
       // Decode base64 → PCM 16-bit LE → Float32
       const raw = atob(msg.audio);
@@ -144,8 +215,10 @@
       for (let i = 0; i < int16.length; i++) {
         float32[i] = int16[i] / 32768.0;
       }
+      _sentenceSamples += float32.length;
       audioQueue.push(float32);
       scheduleAudioPlayback();
+      doTalkPulse();
     }
 
     let nextPlayTime = 0;
@@ -167,10 +240,26 @@
     }
 
     function handleTtsEnd(msg) {
-      if (msg.session_id !== currentSessionId) return;
       audioPlaying = false;
-      currentSessionId = null;
-      console.log('TTS end');
+      _hasReceivedAudio = false;
+      // Schedule visemes NOW — we know total audio duration
+      if (_pendingTtsText) {
+        const ctx = ensureAudioContext();
+        const audioDurationMs = (_sentenceSamples / audioSampleRate) * 1000;
+        const delayUntilStart = Math.max(0, (_sentenceAudioStart - ctx.currentTime) * 1000);
+        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — scheduling visemes: ${audioDurationMs.toFixed(0)}ms audio, ${delayUntilStart.toFixed(0)}ms delay, text: "${_pendingTtsText.substring(0,30)}"`);
+        scheduleSyncedVisemes(_pendingTtsText, audioDurationMs, delayUntilStart);
+      } else {
+        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end (no text)`);
+      }
+      _pendingTtsText = '';
+      _sentenceSamples = 0;
+    }
+
+    // How many ms of audio is still queued for playback
+    function audioRemainingMs() {
+      const ctx = ensureAudioContext();
+      return Math.max(0, (nextPlayTime - ctx.currentTime) * 1000);
     }
 
     // Center the face initially
@@ -213,27 +302,59 @@
 
     // ── Message handler ───────────────────────────────────────
     function handleMessage(msg) {
+      const ts = (performance.now()/1000).toFixed(2);
+      if (msg.type !== 'PONG' && msg.type !== 'VISEME') {
+        console.log(`[${ts}s] WS:`, msg.type, msg.expression || msg.text?.substring(0,40) || '');
+      }
       switch (msg.type) {
         case 'SKIN':
           loadSkin(msg.skin_url);
           break;
-        case 'EXPRESSION':
-          setExpression(msg.expression, msg.intensity);
+        case 'EXPRESSION': {
+          // Defer expression change until queued audio finishes playing
+          const remaining = audioRemainingMs();
+          if (remaining > 50) {
+            console.log(`[${ts}s] EXPRESSION ${msg.expression} deferred ${remaining.toFixed(0)}ms`);
+            setTimeout(() => setExpression(msg.expression, msg.intensity), remaining);
+          } else {
+            setExpression(msg.expression, msg.intensity);
+          }
           break;
+        }
         case 'VISEME':
-          setViseme(msg.viseme, msg.duration_ms, msg.intensity);
+          // Server visemes ignored — client generates visemes synced to audio
           break;
         case 'SPEAKING_START':
+          _isSpeaking = true;
+          _hasReceivedAudio = false;
+          if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
           statusEl.textContent = 'speaking';
           statusEl.className = 'active';
-          if (msg.skin_url) loadSkin(msg.skin_url);
+          if (msg.skin_url && msg.skin_url !== _currentSkinUrl) loadSkin(msg.skin_url);
           break;
-        case 'SPEAKING_END':
-          setViseme('IDLE', 200, 0);
-          setExpression('neutral', 1.0);
-          statusEl.textContent = 'idle';
-          statusEl.className = '';
+        case 'SPEAKING_END': {
+          // Defer until audio actually finishes playing
+          const remaining = audioRemainingMs();
+          const deferMs = Math.max(0, remaining);
+          const doEnd = () => {
+            _isSpeaking = false;
+            statusEl.textContent = 'idle';
+            statusEl.className = '';
+            if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
+            _neutralResetTimer = setTimeout(() => {
+              _neutralResetTimer = null;
+              setViseme('IDLE', 200, 0);
+              setExpression('neutral', 1.0);
+            }, 3000);
+          };
+          if (deferMs > 50) {
+            console.log(`[${ts}s] SPEAKING_END deferred ${deferMs.toFixed(0)}ms`);
+            setTimeout(doEnd, deferMs);
+          } else {
+            doEnd();
+          }
           break;
+        }
         case 'LISTENING':
           if (msg.active) {
             statusEl.textContent = 'listening';
@@ -262,6 +383,7 @@
     // ── Load SVG skin ─────────────────────────────────────────
     async function loadSkin(url) {
       try {
+        _currentSkinUrl = url;
         const resp = await fetch(url);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         container.innerHTML = await resp.text();
@@ -287,10 +409,18 @@
 
     // ── Viseme rendering ──────────────────────────────────────
     function showViseme(viseme) {
-      if (_exprReplacesMouth) return; // expression has its own mouth (toothy grin)
+      if (_exprReplacesMouth) {
+        console.log('viseme BLOCKED:', viseme, '(expr has own mouth)');
+        return;
+      }
+      const el = document.getElementById(`mouth-${viseme}`);
+      if (!el && viseme !== 'IDLE') {
+        console.log('viseme NOT FOUND:', viseme);
+        return;
+      }
       VISEMES.forEach(v => {
-        const el = document.getElementById(`mouth-${v}`);
-        if (el) el.style.display = (v === viseme) ? 'inline' : 'none';
+        const m = document.getElementById(`mouth-${v}`);
+        if (m) m.style.display = (v === viseme) ? 'inline' : 'none';
       });
       currentViseme = viseme;
     }
@@ -303,12 +433,17 @@
 
     // ── Expression rendering ──────────────────────────────────
     function showExpression(expr) {
+      console.log('showExpression:', expr);
       EXPRESSIONS.forEach(e => {
         const el = document.getElementById(`expr-${e}`);
         if (el) el.style.display = 'none';
       });
       const el = document.getElementById(`expr-${expr}`);
-      if (el) el.style.display = 'inline';
+      if (el) {
+        el.style.display = 'inline';
+      } else {
+        console.log('  NOT FOUND: expr-' + expr);
+      }
 
       // Use data attributes to control base element visibility
       const baseEyes = document.getElementById('eyes-base');
@@ -317,11 +452,16 @@
 
       // Some expressions have their own mouth (toothy grins) — hide viseme mouths
       const replaceMouth = el && el.getAttribute('data-replace-mouth') === 'true';
+      console.log('  replaceEyes:', replaceEyes, 'replaceMouth:', replaceMouth, 'el:', !!el);
       if (replaceMouth) {
         VISEMES.forEach(v => {
           const m = document.getElementById(`mouth-${v}`);
           if (m) m.style.display = 'none';
         });
+      } else {
+        // Restore base IDLE mouth when leaving a replace-mouth expression
+        const idleMouth = document.getElementById('mouth-IDLE');
+        if (idleMouth) idleMouth.style.display = 'inline';
       }
 
       currentExpr = expr;
@@ -493,6 +633,25 @@
       }, 150);
     }
 
+    // Voice-synced talk pulse — subtle head nod/sway while speaking
+    let _lastPulse = 0;
+    function doTalkPulse() {
+      const now = performance.now();
+      if (now - _lastPulse < 200) return; // throttle to ~5 pulses/sec
+      _lastPulse = now;
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      // Alternate between slight left tilt and right tilt (conversational nodding)
+      const direction = Math.random() > 0.5 ? 1 : -1;
+      const tiltAmount = 2 + Math.random() * 3; // 2-5 degrees
+      const yShift = -(1 + Math.random() * 3); // slight upward nod
+      scaler.style.transition = 'transform 0.15s ease-out';
+      scaler.style.transform = `scale(${anim.scale}) rotate(${direction * tiltAmount}deg) translateY(${yShift}px)`;
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.2s ease-in-out';
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }, 150);
+    }
+
     // ── Pupil movement (subtle random eye tracking) ───────────
     function startPupilMovement() {
       if (pupilInterval) clearInterval(pupilInterval);
@@ -570,8 +729,9 @@
 
     // ── Boot ──────────────────────────────────────────────────
     // Initialize audio context on first click (browser autoplay policy)
-    document.addEventListener('click', () => ensureAudioContext(), { once: true });
-    document.addEventListener('touchstart', () => ensureAudioContext(), { once: true });
+    document.getElementById('audio-unlock').addEventListener('click', () => {
+      ensureAudioContext();
+    });
 
     window.addEventListener('resize', initPosition);
     initPosition();
