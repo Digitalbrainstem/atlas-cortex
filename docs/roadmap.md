@@ -166,6 +166,20 @@ These plugins intercept frequent request types at Layer 2, hitting external APIs
 | **Commute & Traffic** | *"How's traffic to work?"*, *"ETA to the office?"* | Google Maps / HERE API | ~1-2s |
 | **Flight Status** | *"Is flight AA123 on time?"*, *"Gate for UA456?"* | FlightAware / AviationStack | ~1s |
 
+#### Kids & Family
+
+| Plugin | Example Queries | Data Source | Expected Latency |
+|--------|----------------|-------------|------------------|
+| **Sound Library** | *"What does a dolphin sound like?"*, *"Play a train sound"*, *"What does a cricket sound like?"* | Local audio clips (pre-downloaded, kid-safe) | <200ms |
+
+**Sound Library categories:**
+- **Nature — Animals:** dog, cat, cow, horse, pig, chicken, rooster, sheep, goat, duck, frog, owl, eagle, wolf, whale, dolphin, elephant, lion, monkey, parrot
+- **Nature — Insects & Small Creatures:** cricket, bee, cicada, mosquito, grasshopper
+- **Nature — Environment:** rain, thunder, ocean waves, river, wind, waterfall, campfire crackling
+- **Human-Made World:** train, airplane, fire truck siren, submarine sonar, clock ticking, doorbell, church bells, steam engine whistle, spaceship launch countdown, old car horn (ahooga)
+
+All sounds are kid-friendly, pre-downloaded audio clips served locally — no API needed. Plays through the nearest satellite speaker or HA media player. Content-tier safe for all ages.
+
 #### Cooking & Recipes
 
 | Plugin | Example Queries | Data Source | Expected Latency |
@@ -176,7 +190,7 @@ These plugins intercept frequent request types at Layer 2, hitting external APIs
 
 ---
 
-**Total: 35 fast-path plugins** across 7 categories.
+**Total: 36 fast-path plugins** across 8 categories.
 
 #### Plugin Management (Admin Panel)
 
