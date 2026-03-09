@@ -27,6 +27,7 @@ class KokoroClient:
         text: str,
         voice: str = "af_bella",
         response_format: str = "wav",
+        speed: float = 1.0,
     ) -> tuple[bytes, dict]:
         """Synthesize text to audio via Kokoro-FastAPI.
 
@@ -38,6 +39,7 @@ class KokoroClient:
             "voice": voice,
             "input": text,
             "response_format": response_format,
+            "speed": speed,
         }
 
         async with aiohttp.ClientSession(timeout=self.timeout) as session:
