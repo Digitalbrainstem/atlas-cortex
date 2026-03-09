@@ -1380,3 +1380,24 @@ def remove_avatar_assignment(user_id: str, db: sqlite3.Connection = Depends(_db)
     db.execute("DELETE FROM avatar_assignments WHERE user_id = ?", (user_id,))
     db.commit()
     return {"user_id": user_id, "reverted_to": "default"}
+
+
+# ── Audio routing ────────────────────────────────────────────────
+
+class AudioRouteUpdate(BaseModel):
+    route: str = Field(..., pattern="^(avatar|satellite|both)$")
+
+
+@router.get("/avatar/audio-route/{room}")
+def get_audio_route(room: str):
+    """Get the audio routing mode for a room."""
+    from cortex.avatar.websocket import get_audio_route
+    return {"room": room, "route": get_audio_route(room)}
+
+
+@router.put("/avatar/audio-route/{room}")
+def set_audio_route(room: str, body: AudioRouteUpdate):
+    """Set audio routing for a room: 'avatar', 'satellite', or 'both'."""
+    from cortex.avatar.websocket import set_audio_route as _set_route
+    _set_route(room, body.route)
+    return {"room": room, "route": body.route}

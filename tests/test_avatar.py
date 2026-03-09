@@ -54,7 +54,11 @@ class TestExpressions:
         assert "neutral" in EXPRESSIONS
 
     def test_required_expressions(self):
-        required = {"neutral", "happy", "thinking", "surprised", "sad", "excited", "concerned", "listening"}
+        required = {
+            "neutral", "happy", "thinking", "surprised", "sad", "excited",
+            "concerned", "listening", "laughing", "crying", "silly", "winking",
+            "angry", "confused", "love", "sleepy", "proud", "scared",
+        }
         assert required.issubset(set(EXPRESSIONS.keys()))
 
     def test_expression_types(self):
@@ -167,10 +171,10 @@ class TestExpressionFromSentiment:
         expr = state.expression_from_sentiment("greeting", 1.0)
         assert expr.name == "happy"
 
-    def test_frustrated_maps_to_concerned(self):
+    def test_frustrated_maps_to_angry(self):
         state = AvatarState()
         expr = state.expression_from_sentiment("frustrated", 1.0)
-        assert expr.name == "concerned"
+        assert expr.name == "angry"
 
     def test_question_maps_to_thinking(self):
         state = AvatarState()
@@ -268,6 +272,76 @@ class TestToJson:
         data = state.to_json()
         assert data["expression"]["name"] == "thinking"
         assert data["is_listening"] is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Content-aware expression detection
+# ──────────────────────────────────────────────────────────────────
+
+class TestContentExpression:
+    def test_joke_triggers_silly(self):
+        state = AvatarState()
+        expr = state.expression_from_content("Tell me a joke!")
+        assert expr is not None
+        assert expr.name == "silly"
+
+    def test_love_triggers_love(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I love you Atlas!")
+        assert expr is not None
+        assert expr.name == "love"
+
+    def test_scared_triggers_scared(self):
+        state = AvatarState()
+        expr = state.expression_from_content("That's scary!")
+        assert expr is not None
+        assert expr.name == "scared"
+
+    def test_angry_triggers_angry(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I'm so angry right now")
+        assert expr is not None
+        assert expr.name == "angry"
+
+    def test_confused_triggers_confused(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I'm confused about this")
+        assert expr is not None
+        assert expr.name == "confused"
+
+    def test_sleepy_triggers_sleepy(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I'm tired, bedtime")
+        assert expr is not None
+        assert expr.name == "sleepy"
+
+    def test_proud_triggers_proud(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I'm so proud of you!")
+        assert expr is not None
+        assert expr.name == "proud"
+
+    def test_crying_triggers_crying(self):
+        state = AvatarState()
+        expr = state.expression_from_content("That's terrible, I could cry")
+        assert expr is not None
+        assert expr.name == "crying"
+
+    def test_winking_triggers_winking(self):
+        state = AvatarState()
+        expr = state.expression_from_content("I have a secret!")
+        assert expr is not None
+        assert expr.name == "winking"
+
+    def test_no_match_returns_none(self):
+        state = AvatarState()
+        expr = state.expression_from_content("What is the weather today?")
+        assert expr is None
+
+    def test_content_sets_state(self):
+        state = AvatarState()
+        state.expression_from_content("Tell me a funny joke")
+        assert state.expression.name == "silly"
 
 
 # ──────────────────────────────────────────────────────────────────
