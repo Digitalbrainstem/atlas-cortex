@@ -326,8 +326,9 @@
       _sentenceAudioStartSet = false;
       // Cancel any pending neutral reset
       if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
-      // Transition from thinking to speaking expression
-      if (currentExpr === 'thinking') {
+      // Transition from thinking to speaking — but ONLY for real content,
+      // not filler phrases. Filler keeps the thinking look while we wait.
+      if (currentExpr === 'thinking' && !msg.is_filler) {
         setExpression('neutral', 1.0);
       }
       statusEl.textContent = 'speaking';
