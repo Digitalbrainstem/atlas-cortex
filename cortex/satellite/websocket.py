@@ -583,6 +583,117 @@ async def _stream_audio_to_satellite(
     await conn.send(msg)
 
 
+async def _stream_orpheus_to_satellite(
+    conn: SatelliteConnection, text: str, voice: str,
+    is_filler: bool = False, auto_listen: bool = False,
+) -> tuple[int, float]:
+    """Stream Orpheus TTS directly to satellite — low latency.
+
+    Instead of buffering the entire WAV, streams PCM chunks as they
+    arrive from the Orpheus server. First audio in ~500ms.
+
+    Returns (total_bytes, elapsed_seconds).
+    """
+    import aiohttp
+    import io
+    import wave
+
+    bare_voice = (voice or "tara").replace("orpheus_", "")
+    payload = {
+        "input": text,
+        "model": "orpheus",
+        "voice": bare_voice,
+        "response_format": "wav",
+        "stream": True,
+    }
+
+    total_bytes = 0
+    t_start = time.monotonic()
+    sent_start = False
+    wav_header_skipped = False
+    pcm_buffer = bytearray()
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{_ORPHEUS_URL}/v1/audio/speech",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    logger.warning("Orpheus stream failed (%d): %s", resp.status, error[:200])
+                    return 0, 0.0
+
+                async for chunk in resp.content.iter_any():
+                    if not chunk:
+                        continue
+
+                    pcm_buffer.extend(chunk)
+
+                    # Skip WAV header (44 bytes) on first data
+                    if not wav_header_skipped:
+                        if len(pcm_buffer) < 44:
+                            continue
+                        # Verify WAV and extract sample rate
+                        if pcm_buffer[:4] == b'RIFF':
+                            wav_header_skipped = True
+                            pcm_buffer = pcm_buffer[44:]
+                        else:
+                            wav_header_skipped = True
+
+                    # Send TTS_START on first real audio data
+                    if not sent_start and len(pcm_buffer) >= 4096:
+                        await conn.send({
+                            "type": "TTS_START",
+                            "session_id": conn.session_id,
+                            "format": "pcm_24k_16bit_mono",
+                            "sample_rate": 24000,
+                            "text": text,
+                            "is_filler": is_filler,
+                        })
+                        sent_start = True
+                        ttfa = (time.monotonic() - t_start) * 1000
+                        logger.info("Orpheus TTFA: %.0fms for %r", ttfa, text[:40])
+
+                    # Stream PCM chunks as they arrive
+                    while len(pcm_buffer) >= 4096:
+                        out = bytes(pcm_buffer[:4096])
+                        pcm_buffer = pcm_buffer[4096:]
+                        await conn.send({
+                            "type": "TTS_CHUNK",
+                            "session_id": conn.session_id,
+                            "audio": base64.b64encode(out).decode("ascii"),
+                        })
+                        total_bytes += len(out)
+
+                # Flush remaining PCM
+                if pcm_buffer and sent_start:
+                    out = bytes(pcm_buffer)
+                    await conn.send({
+                        "type": "TTS_CHUNK",
+                        "session_id": conn.session_id,
+                        "audio": base64.b64encode(out).decode("ascii"),
+                    })
+                    total_bytes += len(out)
+
+        if sent_start:
+            msg: dict[str, Any] = {
+                "type": "TTS_END",
+                "session_id": conn.session_id,
+                "is_filler": is_filler,
+            }
+            if auto_listen:
+                msg["auto_listen"] = True
+            await conn.send(msg)
+
+    except Exception as e:
+        logger.warning("Orpheus streaming failed: %s", e)
+
+    elapsed = time.monotonic() - t_start
+    return total_bytes, elapsed
+
+
 async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) -> None:
     """Full STT → Pipeline → TTS → stream back to satellite."""
 
@@ -732,25 +843,36 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
             # ── Instant answer (Layer 1/2): single token IS the answer ──
             instant_text = tokens[0].strip()
             t_tts = time.monotonic()
-            audio, rate, provider = await _synthesize_text(instant_text, tts_voice, fast=True)
-            tts_ms = (time.monotonic() - t_tts) * 1000
-            if audio:
-                logger.info("Instant TTS [%s] %.0fms (%d bytes): %r",
-                            provider, tts_ms, len(audio), instant_text[:60])
-                await _stream_audio_to_satellite(
-                    conn, audio, rate, instant_text, is_filler=False,
-                    auto_listen=instant_text.rstrip().endswith("?"),
-                )
-                total_tts_bytes = len(audio)
-                tts_used = provider
+            total_tts_bytes, elapsed = await _stream_orpheus_to_satellite(
+                conn, instant_text, tts_voice, is_filler=False,
+                auto_listen=instant_text.rstrip().endswith("?"),
+            )
+            tts_ms = elapsed * 1000
+            if total_tts_bytes > 0:
+                logger.info("Instant TTS [orpheus-stream] %.0fms (%d bytes): %r",
+                            tts_ms, total_tts_bytes, instant_text[:60])
+                tts_used = "orpheus"
                 sentences_sent = 1
             else:
-                # TTS failed — send TTS_END so satellite isn't stuck
-                await conn.send({
-                    "type": "TTS_END",
-                    "session_id": conn.session_id,
-                    "is_filler": False,
-                })
+                # Orpheus failed — fallback to Kokoro
+                audio, rate, provider = await _synthesize_text(instant_text, tts_voice, fast=True)
+                tts_ms = (time.monotonic() - t_tts) * 1000
+                if audio:
+                    logger.info("Instant TTS [%s] %.0fms (%d bytes): %r",
+                                provider, tts_ms, len(audio), instant_text[:60])
+                    await _stream_audio_to_satellite(
+                        conn, audio, rate, instant_text, is_filler=False,
+                        auto_listen=instant_text.rstrip().endswith("?"),
+                    )
+                    total_tts_bytes = len(audio)
+                    tts_used = provider
+                    sentences_sent = 1
+                else:
+                    await conn.send({
+                        "type": "TTS_END",
+                        "session_id": conn.session_id,
+                        "is_filler": False,
+                    })
 
             t_total = time.monotonic() - t_stt_start
             logger.info("Pipeline complete for %s: total=%.1fs (STT=%.0fms instant [%s] %d bytes)",
@@ -778,16 +900,26 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                                     conn, cached.audio, cached.sample_rate,
                                     cached.phrase, is_filler=True)
                             else:
-                                audio, rate, prov = await _synthesize_text(
-                                    text, tts_voice, fast=True)
-                                if audio:
+                                # Stream filler via Orpheus (faster than buffered)
+                                filler_bytes, filler_elapsed = await _stream_orpheus_to_satellite(
+                                    conn, text, tts_voice, is_filler=True)
+                                if filler_bytes > 0:
                                     logger.info(
                                         "Filler TTS for %s: %r (%.0fms, %d bytes)",
                                         satellite_id, text,
-                                        (time.monotonic() - t_llm_start) * 1000,
-                                        len(audio))
-                                    await _stream_audio_to_satellite(
-                                        conn, audio, rate, text, is_filler=True)
+                                        filler_elapsed * 1000, filler_bytes)
+                                else:
+                                    # Orpheus failed — Kokoro fallback
+                                    audio, rate, prov = await _synthesize_text(
+                                        text, tts_voice, fast=True)
+                                    if audio:
+                                        logger.info(
+                                            "Filler TTS [%s] for %s: %r (%.0fms, %d bytes)",
+                                            prov, satellite_id, text,
+                                            (time.monotonic() - t_llm_start) * 1000,
+                                            len(audio))
+                                        await _stream_audio_to_satellite(
+                                            conn, audio, rate, text, is_filler=True)
                         except Exception as e:
                             logger.warning("Filler failed: %s", e)
 
@@ -814,15 +946,25 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                     token_buf = sentence + " " + token_buf
                     break
                 t_sent = time.monotonic()
-                audio, rate, provider = await _synthesize_text(sentence, tts_voice)
-                sent_ms = (time.monotonic() - t_sent) * 1000
-                if audio:
-                    logger.info("Sentence TTS [%s] %.0fms (%d bytes): %r",
-                                provider, sent_ms, len(audio), sentence[:60])
-                    await _stream_audio_to_satellite(conn, audio, rate, sentence, is_filler=True)
+                sent_bytes, sent_elapsed = await _stream_orpheus_to_satellite(
+                    conn, sentence, tts_voice, is_filler=True)
+                if sent_bytes > 0:
+                    logger.info("Sentence TTS [orpheus-stream] %.0fms (%d bytes): %r",
+                                sent_elapsed * 1000, sent_bytes, sentence[:60])
                     sentences_sent += 1
-                    total_tts_bytes += len(audio)
-                    tts_used = provider
+                    total_tts_bytes += sent_bytes
+                    tts_used = "orpheus"
+                else:
+                    # Orpheus failed — fallback
+                    audio, rate, provider = await _synthesize_text(sentence, tts_voice)
+                    if audio:
+                        logger.info("Sentence TTS [%s] %.0fms (%d bytes): %r",
+                                    provider, (time.monotonic() - t_sent) * 1000,
+                                    len(audio), sentence[:60])
+                        await _stream_audio_to_satellite(conn, audio, rate, sentence, is_filler=True)
+                        sentences_sent += 1
+                        total_tts_bytes += len(audio)
+                        tts_used = provider
 
         full_response = "".join(response_parts).strip()
         t_llm_end = time.monotonic()
@@ -853,19 +995,32 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
         )
 
         if token_buf.strip():
+            final_text = token_buf.strip()
             t_sent = time.monotonic()
-            audio, rate, provider = await _synthesize_text(token_buf.strip(), tts_voice)
-            sent_ms = (time.monotonic() - t_sent) * 1000
-            if audio:
-                logger.info("Final sentence TTS [%s] %.0fms (%d bytes): %r",
-                            provider, sent_ms, len(audio), token_buf.strip()[:60])
-                await _stream_audio_to_satellite(
-                    conn, audio, rate, token_buf.strip(),
-                    is_filler=False, auto_listen=is_question,
-                )
-                total_tts_bytes += len(audio)
-                tts_used = provider or tts_used
+            sent_bytes, sent_elapsed = await _stream_orpheus_to_satellite(
+                conn, final_text, tts_voice,
+                is_filler=False, auto_listen=is_question,
+            )
+            if sent_bytes > 0:
+                logger.info("Final sentence TTS [orpheus-stream] %.0fms (%d bytes): %r",
+                            sent_elapsed * 1000, sent_bytes, final_text[:60])
+                total_tts_bytes += sent_bytes
+                tts_used = "orpheus"
                 sentences_sent += 1
+            else:
+                # Orpheus failed — fallback
+                audio, rate, provider = await _synthesize_text(final_text, tts_voice)
+                if audio:
+                    logger.info("Final sentence TTS [%s] %.0fms (%d bytes): %r",
+                                provider, (time.monotonic() - t_sent) * 1000,
+                                len(audio), final_text[:60])
+                    await _stream_audio_to_satellite(
+                        conn, audio, rate, final_text,
+                        is_filler=False, auto_listen=is_question,
+                    )
+                    total_tts_bytes += len(audio)
+                    tts_used = provider or tts_used
+                    sentences_sent += 1
         elif sentences_sent > 0:
             # All text was already sent as intermediate sentences.
             # Send a zero-length final TTS_END to signal completion.
