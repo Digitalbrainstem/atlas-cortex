@@ -324,7 +324,12 @@ async def _fire_avatar_speaking(room: str | None, start: bool, user_id: str | No
 
 
 async def _fire_avatar_tts(room: str | None, text: str, expression: str | None = None) -> None:
-    """Stream TTS audio to avatar displays (awaited so audio arrives before pipeline continues)."""
+    """Stream TTS audio to avatar displays (non-blocking background task).
+
+    Runs TTS synthesis as a fire-and-forget task so the pipeline generator
+    can yield tokens immediately. When web satellite is active, avatar
+    audio is suppressed on the client anyway.
+    """
     if not room or not text.strip():
         return
     try:
@@ -332,6 +337,6 @@ async def _fire_avatar_tts(room: str | None, text: str, expression: str | None =
         rooms = get_connected_rooms()
         if room in rooms:
             logger.info("avatar: fire TTS for %d chars to room=%s", len(text), room)
-            await stream_tts_to_avatar(room, text, expression=expression)
+            asyncio.create_task(stream_tts_to_avatar(room, text, expression=expression))
     except Exception:
         logger.exception("avatar: TTS fire failed")
