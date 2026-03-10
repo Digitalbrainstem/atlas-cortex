@@ -1,22 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" id="atlas-avatar-nick" data-viseme-bank="cartoon">
   <!--
     Atlas Cortex — "Nick" Avatar Skin
-    Inspired by Nick Jr.'s Face: screen-filling warm blob, big bold black
-    eyes, wide expressive mouth. Simple, graphic, alive.
+    Inspired by Nick Jr.'s Face: NO face outline or body — just eyes and mouth
+    floating on the page background. Change background color = change "face".
     Viseme bank: cartoon (6 exaggerated mouth shapes)
   -->
   <defs>
-    <!-- Face fill — warm saturated orange with subtle radial shading -->
-    <radialGradient id="n-face" cx="48%" cy="42%" r="52%">
-      <stop offset="0%" stop-color="#FFB844"/>
-      <stop offset="70%" stop-color="#FF9E1B"/>
-      <stop offset="100%" stop-color="#F08A00"/>
-    </radialGradient>
-    <!-- Soft highlight on upper face -->
-    <radialGradient id="n-hi" cx="46%" cy="28%" r="35%">
-      <stop offset="0%" stop-color="#FFF" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#FFF" stop-opacity="0"/>
-    </radialGradient>
     <!-- Tear gradient -->
     <linearGradient id="n-tear" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#87CEFA" stop-opacity="0.85"/>
@@ -43,59 +32,59 @@
     <clipPath id="clip-fv"><ellipse cx="200" cy="286" rx="42" ry="12"/></clipPath>
   </defs>
 
-  <!-- ── Base face — large rounded blob filling the frame ────── -->
+  <!-- ── Base face — empty, background IS the face ───────────── -->
   <g id="face-base">
-    <!-- Main blob shape (squircle / superellipse feel) -->
-    <rect x="18" y="18" width="364" height="364" rx="120" ry="120" fill="url(#n-face)" stroke="#E08500" stroke-width="3"/>
-    <!-- Highlight -->
-    <rect x="20" y="20" width="360" height="360" rx="118" ry="118" fill="url(#n-hi)"/>
+    <!-- No shape — the page background color is the face -->
   </g>
 
   <!-- ── Eyes — big bold black ovals with white glint ────────── -->
   <g id="eyes-base">
-    <!-- Left eye -->
-    <ellipse cx="148" cy="170" rx="36" ry="42" fill="#111"/>
-    <ellipse cx="156" cy="158" rx="10" ry="12" fill="white" opacity="0.9" class="pupil-left"/>
-    <!-- Right eye -->
-    <ellipse cx="252" cy="170" rx="36" ry="42" fill="#111"/>
-    <ellipse cx="244" cy="158" rx="10" ry="12" fill="white" opacity="0.9" class="pupil-right"/>
+    <ellipse cx="148" cy="150" rx="40" ry="46" fill="#111"/>
+    <ellipse cx="157" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-left"/>
+    <ellipse cx="252" cy="150" rx="40" ry="46" fill="#111"/>
+    <ellipse cx="243" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-right"/>
   </g>
 
   <!-- ── Mouth shapes (visemes) ─────────────────────────────── -->
 
-  <!-- IDLE: big friendly curve smile -->
+  <!-- IDLE: big friendly curve smile (resting) -->
   <g id="mouth-IDLE" style="display:none">
-    <path d="M120 280 Q200 340 280 280" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M110 290 Q200 355 290 290" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
   </g>
 
-  <!-- CLOSED: lips pressed (b, p, m) — firm wide line -->
+  <!-- IDLE-TALK: smaller smile used between words while speaking -->
+  <g id="mouth-IDLE-TALK" style="display:none">
+    <path d="M148 294 Q200 330 252 294" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <!-- CLOSED: lips pressed (b, p, m) -->
   <g id="mouth-CLOSED" style="display:none">
-    <path d="M140 290 Q200 298 260 290" fill="#111" stroke="#111" stroke-width="6" stroke-linecap="round"/>
+    <path d="M130 300 Q200 310 270 300" fill="#111" stroke="#111" stroke-width="7" stroke-linecap="round"/>
   </g>
 
-  <!-- OPEN: big wide mouth (a, ah) — huge dark oval, teeth, tongue -->
+  <!-- OPEN: big wide mouth (a, ah) -->
   <g id="mouth-OPEN" style="display:none">
-    <ellipse cx="200" cy="296" rx="52" ry="34" fill="url(#n-mouth-fill)"/>
-    <rect x="158" y="270" width="84" height="10" rx="4" fill="white" clip-path="url(#clip-open)"/>
-    <ellipse cx="200" cy="314" rx="24" ry="12" fill="#C0392B" opacity="0.5"/>
+    <ellipse cx="200" cy="304" rx="56" ry="38" fill="url(#n-mouth-fill)"/>
+    <rect x="152" y="274" width="96" height="12" rx="5" fill="white" clip-path="url(#clip-open)"/>
+    <ellipse cx="200" cy="324" rx="26" ry="14" fill="#C0392B" opacity="0.45"/>
   </g>
 
-  <!-- ROUND: O shape (o, u, w) — round dark hole -->
+  <!-- ROUND: O shape (o, u, w) -->
   <g id="mouth-ROUND" style="display:none">
-    <ellipse cx="200" cy="292" rx="26" ry="28" fill="url(#n-mouth-fill)"/>
+    <ellipse cx="200" cy="300" rx="30" ry="32" fill="url(#n-mouth-fill)"/>
   </g>
 
   <!-- TEETH: wide grin showing teeth (e, i, s) -->
   <g id="mouth-TEETH" style="display:none">
-    <ellipse cx="200" cy="290" rx="50" ry="20" fill="url(#n-mouth-fill)"/>
-    <rect x="162" y="282" width="76" height="10" rx="4" fill="white" clip-path="url(#clip-teeth)"/>
+    <ellipse cx="200" cy="298" rx="54" ry="24" fill="url(#n-mouth-fill)"/>
+    <rect x="156" y="288" width="88" height="12" rx="5" fill="white" clip-path="url(#clip-teeth)"/>
   </g>
 
   <!-- FV: lip bite (f, v) -->
   <g id="mouth-FV" style="display:none">
-    <path d="M148 284 Q200 278 252 284" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <rect x="172" y="286" width="56" height="6" rx="3" fill="white" opacity="0.85" clip-path="url(#clip-fv)"/>
-    <path d="M160 292 Q200 306 240 292" fill="#111" opacity="0.4"/>
+    <path d="M140 292 Q200 284 260 292" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <rect x="168" y="294" width="64" height="7" rx="3" fill="white" opacity="0.85" clip-path="url(#clip-fv)"/>
+    <path d="M154 300 Q200 316 246 300" fill="#111" opacity="0.35"/>
   </g>
 
   <!-- Legacy viseme aliases -->
@@ -116,163 +105,163 @@
 
   <!-- ── Expression overlays ────────────────────────────────── -->
 
-  <!-- neutral: no overlay -->
   <g id="expr-neutral" style="display:none"></g>
 
-  <!-- happy: crescent eyes + bigger smile area -->
+  <!-- happy: crescent eyes -->
   <g id="expr-happy" style="display:none" data-replace-eyes="true">
-    <path d="M112 174 Q148 148 184 174" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <path d="M216 174 Q252 148 288 174" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
+    <path d="M108 154 Q148 124 188 154" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M212 154 Q252 124 292 154" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
   </g>
 
   <!-- thinking: eyes look up-right, one squished -->
   <g id="expr-thinking" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="168" rx="36" ry="42" fill="#111"/>
-    <ellipse cx="160" cy="152" rx="10" ry="12" fill="white" opacity="0.9"/>
-    <ellipse cx="252" cy="172" rx="36" ry="36" fill="#111"/>
-    <ellipse cx="258" cy="156" rx="10" ry="12" fill="white" opacity="0.9"/>
+    <ellipse cx="148" cy="148" rx="40" ry="46" fill="#111"/>
+    <ellipse cx="161" cy="130" rx="11" ry="13" fill="white" opacity="0.9"/>
+    <ellipse cx="252" cy="152" rx="40" ry="40" fill="#111"/>
+    <ellipse cx="260" cy="134" rx="11" ry="13" fill="white" opacity="0.9"/>
   </g>
 
   <!-- surprised: huge round eyes -->
   <g id="expr-surprised" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="170" rx="42" ry="48" fill="#111"/>
-    <ellipse cx="158" cy="156" rx="12" ry="14" fill="white" opacity="0.9"/>
-    <ellipse cx="252" cy="170" rx="42" ry="48" fill="#111"/>
-    <ellipse cx="242" cy="156" rx="12" ry="14" fill="white" opacity="0.9"/>
+    <ellipse cx="148" cy="150" rx="46" ry="54" fill="#111"/>
+    <ellipse cx="159" cy="134" rx="13" ry="15" fill="white" opacity="0.9"/>
+    <ellipse cx="252" cy="150" rx="46" ry="54" fill="#111"/>
+    <ellipse cx="241" cy="134" rx="13" ry="15" fill="white" opacity="0.9"/>
   </g>
 
-  <!-- sad: droopy eyes with small highlight low, tear -->
+  <!-- sad: droopy eyes, tear -->
   <g id="expr-sad" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="175" rx="32" ry="34" fill="#111"/>
-    <ellipse cx="154" cy="168" rx="8" ry="10" fill="white" opacity="0.8"/>
-    <ellipse cx="252" cy="175" rx="32" ry="34" fill="#111"/>
-    <ellipse cx="246" cy="168" rx="8" ry="10" fill="white" opacity="0.8"/>
-    <ellipse cx="176" cy="216" rx="5" ry="8" fill="url(#n-tear)"/>
+    <ellipse cx="148" cy="155" rx="36" ry="38" fill="#111"/>
+    <ellipse cx="155" cy="146" rx="9" ry="11" fill="white" opacity="0.8"/>
+    <ellipse cx="252" cy="155" rx="36" ry="38" fill="#111"/>
+    <ellipse cx="245" cy="146" rx="9" ry="11" fill="white" opacity="0.8"/>
+    <ellipse cx="178" cy="200" rx="6" ry="9" fill="url(#n-tear)"/>
   </g>
 
   <!-- excited: big sparkly eyes -->
   <g id="expr-excited" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="170" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="158" cy="154" rx="11" ry="13" fill="white" opacity="0.95"/>
-    <ellipse cx="142" cy="172" rx="4" ry="5" fill="white" opacity="0.5"/>
-    <ellipse cx="252" cy="170" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="242" cy="154" rx="11" ry="13" fill="white" opacity="0.95"/>
-    <ellipse cx="258" cy="172" rx="4" ry="5" fill="white" opacity="0.5"/>
-    <circle cx="80" cy="100" r="10" fill="url(#n-sparkle)"/>
-    <circle cx="326" cy="110" r="7" fill="url(#n-sparkle)"/>
+    <ellipse cx="148" cy="150" rx="44" ry="50" fill="#111"/>
+    <ellipse cx="159" cy="132" rx="12" ry="14" fill="white" opacity="0.95"/>
+    <ellipse cx="141" cy="152" rx="5" ry="6" fill="white" opacity="0.5"/>
+    <ellipse cx="252" cy="150" rx="44" ry="50" fill="#111"/>
+    <ellipse cx="241" cy="132" rx="12" ry="14" fill="white" opacity="0.95"/>
+    <ellipse cx="259" cy="152" rx="5" ry="6" fill="white" opacity="0.5"/>
+    <circle cx="70" cy="80" r="12" fill="url(#n-sparkle)"/>
+    <circle cx="336" cy="90" r="9" fill="url(#n-sparkle)"/>
   </g>
 
-  <!-- concerned: slightly smaller eyes -->
+  <!-- concerned -->
   <g id="expr-concerned" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="174" rx="30" ry="34" fill="#111"/>
-    <ellipse cx="155" cy="165" rx="8" ry="10" fill="white" opacity="0.85"/>
-    <ellipse cx="252" cy="174" rx="30" ry="34" fill="#111"/>
-    <ellipse cx="245" cy="165" rx="8" ry="10" fill="white" opacity="0.85"/>
+    <ellipse cx="148" cy="154" rx="34" ry="38" fill="#111"/>
+    <ellipse cx="156" cy="144" rx="9" ry="11" fill="white" opacity="0.85"/>
+    <ellipse cx="252" cy="154" rx="34" ry="38" fill="#111"/>
+    <ellipse cx="244" cy="144" rx="9" ry="11" fill="white" opacity="0.85"/>
   </g>
 
-  <!-- listening -->
   <g id="expr-listening" style="display:none"></g>
 
   <!-- laughing: crescents + huge toothy grin -->
   <g id="expr-laughing" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
-    <path d="M112 170 Q148 144 184 170" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
-    <path d="M216 170 Q252 144 288 170" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
-    <ellipse cx="182" cy="186" rx="5" ry="7" fill="url(#n-tear)"/>
-    <ellipse cx="218" cy="188" rx="4.5" ry="6.5" fill="url(#n-tear)"/>
-    <!-- Huge grin -->
-    <path d="M118 270 Q200 348 282 270" fill="white" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+    <path d="M108 150 Q148 118 188 150" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
+    <path d="M212 150 Q252 118 292 150" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
+    <ellipse cx="184" cy="168" rx="6" ry="8" fill="url(#n-tear)"/>
+    <ellipse cx="216" cy="170" rx="5" ry="7" fill="url(#n-tear)"/>
+    <path d="M108 278 Q200 365 292 278" fill="white" stroke="#111" stroke-width="5" stroke-linecap="round"/>
   </g>
 
-  <!-- crying: teary eyes, streams -->
+  <!-- crying: teary eyes -->
   <g id="expr-crying" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="175" rx="32" ry="36" fill="#111"/>
-    <ellipse cx="155" cy="166" rx="8" ry="10" fill="white" opacity="0.8"/>
-    <ellipse cx="148" cy="175" rx="32" ry="36" fill="#87CEFA" opacity="0.12"/>
-    <ellipse cx="252" cy="175" rx="32" ry="36" fill="#111"/>
-    <ellipse cx="245" cy="166" rx="8" ry="10" fill="white" opacity="0.8"/>
-    <ellipse cx="252" cy="175" rx="32" ry="36" fill="#87CEFA" opacity="0.12"/>
-    <ellipse cx="174" cy="218" rx="5" ry="8" fill="url(#n-tear)"/>
-    <ellipse cx="170" cy="240" rx="4" ry="6" fill="url(#n-tear)"/>
-    <ellipse cx="232" cy="220" rx="5" ry="8" fill="url(#n-tear)"/>
-    <ellipse cx="236" cy="242" rx="4" ry="6" fill="url(#n-tear)"/>
+    <ellipse cx="148" cy="155" rx="36" ry="40" fill="#111"/>
+    <ellipse cx="156" cy="144" rx="9" ry="11" fill="white" opacity="0.8"/>
+    <ellipse cx="148" cy="155" rx="36" ry="40" fill="#87CEFA" opacity="0.12"/>
+    <ellipse cx="252" cy="155" rx="36" ry="40" fill="#111"/>
+    <ellipse cx="244" cy="144" rx="9" ry="11" fill="white" opacity="0.8"/>
+    <ellipse cx="252" cy="155" rx="36" ry="40" fill="#87CEFA" opacity="0.12"/>
+    <ellipse cx="176" cy="202" rx="6" ry="9" fill="url(#n-tear)"/>
+    <ellipse cx="172" cy="226" rx="5" ry="7" fill="url(#n-tear)"/>
+    <ellipse cx="230" cy="204" rx="6" ry="9" fill="url(#n-tear)"/>
+    <ellipse cx="234" cy="228" rx="5" ry="7" fill="url(#n-tear)"/>
   </g>
 
-  <!-- silly: one crescent, one wide, toothy grin -->
+  <!-- silly: crescents + toothy grin -->
   <g id="expr-silly" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
-    <path d="M112 172 Q148 150 184 172" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <path d="M216 172 Q252 150 288 172" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <!-- Big toothy grin -->
-    <path d="M126 272 Q200 340 274 272" fill="white" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+    <path d="M108 152 Q148 126 188 152" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M212 152 Q252 126 292 152" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M116 280 Q200 358 284 280" fill="white" stroke="#111" stroke-width="5" stroke-linecap="round"/>
   </g>
 
-  <!-- winking: left crescent, right big eye -->
+  <!-- winking -->
   <g id="expr-winking" style="display:none" data-replace-eyes="true">
-    <path d="M112 174 Q148 152 184 174" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <ellipse cx="252" cy="170" rx="38" ry="44" fill="#111"/>
-    <ellipse cx="244" cy="156" rx="10" ry="12" fill="white" opacity="0.9"/>
-    <ellipse cx="258" cy="170" rx="4" ry="5" fill="white" opacity="0.5"/>
+    <path d="M108 154 Q148 128 188 154" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="252" cy="150" rx="42" ry="48" fill="#111"/>
+    <ellipse cx="243" cy="134" rx="11" ry="13" fill="white" opacity="0.9"/>
+    <ellipse cx="259" cy="150" rx="5" ry="6" fill="white" opacity="0.5"/>
   </g>
 
-  <!-- angry: angled eyes -->
+  <!-- angry: angled eyes + V brows -->
   <g id="expr-angry" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="178" rx="30" ry="32" fill="#111"/>
-    <ellipse cx="155" cy="170" rx="8" ry="10" fill="white" opacity="0.85"/>
-    <ellipse cx="252" cy="178" rx="30" ry="32" fill="#111"/>
-    <ellipse cx="245" cy="170" rx="8" ry="10" fill="white" opacity="0.85"/>
-    <!-- Angry V brows (thick black) -->
-    <path d="M108 152 Q148 136 188 148" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
-    <path d="M212 148 Q252 136 292 152" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <ellipse cx="148" cy="158" rx="34" ry="36" fill="#111"/>
+    <ellipse cx="156" cy="150" rx="9" ry="11" fill="white" opacity="0.85"/>
+    <ellipse cx="252" cy="158" rx="34" ry="36" fill="#111"/>
+    <ellipse cx="244" cy="150" rx="9" ry="11" fill="white" opacity="0.85"/>
+    <path d="M100 132 Q148 114 196 128" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
+    <path d="M204 128 Q252 114 300 132" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
   </g>
 
   <!-- confused: eyes opposite directions -->
   <g id="expr-confused" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="172" rx="34" ry="40" fill="#111"/>
-    <ellipse cx="138" cy="160" rx="9" ry="11" fill="white" opacity="0.9"/>
-    <ellipse cx="252" cy="172" rx="34" ry="40" fill="#111"/>
-    <ellipse cx="264" cy="160" rx="9" ry="11" fill="white" opacity="0.9"/>
-    <text x="316" y="130" font-family="sans-serif" font-size="44" font-weight="bold" fill="#111" opacity="0.5">?</text>
+    <ellipse cx="148" cy="152" rx="38" ry="44" fill="#111"/>
+    <ellipse cx="136" cy="138" rx="10" ry="12" fill="white" opacity="0.9"/>
+    <ellipse cx="252" cy="152" rx="38" ry="44" fill="#111"/>
+    <ellipse cx="266" cy="138" rx="10" ry="12" fill="white" opacity="0.9"/>
+    <text x="320" y="110" font-family="sans-serif" font-size="52" font-weight="bold" fill="#111" opacity="0.45">?</text>
   </g>
 
   <!-- love: heart eyes -->
   <g id="expr-love" style="display:none" data-replace-eyes="true">
-    <path d="M126 170 C126 152,148 142,148 162 C148 142,170 152,170 170 L148 198 Z" fill="url(#n-heart)"/>
-    <path d="M230 170 C230 152,252 142,252 162 C252 142,274 152,274 170 L252 198 Z" fill="url(#n-heart)"/>
-    <path d="M75 90 C75 80,88 75,88 85 C88 75,101 80,101 90 L88 104 Z" fill="#FF69B4" opacity="0.5"/>
-    <path d="M310 80 C310 71,322 67,322 76 C322 67,334 71,334 80 L322 92 Z" fill="#FF69B4" opacity="0.4"/>
+    <path d="M122 152 C122 130,148 118,148 144 C148 118,174 130,174 152 L148 184 Z" fill="url(#n-heart)"/>
+    <path d="M226 152 C226 130,252 118,252 144 C252 118,278 130,278 152 L252 184 Z" fill="url(#n-heart)"/>
+    <path d="M65 70 C65 58,82 52,82 64 C82 52,99 58,99 70 L82 86 Z" fill="#FF69B4" opacity="0.5"/>
+    <path d="M310 60 C310 49,326 44,326 55 C326 44,342 49,342 60 L326 74 Z" fill="#FF69B4" opacity="0.4"/>
   </g>
 
-  <!-- sleepy: half-lidded -->
+  <!-- sleepy: half-lidded (lids match background, use dark fill) -->
   <g id="expr-sleepy" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="180" rx="34" ry="24" fill="#111"/>
-    <ellipse cx="154" cy="175" rx="7" ry="8" fill="white" opacity="0.7"/>
-    <!-- Heavy upper lid -->
-    <path d="M112 168 Q148 158 184 168" fill="#F08A00" stroke="#E08500" stroke-width="2"/>
-    <ellipse cx="252" cy="180" rx="34" ry="24" fill="#111"/>
-    <ellipse cx="246" cy="175" rx="7" ry="8" fill="white" opacity="0.7"/>
-    <path d="M216 168 Q252 158 288 168" fill="#F08A00" stroke="#E08500" stroke-width="2"/>
-    <text x="306" y="118" font-family="sans-serif" font-size="28" font-weight="bold" fill="#6C63FF" opacity="0.5">z</text>
-    <text x="326" y="96" font-family="sans-serif" font-size="22" font-weight="bold" fill="#6C63FF" opacity="0.35">z</text>
-    <text x="342" y="78" font-family="sans-serif" font-size="16" font-weight="bold" fill="#6C63FF" opacity="0.2">z</text>
+    <ellipse cx="148" cy="162" rx="38" ry="26" fill="#111"/>
+    <ellipse cx="155" cy="156" rx="8" ry="9" fill="white" opacity="0.7"/>
+    <!-- Heavy upper lid (same color as page bg — set via CSS class) -->
+    <rect x="108" y="120" width="80" height="148" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
+    <path d="M108 148 Q148 138 188 148" fill="none" stroke="#111" stroke-width="3"/>
+    <ellipse cx="252" cy="162" rx="38" ry="26" fill="#111"/>
+    <ellipse cx="245" cy="156" rx="8" ry="9" fill="white" opacity="0.7"/>
+    <rect x="212" y="120" width="80" height="148" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
+    <path d="M212 148 Q252 138 292 148" fill="none" stroke="#111" stroke-width="3"/>
+    <text x="310" y="100" font-family="sans-serif" font-size="32" font-weight="bold" fill="#6C63FF" opacity="0.5">z</text>
+    <text x="332" y="76" font-family="sans-serif" font-size="26" font-weight="bold" fill="#6C63FF" opacity="0.35">z</text>
+    <text x="350" y="56" font-family="sans-serif" font-size="20" font-weight="bold" fill="#6C63FF" opacity="0.2">z</text>
   </g>
 
   <!-- proud: confident closed eyes -->
   <g id="expr-proud" style="display:none" data-replace-eyes="true">
-    <path d="M112 174 Q148 156 184 174" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <path d="M216 174 Q252 156 288 174" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
-    <circle cx="330" cy="100" r="12" fill="url(#n-sparkle)"/>
+    <path d="M108 154 Q148 132 188 154" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M212 154 Q252 132 292 154" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="338" cy="80" r="14" fill="url(#n-sparkle)"/>
   </g>
 
   <!-- scared: huge eyes tiny pupils -->
   <g id="expr-scared" style="display:none" data-replace-eyes="true">
-    <ellipse cx="148" cy="172" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="148" cy="168" rx="5" ry="6" fill="white" opacity="0.95"/>
-    <ellipse cx="252" cy="172" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="252" cy="168" rx="5" ry="6" fill="white" opacity="0.95"/>
+    <ellipse cx="148" cy="152" rx="44" ry="52" fill="#111"/>
+    <ellipse cx="148" cy="148" rx="6" ry="7" fill="white" opacity="0.95"/>
+    <ellipse cx="252" cy="152" rx="44" ry="52" fill="#111"/>
+    <ellipse cx="252" cy="148" rx="6" ry="7" fill="white" opacity="0.95"/>
   </g>
 
   <!-- ── Blink overlay ──────────────────────────────────────── -->
   <g id="blink" style="display:none">
-    <path d="M112 174 Q148 188 184 174" fill="#F08A00" stroke="#E08500" stroke-width="3" stroke-linecap="round"/>
-    <path d="M216 174 Q252 188 288 174" fill="#F08A00" stroke="#E08500" stroke-width="3" stroke-linecap="round"/>
+    <!-- Blink lids match background color -->
+    <rect x="108" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
+    <path d="M108 154 Q148 170 188 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+    <rect x="212" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
+    <path d="M212 154 Q252 170 292 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
   </g>
 </svg>
