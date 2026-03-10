@@ -182,23 +182,21 @@
         break;
 
       case 'TTS_END':
-        isSpeaking = false;
+        // Don't clear isSpeaking yet — audio may still be playing through
+        // the Web Audio queue. Wait for actual playback to finish.
         micBtn.classList.remove('speaking');
         if (typeof window.handleTtsEnd === 'function') {
           window.handleTtsEnd(msg);
         }
-        // Auto-listen after Atlas finishes speaking
-        if (msg.auto_listen || mode === 'vad') {
-          autoListenPending = true;
-          // Wait for audio to finish playing before re-listening
-          const delaySec = estimatePlaybackRemaining();
-          setTimeout(() => {
-            autoListenPending = false;
-            if (mode === 'vad' && !isListening && !isSpeaking) {
-              startListeningIfIdle();
-            }
-          }, delaySec * 1000 + 500);
-        }
+        // Wait for audio playback to fully drain before re-enabling mic
+        const remainSec = estimatePlaybackRemaining();
+        const guardMs = Math.max(500, remainSec * 1000 + 800);
+        setTimeout(() => {
+          isSpeaking = false;
+          if (mode === 'vad' && !isListening) {
+            startListeningIfIdle();
+          }
+        }, guardMs);
         break;
 
       case 'PLAY_FILLER':
