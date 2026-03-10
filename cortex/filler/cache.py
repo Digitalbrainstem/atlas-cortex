@@ -198,7 +198,7 @@ async def _synthesize_for_cache(
 ) -> tuple[bytes, int, str]:
     """Synthesize text to PCM audio for caching.
 
-    Uses the same Kokoro→Piper fallback chain as the websocket pipeline.
+    Uses Orpheus→Kokoro→Piper fallback chain.
     Returns (pcm_bytes, sample_rate, provider_name).
     """
     import os
@@ -210,26 +210,60 @@ async def _synthesize_for_cache(
     kokoro_port = int(os.environ.get("KOKORO_PORT", "8880"))
     piper_host = os.environ.get("PIPER_HOST", "localhost")
     piper_port = int(os.environ.get("PIPER_PORT", "10200"))
-    tts_provider = os.environ.get("TTS_PROVIDER", "kokoro")
+    tts_provider = os.environ.get("TTS_PROVIDER", "orpheus")
+    orpheus_url = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
 
+    def _wav_to_pcm(raw: bytes, default_rate: int = 24000) -> tuple[bytes, int]:
+        with io.BytesIO(raw) as buf:
+            with wave.open(buf, "rb") as wf:
+                rate = wf.getframerate()
+                pcm = wf.readframes(wf.getnframes())
+                if wf.getsampwidth() != 2:
+                    pcm = b""
+        return pcm, rate
+
+    # --- Orpheus (GPU, primary) ---
+    if tts_provider in ("orpheus", "auto"):
+        try:
+            import aiohttp
+            bare_voice = (voice or "tara").replace("orpheus_", "")
+            payload = {
+                "input": text,
+                "model": "orpheus",
+                "voice": bare_voice,
+                "response_format": "wav",
+                "stream": False,
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{orpheus_url}/v1/audio/speech",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 200:
+                        raw = await resp.read()
+                        if raw:
+                            pcm, rate = _wav_to_pcm(raw, 24000)
+                            return pcm, rate, "orpheus"
+                    else:
+                        error = await resp.text()
+                        logger.warning("Orpheus TTS failed for cache (%d): %s", resp.status, error[:200])
+        except Exception as e:
+            logger.warning("Orpheus TTS failed for cache: %s", e)
+
+    # --- Kokoro (CPU fallback) ---
     if tts_provider in ("kokoro", "auto"):
         try:
             from cortex.voice.kokoro import KokoroClient
             kokoro = KokoroClient(kokoro_host, kokoro_port, timeout=30.0)
             raw, info = await kokoro.synthesize(text, voice=voice, response_format="wav")
             if raw:
-                # Extract PCM from WAV
-                with io.BytesIO(raw) as buf:
-                    with wave.open(buf, "rb") as wf:
-                        rate = wf.getframerate()
-                        pcm = wf.readframes(wf.getnframes())
-                        # Convert to 16-bit mono if needed
-                        if wf.getsampwidth() != 2:
-                            pcm = b""  # unsupported
+                pcm, rate = _wav_to_pcm(raw, info.get("rate", 24000))
                 return pcm, rate, "kokoro"
         except Exception as e:
             logger.warning("Kokoro TTS failed for cache: %s", e)
 
+    # --- Piper (last resort) ---
     try:
         from cortex.voice.wyoming import WyomingClient
         piper = WyomingClient(piper_host, piper_port, timeout=30.0)

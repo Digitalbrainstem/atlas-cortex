@@ -43,7 +43,10 @@ _PIPER_PORT = int(os.environ.get("PIPER_PORT", os.environ.get("TTS_PORT", "10200
 _KOKORO_HOST = os.environ.get("KOKORO_HOST", "localhost")
 _KOKORO_PORT = int(os.environ.get("KOKORO_PORT", "8880"))
 _KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_bella")
-_TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "kokoro")
+_TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "orpheus")
+
+# Orpheus TTS configuration
+_ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
 
 
 def _get_satellite_voice(satellite_id: str) -> str:
@@ -474,9 +477,40 @@ async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
     """Synthesize text to PCM audio using available TTS providers.
 
     Returns (pcm_audio, sample_rate, provider_name).
+    Provider priority: Orpheus (GPU) → Kokoro → Piper.
     """
     from cortex.voice.wyoming import WyomingClient, WyomingError
 
+    # --- Orpheus (CUDA GPU, primary) ---
+    if _TTS_PROVIDER in ("orpheus", "auto"):
+        try:
+            import aiohttp
+            bare_voice = (voice or "tara").replace("orpheus_", "")
+            payload = {
+                "input": text,
+                "model": "orpheus",
+                "voice": bare_voice,
+                "response_format": "wav",
+                "stream": False,
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{_ORPHEUS_URL}/v1/audio/speech",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 200:
+                        raw = await resp.read()
+                        if raw:
+                            pcm, rate = _extract_pcm(raw, 24000)
+                            return pcm, rate, "orpheus"
+                    else:
+                        error = await resp.text()
+                        logger.warning("Orpheus TTS failed (%d): %s", resp.status, error[:200])
+        except Exception as e:
+            logger.warning("Orpheus TTS failed: %s", e)
+
+    # --- Kokoro (CPU fallback) ---
     if _TTS_PROVIDER in ("kokoro", "auto"):
         try:
             from cortex.voice.kokoro import KokoroClient
@@ -489,6 +523,7 @@ async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
         except Exception as e:
             logger.warning("Kokoro TTS failed: %s", e)
 
+    # --- Piper (last resort) ---
     try:
         piper = WyomingClient(_PIPER_HOST, _PIPER_PORT, timeout=15.0)
         piper_voice = voice if voice and not voice.startswith("orpheus_") else None
