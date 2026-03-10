@@ -24,11 +24,14 @@ characteristics change.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import random
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,24 @@ CACHEABLE_FILLERS: dict[str, list[str]] = {
     ],
 }
 
+# Fingerprint of all phrases — changes when phrases are added/removed/edited
+_PHRASES_HASH = hashlib.md5(
+    json.dumps(CACHEABLE_FILLERS, sort_keys=True).encode()
+).hexdigest()[:12]
+
+
+def _cache_dir() -> Path:
+    """Return the persistent filler cache directory."""
+    data_dir = Path(os.environ.get("CORTEX_DATA_DIR", "./data"))
+    d = data_dir / "tts_cache" / "fillers"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_key(voice: str) -> str:
+    """Cache key combining voice + phrase fingerprint."""
+    return f"{voice}_{_PHRASES_HASH}"
+
 
 @dataclass
 class CachedFiller:
@@ -81,8 +102,10 @@ class CachedFiller:
 class FillerCache:
     """In-memory cache of pre-generated filler audio.
 
-    Call ``await initialize()`` at startup to synthesize all phrases.
-    Then ``get()`` returns a random cached filler instantly.
+    Persists to disk so fillers only need to be synthesized once per voice.
+    On startup, loads from disk if the cache exists and the voice + phrases
+    haven't changed. Only regenerates when the voice changes or phrases
+    are edited.
     """
 
     def __init__(self) -> None:
@@ -96,15 +119,11 @@ class FillerCache:
         return self._initialized
 
     async def initialize(self, voice: str | None = None, force: bool = False) -> None:
-        """Pre-generate TTS audio for a subset of filler phrases.
-
-        Only generates one phrase per sentiment category at startup to
-        minimize GPU contention with user requests. Remaining phrases
-        are generated lazily as needed.
+        """Load filler cache from disk, or generate and persist if missing.
 
         Args:
             voice: TTS voice ID to use. Falls back to system default.
-            force: If True, re-generate even if already initialized.
+            force: If True, re-generate even if disk cache exists.
         """
         if self._initializing:
             return
@@ -116,52 +135,118 @@ class FillerCache:
             self._recent.clear()
             self._initialized = False
 
-        # Only pre-generate ONE phrase per category to keep startup fast
-        startup_phrases: list[tuple[str, str]] = []
-        for sentiment, phrases in CACHEABLE_FILLERS.items():
-            if phrases:
-                startup_phrases.append((sentiment, phrases[0]))
-
-        logger.info("Filler cache: pre-generating %d phrases (1 per category)...",
-                     len(startup_phrases))
-
-        from cortex.voice import stream_speech, resolve_default_voice
-
-        tts_provider = os.environ.get("TTS_PROVIDER", "kokoro")
+        from cortex.voice import resolve_default_voice
         voice = voice or resolve_default_voice()
-        generated = 0
+        key = _cache_key(voice)
+        cache_file = _cache_dir() / f"{key}.json"
 
-        for sentiment, phrase in startup_phrases:
-            if sentiment not in self._cache:
-                self._cache[sentiment] = []
-            try:
-                audio_bytes, sample_rate, _ = await _synthesize_for_cache(
-                    phrase, voice)
-                if audio_bytes:
-                    duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
-                    self._cache[sentiment].append(CachedFiller(
-                        phrase=phrase,
-                        audio=audio_bytes,
-                        sample_rate=sample_rate,
-                        duration_ms=duration_ms,
-                    ))
-                    generated += 1
-                    logger.debug("Cached filler [%s] %.1fs: %r",
-                                 sentiment, duration_ms / 1000, phrase[:50])
-                # Small delay between generations to avoid hogging the GPU
-                await asyncio.sleep(0.2)
-            except Exception as e:
-                logger.warning("Failed to cache filler %r: %s", phrase[:40], e)
+        # Try loading from disk first
+        if not force and cache_file.exists():
+            loaded = self._load_from_disk(cache_file)
+            if loaded > 0:
+                self._initialized = True
+                self._initializing = False
+                total_bytes = sum(
+                    len(f.audio) for fillers in self._cache.values() for f in fillers
+                )
+                logger.info(
+                    "Filler cache loaded from disk: %d phrases (%.1f MB) [voice=%s]",
+                    loaded, total_bytes / 1024 / 1024, voice,
+                )
+                return
+
+        # Generate all phrases and save to disk
+        total = sum(len(v) for v in CACHEABLE_FILLERS.values())
+        logger.info("Filler cache: generating %d phrases for voice=%s...", total, voice)
+
+        generated = 0
+        for sentiment, phrases in CACHEABLE_FILLERS.items():
+            self._cache[sentiment] = []
+            for phrase in phrases:
+                try:
+                    audio_bytes, sample_rate, _ = await _synthesize_for_cache(
+                        phrase, voice)
+                    if audio_bytes:
+                        duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
+                        self._cache[sentiment].append(CachedFiller(
+                            phrase=phrase,
+                            audio=audio_bytes,
+                            sample_rate=sample_rate,
+                            duration_ms=duration_ms,
+                        ))
+                        generated += 1
+                        logger.debug("Cached filler [%s] %.1fs: %r",
+                                     sentiment, duration_ms / 1000, phrase[:50])
+                except Exception as e:
+                    logger.warning("Failed to cache filler %r: %s", phrase[:40], e)
 
         self._initialized = True
         self._initializing = False
+
+        # Persist to disk
+        self._save_to_disk(cache_file)
+
+        # Clean up old cache files for different voices/phrases
+        self._cleanup_old_caches(cache_file)
+
         total_bytes = sum(
-            f.audio.__len__() for fillers in self._cache.values() for f in fillers
+            len(f.audio) for fillers in self._cache.values() for f in fillers
         )
         logger.info(
-            "Filler cache ready: %d phrases cached (%.1f MB)",
+            "Filler cache ready: %d phrases cached (%.1f MB), saved to disk",
             generated, total_bytes / 1024 / 1024,
         )
+
+    def _save_to_disk(self, path: Path) -> None:
+        """Persist the cache to a JSON file with base64-encoded audio."""
+        import base64
+        data: dict[str, list[dict]] = {}
+        for sentiment, fillers in self._cache.items():
+            data[sentiment] = [
+                {
+                    "phrase": f.phrase,
+                    "audio": base64.b64encode(f.audio).decode("ascii"),
+                    "sample_rate": f.sample_rate,
+                    "duration_ms": f.duration_ms,
+                }
+                for f in fillers
+            ]
+        try:
+            path.write_text(json.dumps(data))
+            logger.debug("Filler cache saved to %s", path)
+        except Exception as e:
+            logger.warning("Failed to save filler cache: %s", e)
+
+    def _load_from_disk(self, path: Path) -> int:
+        """Load cache from a JSON file. Returns number of phrases loaded."""
+        import base64
+        try:
+            data = json.loads(path.read_text())
+            loaded = 0
+            for sentiment, entries in data.items():
+                self._cache[sentiment] = []
+                for entry in entries:
+                    self._cache[sentiment].append(CachedFiller(
+                        phrase=entry["phrase"],
+                        audio=base64.b64decode(entry["audio"]),
+                        sample_rate=entry["sample_rate"],
+                        duration_ms=entry["duration_ms"],
+                    ))
+                    loaded += 1
+            return loaded
+        except Exception as e:
+            logger.warning("Failed to load filler cache from disk: %s", e)
+            return 0
+
+    def _cleanup_old_caches(self, current: Path) -> None:
+        """Remove cache files that don't match the current voice/phrases."""
+        try:
+            for f in current.parent.glob("*.json"):
+                if f != current:
+                    f.unlink()
+                    logger.debug("Removed old filler cache: %s", f.name)
+        except Exception:
+            pass
 
     def get(self, sentiment: str) -> CachedFiller | None:
         """Get a random cached filler for the given sentiment.
