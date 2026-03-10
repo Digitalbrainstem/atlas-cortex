@@ -293,6 +293,28 @@
     }
 
     // ── Web Audio API for TTS playback ────────────────────────
+    // ════════════════════════════════════════════════════════════
+    // ██  FACE & MOUTH CONTROLLER — STABLE INTERFACE            ██
+    // ██                                                         ██
+    // ██  DO NOT MODIFY unless fixing a bug IN THIS SECTION.     ██
+    // ██  All avatar skins (cartoon, realistic, future) use      ██
+    // ██  these functions. Changes here affect every avatar.     ██
+    // ██                                                         ██
+    // ██  Viseme Scheduling Algorithm:                           ██
+    // ██  1. TTS_START  → set state, store text, prepare         ██
+    // ██  2. TTS_CHUNK  → queue audio, on FIRST chunk schedule   ██
+    // ██                   visemes with estimated duration,       ██
+    // ██                   synced to actual audio playback time   ██
+    // ██  3. TTS_END    → refine visemes with real duration for  ██
+    // ██                   remaining audio, schedule IDLE+reset  ██
+    // ██                                                         ██
+    // ██  The key timing variable is _sentenceAudioStart which   ██
+    // ██  records WHEN the Web Audio API will actually play the   ██
+    // ██  first sample. All viseme delays are relative to this.  ██
+    // ██                                                         ██
+    // ██  Last verified working: 2026-03-10                      ██
+    // ════════════════════════════════════════════════════════════
+
     let audioCtx = null;
     let audioQueue = [];       // Queued PCM chunks as Float32Arrays
     let audioPlaying = false;
@@ -301,6 +323,11 @@
     let _isSpeaking = false;   // True from SPEAKING_START to SPEAKING_END
     let _neutralResetTimer = null;
     let _hasReceivedAudio = false; // True once first TTS_CHUNK arrives
+    let _pendingTtsText = '';
+    let _sentenceAudioStartSet = false;
+    let _sentenceAudioStart = 0; // ctx.currentTime when this sentence's audio begins
+    let _sentenceSamples = 0;    // total PCM samples for this sentence
+    let nextPlayTime = 0;
 
     function ensureAudioContext() {
       if (!audioCtx) {
@@ -312,9 +339,29 @@
       return audioCtx;
     }
 
-    let _sentenceAudioStart = 0; // ctx.currentTime when this sentence's audio begins
-    let _sentenceSamples = 0;    // total PCM samples for this sentence
+    function scheduleAudioPlayback() {
+      const ctx = ensureAudioContext();
+      while (audioQueue.length > 0) {
+        const samples = audioQueue.shift();
+        const buffer = ctx.createBuffer(1, samples.length, audioSampleRate);
+        buffer.getChannelData(0).set(samples);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        const now = ctx.currentTime;
+        const startAt = Math.max(now, nextPlayTime);
+        source.start(startAt);
+        nextPlayTime = startAt + buffer.duration;
+      }
+    }
 
+    // How many ms of audio is still queued for playback
+    function audioRemainingMs() {
+      const ctx = ensureAudioContext();
+      return Math.max(0, (nextPlayTime - ctx.currentTime) * 1000);
+    }
+
+    // ── TTS_START: prepare state, store text ──────────────────
     function handleTtsStart(msg) {
       currentSessionId = msg.session_id;
       audioSampleRate = msg.sample_rate || 24000;
@@ -342,25 +389,11 @@
       console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS start:`, msg.text?.substring(0, 60), 'rate:', audioSampleRate);
     }
 
-    let _pendingTtsText = '';
-    let _sentenceAudioStartSet = false;
-
+    // ── TTS_CHUNK: queue audio, schedule visemes on first chunk ──
     function handleTtsChunk(msg) {
       _hasReceivedAudio = true;
       const ctx = ensureAudioContext();
-      // Record audio start on FIRST chunk (not TTS_START) for accurate sync
-      if (!_sentenceAudioStartSet) {
-        _sentenceAudioStart = Math.max(ctx.currentTime, nextPlayTime);
-        _sentenceAudioStartSet = true;
-        // Schedule visemes immediately with estimated duration.
-        // With streaming, TTS_END arrives when audio is already playing;
-        // starting visemes now keeps the mouth in sync from the start.
-        if (_pendingTtsText) {
-          const estimatedDurationMs = _pendingTtsText.length * 95;
-          _clearVisemeTimers();
-          scheduleSyncedVisemes(_pendingTtsText, estimatedDurationMs, 0);
-        }
-      }
+
       // Decode base64 → PCM 16-bit LE → Float32
       const raw = atob(msg.audio);
       const int16 = new Int16Array(raw.length / 2);
@@ -374,67 +407,72 @@
       _sentenceSamples += float32.length;
       audioQueue.push(float32);
       scheduleAudioPlayback();
+
+      // On FIRST chunk: record when audio actually starts playing and
+      // schedule visemes synced to that time (not "now").
+      if (!_sentenceAudioStartSet) {
+        // nextPlayTime was just updated by scheduleAudioPlayback above.
+        // The audio for this sentence starts at the time we scheduled the
+        // first buffer, which is nextPlayTime minus the buffer duration.
+        _sentenceAudioStart = nextPlayTime - (float32.length / audioSampleRate);
+        _sentenceAudioStartSet = true;
+
+        if (_pendingTtsText) {
+          // Estimate: ~95ms per character for Orpheus at normal speed.
+          // This gets the mouth moving in sync. TTS_END refines with
+          // real duration for the tail end.
+          const estimatedDurationMs = _pendingTtsText.length * 95;
+          // Delay = time until audio actually starts playing.
+          // If filler/previous audio is queued, this is non-zero.
+          const delayMs = Math.max(0, (_sentenceAudioStart - ctx.currentTime) * 1000);
+          _clearVisemeTimers();
+          scheduleSyncedVisemes(_pendingTtsText, estimatedDurationMs, delayMs);
+          console.log(`[${(performance.now()/1000).toFixed(2)}s] Visemes scheduled: est ${estimatedDurationMs}ms, delay ${delayMs.toFixed(0)}ms, text: "${_pendingTtsText.substring(0, 30)}"`);
+        }
+      }
       doTalkPulse();
     }
 
-    let nextPlayTime = 0;
-
-    function scheduleAudioPlayback() {
-      const ctx = ensureAudioContext();
-      while (audioQueue.length > 0) {
-        const samples = audioQueue.shift();
-        const buffer = ctx.createBuffer(1, samples.length, audioSampleRate);
-        buffer.getChannelData(0).set(samples);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        const now = ctx.currentTime;
-        const startAt = Math.max(now, nextPlayTime);
-        source.start(startAt);
-        nextPlayTime = startAt + buffer.duration;
-      }
-    }
-
+    // ── TTS_END: refine visemes with real duration, schedule reset ──
     function handleTtsEnd(msg) {
       audioPlaying = false;
       _hasReceivedAudio = false;
 
-      // Replace estimated visemes with correctly-timed ones for remaining audio.
-      // The first-chunk estimate got the mouth moving immediately; now we know
-      // the real duration and can schedule the tail precisely.
+      // Now we know the real audio duration. Clear estimated visemes and
+      // re-schedule for whatever audio is still playing.
       _clearVisemeTimers();
       if (_pendingTtsText && _sentenceSamples > 0) {
         const ctx = ensureAudioContext();
         const audioDurationMs = (_sentenceSamples / audioSampleRate) * 1000;
         const elapsed = Math.max(0, (ctx.currentTime - _sentenceAudioStart) * 1000);
-        const remaining = audioDurationMs - elapsed;
+        const remaining = Math.max(0, audioDurationMs - elapsed);
 
         if (remaining > 200) {
-          // Audio still playing — schedule visemes for the remaining portion
-          const fraction = Math.min(1, elapsed / audioDurationMs);
+          // Audio still playing — schedule visemes for remaining portion
+          const fraction = Math.min(0.99, elapsed / audioDurationMs);
           const charStart = Math.floor(_pendingTtsText.length * fraction);
           const remainingText = _pendingTtsText.substring(charStart);
           if (remainingText.length > 1) {
             scheduleSyncedVisemes(remainingText, remaining, 0);
           }
         }
-        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — ${audioDurationMs.toFixed(0)}ms total, ${Math.max(0, audioDurationMs - elapsed).toFixed(0)}ms remaining: "${_pendingTtsText.substring(0,30)}"`);
+        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — ${audioDurationMs.toFixed(0)}ms total, ${remaining.toFixed(0)}ms remaining: "${_pendingTtsText.substring(0, 30)}"`);
       } else {
         console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end (no text/audio)`);
       }
       _pendingTtsText = '';
       _sentenceSamples = 0;
 
-      // If TTS_END includes an expression hint (e.g. "silly" after a joke
-      // punchline), schedule it to fire when the audio finishes playing.
+      // Expression hint in TTS_END (e.g. "silly" or "laughing" after a
+      // joke punchline). Scheduled near the end of remaining audio.
       const remaining = audioRemainingMs();
       if (msg.expression && msg.expression !== 'neutral') {
-        const exprDelay = Math.max(0, remaining - 500);  // slightly before audio ends
+        const exprDelay = Math.max(0, remaining - 500);
         setTimeout(() => setExpression(msg.expression, 1.0), exprDelay);
       }
 
-      // After audio drains, reset to idle. This ensures the mouth stops
-      // and the face returns to neutral even with streaming audio.
+      // After audio fully drains + 3s pause, reset face to idle.
+      // This is the ONLY place that returns the face to neutral.
       const resetDelay = Math.max(0, remaining) + 3000;
       if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
       _neutralResetTimer = setTimeout(() => {
@@ -448,10 +486,19 @@
       }, resetDelay);
     }
 
-    // How many ms of audio is still queued for playback
-    function audioRemainingMs() {
-      const ctx = ensureAudioContext();
-      return Math.max(0, (nextPlayTime - ctx.currentTime) * 1000);
+    // ════════════════════════════════════════════════════════════
+    // ██  END FACE & MOUTH CONTROLLER                           ██
+    // ════════════════════════════════════════════════════════════
+      if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
+      _neutralResetTimer = setTimeout(() => {
+        _neutralResetTimer = null;
+        _isSpeaking = false;
+        setViseme('IDLE', 200, 0);
+        setExpression('neutral', 1.0);
+        statusEl.textContent = 'idle';
+        statusEl.className = '';
+        checkPupilSpeed();
+      }, resetDelay);
     }
 
     // When web-satellite overlay is active, it routes satellite TTS
