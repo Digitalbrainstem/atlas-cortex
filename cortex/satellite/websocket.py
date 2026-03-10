@@ -690,8 +690,8 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
 
         # The pipeline yields tokens: Layer 1/2 yield a single complete answer,
         # while Layer 3 yields a filler phrase first, then LLM tokens.
-        # We consume the first token optimistically as filler, then if no more
-        # tokens arrive, we recognize it was the complete answer.
+        # We peek ahead: collect up to 2 tokens to distinguish instant answers
+        # (single token) from LLM streaming (filler + tokens).
         filler_text = ""
         first_token = True
         tts_voice = _resolve_voice(satellite_id)
@@ -702,20 +702,56 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
         tts_used = "none"
         _filler_task: asyncio.Task | None = None
 
+        # Collect tokens: first token is either the complete instant answer
+        # or a filler phrase. We need at least 2 tokens to distinguish.
+        tokens = []
         async for token in pipeline_gen:
-            if first_token:
-                first_token = False
+            tokens.append(token)
+            if len(tokens) == 1:
+                # Got first token — try to get a second to peek ahead
+                continue
+            break  # Got 2 tokens or generator exhausted
+
+        if len(tokens) == 1 and tokens[0].strip():
+            # ── Instant answer (Layer 1/2): single token IS the answer ──
+            instant_text = tokens[0].strip()
+            t_tts = time.monotonic()
+            audio, rate, provider = await _synthesize_text(instant_text, tts_voice)
+            tts_ms = (time.monotonic() - t_tts) * 1000
+            if audio:
+                logger.info("Instant TTS [%s] %.0fms (%d bytes): %r",
+                            provider, tts_ms, len(audio), instant_text[:60])
+                await _stream_audio_to_satellite(
+                    conn, audio, rate, instant_text, is_filler=False,
+                    auto_listen=instant_text.rstrip().endswith("?"),
+                )
+                total_tts_bytes = len(audio)
+                tts_used = provider
+                sentences_sent = 1
+            else:
+                # TTS failed — send TTS_END so satellite isn't stuck
+                await conn.send({
+                    "type": "TTS_END",
+                    "session_id": conn.session_id,
+                    "is_filler": False,
+                })
+
+            t_total = time.monotonic() - t_stt_start
+            logger.info("Pipeline complete for %s: total=%.1fs (STT=%.0fms instant [%s] %d bytes)",
+                        satellite_id, t_total, stt_ms, tts_used, total_tts_bytes)
+            return
+
+        # ── LLM streaming path: first token is filler, rest are response ──
+        for i, token in enumerate(tokens):
+            if i == 0:
                 filler_text = token.strip()
                 if filler_text:
-                    # Use pre-generated cached filler (instant, no TTS wait).
-                    # Fall back to live TTS if cache isn't ready.
                     from cortex.filler.cache import get_filler_cache
                     cache = get_filler_cache()
 
                     async def _do_filler(text: str = filler_text) -> None:
                         await asyncio.sleep(0.35)  # natural thinking pause
                         try:
-                            # Try cached filler first — zero TTS latency
                             cached = cache.get("question") if cache.ready else None
                             if cached:
                                 logger.info(
@@ -726,7 +762,6 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                                     conn, cached.audio, cached.sample_rate,
                                     cached.phrase, is_filler=True)
                             else:
-                                # Fallback: live TTS synthesis
                                 audio, rate, prov = await _synthesize_text(
                                     text, tts_voice)
                                 if audio:
@@ -741,8 +776,11 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                             logger.warning("Filler failed: %s", e)
 
                     _filler_task = asyncio.create_task(_do_filler())
-                continue
+            else:
+                response_parts.append(token)
+                token_buf += token
 
+        async for token in pipeline_gen:
             response_parts.append(token)
             token_buf += token
 
@@ -779,25 +817,8 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
             await _filler_task
 
         if not full_response:
-            if filler_text:
-                # Layer 1/2 returned a single-token answer that was sent as
-                # filler.  That filler IS the answer — just send TTS_END to
-                # return the satellite to IDLE.
-                logger.info("Instant answer for %s (%.0fms): %r",
-                            satellite_id, llm_ms, filler_text[:120])
-                is_question = filler_text.rstrip().endswith("?")
-                msg: dict[str, Any] = {
-                    "type": "TTS_END",
-                    "session_id": conn.session_id,
-                    "is_filler": False,
-                }
-                if is_question:
-                    msg["auto_listen"] = True
-                await conn.send(msg)
-                t_total = time.monotonic() - t_stt_start
-                logger.info("Pipeline complete for %s: total=%.1fs (STT=%.0fms instant [%s] %d bytes)",
-                            satellite_id, t_total, stt_ms, tts_used, total_tts_bytes)
-                return
+            # Instant answers are handled above (single-token early return).
+            # If we get here with no response, something went wrong.
             logger.warning("Empty pipeline response for %r (LLM took %.0fms)", transcript, llm_ms)
             return
 
