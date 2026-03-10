@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import AppLayout from '../components/AppLayout.vue'
 import DataTable from '../components/DataTable.vue'
 import { api } from '../api.js'
@@ -46,6 +46,14 @@ const savingVoice = ref(false)
 const previewingVoice = ref('')
 const regenerating = ref(false)
 const previewAudio = ref(null)
+const showAllLanguages = ref(false)
+
+const LANG_LABELS = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', hi: 'Hindi', it: 'Italian', ja: 'Japanese', ko: 'Korean', pt: 'Portuguese', zh: 'Chinese' }
+
+const filteredVoices = computed(() => {
+  if (showAllLanguages.value) return voices.value
+  return voices.value.filter(v => !v.language || v.language === 'en')
+})
 
 onMounted(() => {
   fetchHardware()
@@ -212,7 +220,7 @@ function formatBytes(bytes) {
             <div class="voice-select-row">
               <select v-model="selectedVoice" class="form-input voice-select">
                 <option value="">None (use environment default)</option>
-                <option v-for="v in voices" :key="v.name" :value="v.name">
+                <option v-for="v in filteredVoices" :key="v.name" :value="v.name">
                   {{ v.name }} — {{ v.provider }}{{ v.description && v.description !== v.name ? ' (' + v.description + ')' : '' }}
                 </option>
               </select>
@@ -234,11 +242,21 @@ function formatBytes(bytes) {
         </div>
 
         <div v-if="voices.length" class="voice-list">
-          <div class="voice-list-header">Available Voices</div>
+          <div class="voice-list-header-row">
+            <div class="voice-list-header">Available Voices</div>
+            <label class="lang-toggle">
+              <input type="checkbox" v-model="showAllLanguages" />
+              <span>Show all languages</span>
+              <span v-if="!showAllLanguages" class="lang-badge">English only</span>
+            </label>
+          </div>
           <div class="voice-grid">
-            <div v-for="v in voices" :key="v.name" class="voice-card" :class="{ active: v.name === systemDefaultVoice }">
+            <div v-for="v in filteredVoices" :key="v.name" class="voice-card" :class="{ active: v.name === systemDefaultVoice }">
               <div class="voice-card-info">
-                <div class="voice-card-name">{{ v.name }}</div>
+                <div class="voice-card-name">
+                  {{ v.name }}
+                  <span v-if="showAllLanguages && v.language" class="lang-tag">{{ LANG_LABELS[v.language] || v.language }}</span>
+                </div>
                 <div class="voice-card-meta">{{ v.provider }}{{ v.description && v.description !== v.name ? ' · ' + v.description : '' }}</div>
               </div>
               <div class="voice-card-actions">
@@ -253,7 +271,10 @@ function formatBytes(bytes) {
               </div>
             </div>
           </div>
-          <div class="voice-count">{{ voices.length }} voices across {{ [...new Set(voices.map(v => v.provider))].join(', ') }}</div>
+          <div class="voice-count">
+            {{ filteredVoices.length }} of {{ voices.length }} voices shown
+            · {{ [...new Set(filteredVoices.map(v => v.provider))].join(', ') }}
+          </div>
         </div>
       </div>
     </div>
@@ -493,9 +514,43 @@ function formatBytes(bytes) {
   font-size: 0.85rem;
   color: #aaa;
   font-weight: 600;
-  margin-bottom: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+.voice-list-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+.lang-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #aaa;
+  cursor: pointer;
+  user-select: none;
+}
+.lang-toggle input[type="checkbox"] {
+  accent-color: #646cff;
+}
+.lang-badge {
+  background: rgba(100, 108, 255, 0.15);
+  color: #a0a8ff;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.lang-tag {
+  background: #2a2a4a;
+  color: #aaa;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  margin-left: 0.4rem;
 }
 .voice-grid {
   display: grid;
