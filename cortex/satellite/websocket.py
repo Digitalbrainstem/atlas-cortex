@@ -475,15 +475,30 @@ def _extract_pcm(raw_audio: bytes, default_rate: int = 24000) -> tuple[bytes, in
     return raw_audio, default_rate
 
 
-async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
+async def _synthesize_text(text: str, voice: str, *, fast: bool = False) -> tuple[bytes, int, str]:
     """Synthesize text to PCM audio using available TTS providers.
 
     Returns (pcm_audio, sample_rate, provider_name).
     Provider priority: Orpheus (GPU) → Kokoro → Piper.
+    When fast=True, prefer Kokoro (CPU, ~200ms) over Orpheus (GPU, ~5s)
+    for latency-sensitive paths like instant answers and fillers.
     """
     from cortex.voice.wyoming import WyomingClient, WyomingError
 
-    # --- Orpheus (CUDA GPU, primary) ---
+    # --- Fast path: Kokoro first for instant answers/fillers ---
+    if fast or _TTS_PROVIDER == "kokoro":
+        try:
+            from cortex.voice.kokoro import KokoroClient
+            kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
+            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
+            raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
+            if raw:
+                pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
+                return pcm, rate, "kokoro"
+        except Exception as e:
+            logger.warning("Kokoro TTS failed: %s", e)
+
+    # --- Orpheus (CUDA GPU, higher quality) ---
     if _TTS_PROVIDER in ("orpheus", "auto"):
         try:
             import aiohttp
@@ -512,17 +527,18 @@ async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
         except Exception as e:
             logger.warning("Orpheus TTS failed: %s", e)
 
-    # --- Kokoro (CPU fallback — always tried if Orpheus fails) ---
-    try:
-        from cortex.voice.kokoro import KokoroClient
-        kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-        kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
-        raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
-        if raw:
-            pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
-            return pcm, rate, "kokoro"
-    except Exception as e:
-        logger.warning("Kokoro TTS failed: %s", e)
+    # --- Kokoro (fallback if Orpheus fails) ---
+    if not fast:
+        try:
+            from cortex.voice.kokoro import KokoroClient
+            kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
+            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
+            raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
+            if raw:
+                pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
+                return pcm, rate, "kokoro"
+        except Exception as e:
+            logger.warning("Kokoro TTS failed: %s", e)
 
     # --- Piper (last resort) ---
     try:
@@ -716,7 +732,7 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
             # ── Instant answer (Layer 1/2): single token IS the answer ──
             instant_text = tokens[0].strip()
             t_tts = time.monotonic()
-            audio, rate, provider = await _synthesize_text(instant_text, tts_voice)
+            audio, rate, provider = await _synthesize_text(instant_text, tts_voice, fast=True)
             tts_ms = (time.monotonic() - t_tts) * 1000
             if audio:
                 logger.info("Instant TTS [%s] %.0fms (%d bytes): %r",
@@ -763,7 +779,7 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                                     cached.phrase, is_filler=True)
                             else:
                                 audio, rate, prov = await _synthesize_text(
-                                    text, tts_voice)
+                                    text, tts_voice, fast=True)
                                 if audio:
                                     logger.info(
                                         "Filler TTS for %s: %r (%.0fms, %d bytes)",
