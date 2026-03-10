@@ -394,6 +394,22 @@
       }
       _pendingTtsText = '';
       _sentenceSamples = 0;
+
+      // After audio drains, reset expression to neutral (mirrors SPEAKING_END logic).
+      // This ensures the face resets even when audio comes via satellite WS
+      // (which doesn't fire SPEAKING_END through the avatar WS).
+      const remaining = audioRemainingMs();
+      const resetDelay = Math.max(0, remaining) + 3000;
+      if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
+      _neutralResetTimer = setTimeout(() => {
+        _neutralResetTimer = null;
+        _isSpeaking = false;
+        setViseme('IDLE', 200, 0);
+        setExpression('neutral', 1.0);
+        statusEl.textContent = 'idle';
+        statusEl.className = '';
+        checkPupilSpeed();
+      }, resetDelay);
     }
 
     // How many ms of audio is still queued for playback
