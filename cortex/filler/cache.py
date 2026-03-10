@@ -95,18 +95,29 @@ class FillerCache:
     def ready(self) -> bool:
         return self._initialized
 
-    async def initialize(self, voice: str | None = None) -> None:
-        """Pre-generate TTS audio for all filler phrases."""
-        if self._initialized or self._initializing:
+    async def initialize(self, voice: str | None = None, force: bool = False) -> None:
+        """Pre-generate TTS audio for all filler phrases.
+
+        Args:
+            voice: TTS voice ID to use. Falls back to system default.
+            force: If True, re-generate even if already initialized.
+        """
+        if self._initializing:
+            return
+        if self._initialized and not force:
             return
         self._initializing = True
+        if force:
+            self._cache.clear()
+            self._recent.clear()
+            self._initialized = False
         logger.info("Filler cache: pre-generating %d phrases...",
                      sum(len(v) for v in CACHEABLE_FILLERS.values()))
 
-        from cortex.voice import stream_speech
+        from cortex.voice import stream_speech, resolve_default_voice
 
         tts_provider = os.environ.get("TTS_PROVIDER", "kokoro")
-        voice = voice or os.environ.get("KOKORO_VOICE", "af_bella")
+        voice = voice or resolve_default_voice()
         generated = 0
 
         for sentiment, phrases in CACHEABLE_FILLERS.items():
@@ -162,6 +173,14 @@ class FillerCache:
             self._recent[sentiment] = deque(maxlen=3)
         self._recent[sentiment].append(choice.phrase)
         return choice
+
+    def reset(self) -> None:
+        """Clear all cached fillers so ``initialize(force=True)`` can rebuild."""
+        self._cache.clear()
+        self._recent.clear()
+        self._initialized = False
+        self._initializing = False
+        logger.info("Filler cache reset — ready for re-initialization")
 
 
 # ── Module-level singleton ───────────────────────────────────────

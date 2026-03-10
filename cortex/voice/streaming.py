@@ -42,12 +42,13 @@ async def stream_speech(
       ``phonemes`` — phoneme timing data if available (else None)
     """
     from cortex.voice.providers import get_tts_provider
+    from cortex.voice import resolve_default_voice
 
     user_profile = user_profile or {}
     context = context or {}
     tts = provider or get_tts_provider()
 
-    voice = user_profile.get("preferred_voice", "tara")
+    voice = user_profile.get("preferred_voice") or resolve_default_voice()
     emotion_label = getattr(sentiment, "label", "neutral")
 
     buffer = ""
