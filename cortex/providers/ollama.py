@@ -36,6 +36,7 @@ class OllamaProvider(LLMProvider):
             "messages": messages,
             "stream": stream,
             "options": {"temperature": temperature},
+            "keep_alive": "24h",
         }
         if max_tokens is not None:
             payload["options"]["num_predict"] = max_tokens
