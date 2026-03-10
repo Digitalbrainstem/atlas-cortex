@@ -95,7 +95,7 @@ services:
 
   # ── Whisper.cpp STT — HTTP API (port 10300) ──────────────────────
   # Speech-to-text via whisper.cpp with Vulkan GPU acceleration.
-  # GPU: Intel Arc B580 shares GPU 1 with Orpheus TTS.
+  # GPU: Shares primary GPU with Ollama (sequential workload, no contention).
   atlas-whisper:
     image: ghcr.io/ggml-org/whisper.cpp:main-vulkan
     container_name: atlas-whisper
@@ -182,90 +182,44 @@ services:
       retries: 3
       start_period: 30s
 
-  # ── Orpheus FastAPI — TTS engine (port 5005) ────────────────────
-  # Orpheus TTS with SNAC decoder. Universal GPU support via device.py
-  # (CUDA/ROCm/Intel XPU/MPS/CPU). Connects to llama.cpp for inference.
-  # Built from Betanu701/Orpheus-FastAPI v1.0.0 with Intel Arc support.
+  # ── Orpheus TTS — single llama.cpp CUDA + SNAC container (port 5005) ─
+  # All-in-one Orpheus TTS: llama.cpp CUDA for inference, SNAC for audio.
+  # Single NVIDIA GPU (RTX 4060 8GB target). GGUF model (~2.2GB VRAM).
+  # Model auto-downloaded on first run via init container.
   atlas-orpheus:
     build:
-      context: ${ORPHEUS_FASTAPI_BUILD_CTX:-https://github.com/Betanu701/Orpheus-FastAPI.git#v1.0.0}
-      dockerfile: Dockerfile.gpu-intel
-    image: atlas-orpheus:latest
+      context: ./orpheus-vllm
+      dockerfile: Dockerfile
+    image: atlas-orpheus-vllm:latest
     container_name: atlas-orpheus
     restart: unless-stopped
     ports:
       - "5005:5005"
-    environment:
-      - ORPHEUS_API_URL=http://atlas-llama-voice:5006/v1/completions
-      - ORPHEUS_API_TIMEOUT=${ORPHEUS_API_TIMEOUT:-120}
-      - ORPHEUS_MAX_TOKENS=${ORPHEUS_MAX_TOKENS:-8192}
-      - ORPHEUS_TEMPERATURE=${ORPHEUS_TEMPERATURE:-0.6}
-      - ORPHEUS_TOP_P=${ORPHEUS_TOP_P:-0.9}
-      - ORPHEUS_SAMPLE_RATE=24000
-      - ORPHEUS_MODEL_NAME=${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}
-      - ORPHEUS_HOST=0.0.0.0
-      - ORPHEUS_PORT=5005
-    networks:
-      - atlas
-    depends_on:
-      atlas-llama-voice:
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:5005/docs || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-
-  # ── llama.cpp Voice — Orpheus inference on GPU (port 5006) ────────
-  # Runs the Orpheus GGUF model for token generation. Uses Vulkan
-  # backend which benchmarked 25% faster than SYCL on Intel Arc B580
-  # (26.5 vs 21.2 tok/s). GPU device selection via override files.
-  atlas-llama-voice:
-    image: ghcr.io/ggml-org/llama.cpp:full-vulkan
-    container_name: atlas-llama-voice
-    restart: unless-stopped
-    ports:
-      - "5006:5006"
     volumes:
       - atlas-orpheus-models:/models
+    environment:
+      - ORPHEUS_MODEL_PATH=/models/${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}
+      - ORPHEUS_PORT=5005
+      - ORPHEUS_HOST=0.0.0.0
+      - LLAMA_GPU_LAYERS=${LLAMA_GPU_LAYERS:-99}
+      - LLAMA_CTX_SIZE=${LLAMA_CTX_SIZE:-4096}
     networks:
       - atlas
     depends_on:
       atlas-orpheus-init:
         condition: service_completed_successfully
-    entrypoint: ["/app/llama-server"]
-    command:
-      - "-m"
-      - "/models/${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}"
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "5006"
-      - "--n-gpu-layers"
-      - "99"
-      - "--ctx-size"
-      - "4096"
-      - "--n-predict"
-      - "4096"
-      - "--cache-type-k"
-      - "q8_0"
-      - "--cache-type-v"
-      - "q8_0"
-      - "--no-mmap"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:5006/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:5005/health || exit 1"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 120s
 
   # ── Model init — downloads Orpheus GGUF on first run ────────────
   atlas-orpheus-init:
     image: alpine:latest
     volumes:
-      - atlas-orpheus-models:/app/models
-    working_dir: /app
+      - atlas-orpheus-models:/models
     environment:
       - ORPHEUS_MODEL_NAME=${ORPHEUS_MODEL_NAME:-Orpheus-3b-FT-Q4_K_M.gguf}
     command: >
@@ -273,9 +227,9 @@ services:
       apk add --no-cache curl;
       MODEL="$$ORPHEUS_MODEL_NAME";
       REPO=$$(echo "$$MODEL" | sed "s/\.gguf$$//");
-      if [ ! -f "/app/models/$$MODEL" ]; then
+      if [ ! -f "/models/$$MODEL" ]; then
         echo "Downloading Orpheus model ($$MODEL)...";
-        curl -fL -o "/app/models/$$MODEL" "https://huggingface.co/lex-au/$${REPO}.gguf/resolve/main/$$MODEL";
+        curl -fL -o "/models/$$MODEL" "https://huggingface.co/lex-au/$${REPO}.gguf/resolve/main/$$MODEL";
       else
         echo "Orpheus model already exists";
       fi'

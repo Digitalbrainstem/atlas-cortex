@@ -12,42 +12,35 @@ multi-GPU layout is:
 
 | GPU | Hardware | Services | Purpose |
 |-----|----------|----------|---------|
-| GPU 0 (largest) | AMD RX 7900 XT (20 GB) | `atlas-ollama` | LLM only — zero model-switch latency |
-| GPU 1 (second)  | Intel Arc B580 (12 GB)  | `atlas-llama-voice`, `atlas-orpheus`, `atlas-whisper` | Voice: TTS inference, SNAC decode, STT |
+| GPU 0 (largest) | AMD RX 7900 XT (20 GB) | `atlas-ollama`, `atlas-whisper` | LLM + STT (sequential, no contention) |
+| GPU 1 (CUDA)    | NVIDIA RTX 4060 (8 GB)  | `atlas-orpheus` | Orpheus TTS via vLLM + SNAC |
 
 Single-GPU systems fall back to time-multiplexed sharing (Ollama
 auto-unload). CPU-only systems run STT/TTS on CPU.
 
 ---
 
-## TTS Pipeline: Orpheus via Orpheus-FastAPI
+## TTS Pipeline: Orpheus via vLLM + SNAC
 
-### Architecture
+### Architecture (Single Container)
 
 ```
-text → atlas-orpheus (FastAPI + SNAC on Intel XPU, port 5005)
-           ↓ /v1/completions
-       atlas-llama-voice (llama.cpp Vulkan, port 5006)
+text → atlas-orpheus (vLLM + SNAC on NVIDIA CUDA, port 5005)
+           ↓ vLLM /v1/completions (internal, localhost:8000)
+       Token generation (vLLM, FP16/FP8)
            ↓ <custom_token_*> stream
-       SNAC decode (Intel XPU) → 24kHz 16-bit PCM WAV
+       SNAC decode (CUDA) → 24kHz 16-bit PCM WAV stream
 ```
 
-### Backend Selection: Vulkan vs SYCL
+The Orpheus container embeds both the LLM inference engine (vLLM) and the
+SNAC audio decoder in a single image. No external llama.cpp needed.
+Model weights auto-download from HuggingFace on first run (~6GB).
 
-Benchmarked on Intel Arc B580 with Orpheus 3B Q8_0 (300 tokens):
+### Previous Architecture (Deprecated)
 
-| Backend | Image | tok/s | Notes |
-|---------|-------|-------|-------|
-| SYCL | `llama.cpp:full-intel` | 21.2 | Intel's oneAPI/SYCL stack |
-| **Vulkan** | **`llama.cpp:full-vulkan`** | **26.3** | **+24% — chosen default** |
-| Vulkan + flash-attn | `llama.cpp:full-vulkan` | 26.3 | No gain on Vulkan |
-
-**Decision:** Use Vulkan. Intel's SYCL llama.cpp implementation is
-immature; flash attention on SYCL was catastrophic (4.9 tok/s). Vulkan
-consistently outperforms SYCL on Arc GPUs as of early 2026.
-
-When Vulkan sees multiple GPUs, use `GGML_VK_VISIBLE_DEVICES=1` in the
-GPU override file to target the Intel card specifically.
+The old two-container setup used llama.cpp (Vulkan) for inference and
+Orpheus-FastAPI (Intel XPU) for SNAC decoding. This was replaced by the
+single vLLM container for simplicity and CUDA performance.
 
 ### Model Quantization: Q4_K_M vs Q8_0
 
@@ -126,16 +119,34 @@ Using `ghcr.io/ggml-org/whisper.cpp:main-vulkan` with `large-v3-turbo-q5_0`:
 Whisper.cpp uses HTTP API at `/inference` (multipart POST), not Wyoming
 protocol. The cortex `whisper_cpp.py` client handles the conversion.
 
-### VRAM Budget (Intel Arc B580 = 12 GB)
+### VRAM Budget (NVIDIA RTX 4060 = 8 GB)
 
 | Service | VRAM | Model |
 |---------|------|-------|
-| llama.cpp Orpheus TTS | 2.5 GB | Q4_K_M |
-| SNAC decoder (XPU) | 0.3 GB | — |
-| whisper.cpp STT | 0.6 GB | large-v3-turbo-q5_0 |
-| Compute buffers | 0.3 GB | — |
-| **Total used** | **~3.7 GB** | — |
-| **Free** | **~8.3 GB** | Available for future services |
+| vLLM Orpheus TTS (FP16) | ~6.0 GB | orpheus-tts-0.1-finetune-prod |
+| SNAC decoder (CUDA) | 0.3 GB | snac_24khz |
+| Compute buffers | 0.5 GB | — |
+| **Total used** | **~6.8 GB** | — |
+| **Free** | **~1.2 GB** | Tight — use FP8 for headroom |
+
+With FP8 quantization (`VLLM_QUANTIZATION=fp8`):
+
+| Service | VRAM | Model |
+|---------|------|-------|
+| vLLM Orpheus TTS (FP8) | ~3.0 GB | orpheus-tts-0.1-finetune-prod |
+| SNAC decoder (CUDA) | 0.3 GB | snac_24khz |
+| Compute buffers | 0.5 GB | — |
+| **Total used** | **~3.8 GB** | — |
+| **Free** | **~4.2 GB** | Comfortable margin |
+
+### Whisper STT VRAM Budget (AMD RX 7900 XT = 20 GB)
+
+| Service | VRAM | Model |
+|---------|------|-------|
+| Ollama LLM (qwen2.5:7b) | ~5.5 GB | — |
+| whisper.cpp STT | ~0.6 GB | large-v3-turbo-q5_0 |
+| **Total used** | **~6.1 GB** | — |
+| **Free** | **~13.9 GB** | Plenty of headroom |
 
 ---
 
@@ -156,17 +167,18 @@ protocol. The cortex `whisper_cpp.py` client handles the conversion.
 
 | File | Use Case |
 |------|----------|
-| `docker-compose.gpu-amd.yml` | AMD LLM + Intel Voice (Derek's setup) |
-| `docker-compose.gpu-intel.yml` | Intel-only (single GPU, shared) |
-| `docker-compose.gpu-nvidia.yml` | NVIDIA LLM + Intel/other Voice |
+| `docker-compose.gpu-amd.yml` | AMD LLM/STT + NVIDIA RTX 4060 TTS (Derek's setup) |
+| `docker-compose.gpu-intel.yml` | Intel-only (single GPU, no Orpheus — use Kokoro) |
+| `docker-compose.gpu-nvidia.yml` | All-NVIDIA systems |
 
 ### Key Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ORPHEUS_MODEL_NAME` | `Orpheus-3b-FT-Q4_K_M.gguf` | Orpheus GGUF model file |
-| `ORPHEUS_FASTAPI_BUILD_CTX` | GitHub URL | Override with local path for dev |
-| `GGML_VK_VISIBLE_DEVICES` | `1` (in AMD override) | Target Intel GPU for Vulkan |
+| `ORPHEUS_MODEL` | `canopylabs/orpheus-tts-0.1-finetune-prod` | HuggingFace model for vLLM |
+| `VLLM_GPU_UTIL` | `0.85` | GPU memory fraction for vLLM |
+| `VLLM_QUANTIZATION` | (empty) | Set to `fp8` for lower VRAM |
+| `GGML_VK_VISIBLE_DEVICES` | `0` (in AMD override) | Target AMD GPU for Whisper Vulkan |
 | `OLLAMA_KEEP_ALIVE` | `0` | Keep LLM loaded forever |
 
 ---
