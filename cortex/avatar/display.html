@@ -60,6 +60,29 @@
     #joke-btn:hover { background: #fbbf24; transform: scale(1.05); }
     #joke-btn:active { transform: scale(0.95); }
     #joke-btn.visible { display: block; }
+    /* Controls bar (skin toggle + joke button) */
+    #controls-bar {
+      display: none;
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 50;
+      background: rgba(30,41,59,0.85); border-radius: 2rem; padding: 0.5rem 1rem;
+      backdrop-filter: blur(8px); box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      gap: 0.75rem; align-items: center;
+    }
+    #controls-bar.visible { display: flex; }
+    #controls-bar button {
+      background: #334155; color: #e2e8f0; border: 2px solid transparent;
+      border-radius: 1.5rem; padding: 0.5rem 1.1rem;
+      font: 600 0.85rem system-ui, sans-serif; cursor: pointer;
+      transition: all 0.15s;
+    }
+    #controls-bar button:hover { background: #475569; }
+    #controls-bar button.active { border-color: #f59e0b; background: #1e293b; color: #f59e0b; }
+    #controls-bar .divider { width: 1px; height: 24px; background: #475569; }
+    #joke-ctrl-btn {
+      background: #f59e0b !important; color: #0f172a !important;
+      font-weight: bold !important;
+    }
+    #joke-ctrl-btn:hover { background: #fbbf24 !important; }
   </style>
 </head>
 <body>
@@ -73,7 +96,13 @@
       </div>
     </div>
   </div>
-  <button id="joke-btn" onclick="tellJoke()">😂 Tell me a joke!</button>
+  <button id="joke-btn" onclick="tellJoke()" style="display:none">😂 Tell me a joke!</button>
+  <div id="controls-bar">
+    <button id="skin-default" class="skin-btn active" onclick="switchSkin('default')">🟠 Classic</button>
+    <button id="skin-nick" class="skin-btn" onclick="switchSkin('nick')">🎨 Nick</button>
+    <div class="divider"></div>
+    <button id="joke-ctrl-btn" onclick="tellJoke()">😂 Joke!</button>
+  </div>
   <div id="status">connecting…</div>
 
   <script>
@@ -146,14 +175,18 @@
     let CHAR_VISEME = CARTOON_VISEME;
 
     function scheduleSyncedVisemes(text, audioDurationMs, startDelayMs) {
-      _syncedVisemeTimers.forEach(t => clearTimeout(t));
-      _syncedVisemeTimers = [];
-
+      // Don't clear — timers accumulate across sentences within a turn.
+      // They get cleared at SPEAKING_START for a fresh turn.
       if (_visemeBank === 'cartoon') {
         _scheduleCartoonVisemes(text, audioDurationMs, startDelayMs);
       } else {
         _scheduleRealisticVisemes(text, audioDurationMs, startDelayMs);
       }
+    }
+
+    function _clearVisemeTimers() {
+      _syncedVisemeTimers.forEach(t => clearTimeout(t));
+      _syncedVisemeTimers = [];
     }
 
     // Cartoon: syllable-based, fewer changes, hold longer, snap between shapes
@@ -179,14 +212,17 @@
 
       // Distribute beats evenly across the audio duration
       const msPerBeat = audioDurationMs / (beats.length + 1);
-      // Minimum hold time for snappy cartoon feel
-      const minHold = Math.max(80, msPerBeat * 0.7);
+
+      // Show first viseme immediately at audio start (no dead gap)
+      _syncedVisemeTimers.push(setTimeout(() => showViseme(beats[0].viseme), startDelayMs));
 
       beats.forEach((beat, idx) => {
-        const t = startDelayMs + msPerBeat * (idx + 0.5);
+        // Start from idx=1 since we already fired beat 0 at startDelayMs
+        if (idx === 0) return;
+        const t = startDelayMs + msPerBeat * idx;
         _syncedVisemeTimers.push(setTimeout(() => showViseme(beat.viseme), t));
       });
-      // Return to IDLE
+      // Return to IDLE at end
       _syncedVisemeTimers.push(setTimeout(() => showViseme('IDLE'), startDelayMs + audioDurationMs));
     }
 
@@ -218,9 +254,29 @@
     const mover = document.getElementById('avatar-mover');
     const scaler = document.getElementById('avatar-scaler');
 
-    // Show joke button if URL hash contains #show-joke-button
-    if (location.hash.includes('show-joke-button')) {
-      document.getElementById('joke-btn').classList.add('visible');
+    // Parse URL hash for controls: #show-controls, #show-joke-button, #skin=nick
+    const _hash = location.hash.toLowerCase();
+    const _showControls = _hash.includes('show-controls') || _hash.includes('show-joke-button');
+    let _initialSkin = 'default';
+    const _skinMatch = _hash.match(/skin=([a-z0-9_-]+)/);
+    if (_skinMatch) _initialSkin = _skinMatch[1];
+
+    if (_showControls) {
+      document.getElementById('controls-bar').classList.add('visible');
+    }
+    // Legacy: standalone joke button for #show-joke-button without controls
+    if (_hash.includes('show-joke-button') && !_hash.includes('show-controls')) {
+      document.getElementById('joke-btn').style.display = 'block';
+    }
+
+    let _currentSkinId = _initialSkin;
+
+    function switchSkin(skinId) {
+      _currentSkinId = skinId;
+      document.querySelectorAll('.skin-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById('skin-' + skinId);
+      if (btn) btn.classList.add('active');
+      loadSkin('/avatar/skin/' + skinId + '.svg');
     }
 
     function tellJoke() {
@@ -259,6 +315,7 @@
       audioPlaying = true;
       _pendingTtsText = msg.text || '';
       _sentenceSamples = 0;
+      _sentenceAudioStartSet = false;
       // Cancel any pending neutral reset
       if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
       // Recreate context if sample rate changed
@@ -266,17 +323,21 @@
         audioCtx.close();
         audioCtx = null;
       }
-      const ctx = ensureAudioContext();
-      // Record where this sentence's audio will start in the playback timeline
-      _sentenceAudioStart = Math.max(ctx.currentTime, nextPlayTime);
+      ensureAudioContext();
       console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS start:`, msg.text?.substring(0, 60), 'rate:', audioSampleRate);
     }
 
     let _pendingTtsText = '';
+    let _sentenceAudioStartSet = false;
 
     function handleTtsChunk(msg) {
       _hasReceivedAudio = true;
       const ctx = ensureAudioContext();
+      // Record audio start on FIRST chunk (not TTS_START) for accurate sync
+      if (!_sentenceAudioStartSet) {
+        _sentenceAudioStart = Math.max(ctx.currentTime, nextPlayTime);
+        _sentenceAudioStartSet = true;
+      }
       // Decode base64 → PCM 16-bit LE → Float32
       const raw = atob(msg.audio);
       const int16 = new Int16Array(raw.length / 2);
@@ -380,7 +441,10 @@
       }
       switch (msg.type) {
         case 'SKIN':
-          loadSkin(msg.skin_url);
+          // Only load server-pushed skin if user hasn't manually switched
+          if (_currentSkinId === _initialSkin && _initialSkin === 'default') {
+            loadSkin(msg.skin_url);
+          }
           break;
         case 'EXPRESSION': {
           // Defer expression change until queued audio finishes playing
@@ -399,10 +463,11 @@
         case 'SPEAKING_START':
           _isSpeaking = true;
           _hasReceivedAudio = false;
+          _clearVisemeTimers();
           if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
           statusEl.textContent = 'speaking';
           statusEl.className = 'active';
-          if (msg.skin_url && msg.skin_url !== _currentSkinUrl) loadSkin(msg.skin_url);
+          if (msg.skin_url && msg.skin_url !== _currentSkinUrl && _currentSkinId === 'default') loadSkin(msg.skin_url);
           checkPupilSpeed();
           break;
         case 'SPEAKING_END': {
@@ -891,7 +956,7 @@
 
     window.addEventListener('resize', initPosition);
     initPosition();
-    loadSkin('/avatar/skin/default.svg');
+    loadSkin('/avatar/skin/' + _initialSkin + '.svg');
     connect();
   </script>
 </body>

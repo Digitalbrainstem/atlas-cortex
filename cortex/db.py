@@ -734,6 +734,10 @@ def _seed_default_avatar_skin(conn: sqlite3.Connection) -> None:
         "INSERT INTO avatar_skins (id, name, type, path, is_default, metadata) "
         "VALUES ('default', 'Atlas Default', 'svg', 'cortex/avatar/skins/default.svg', TRUE, '{}')",
     )
+    conn.execute(
+        "INSERT OR IGNORE INTO avatar_skins (id, name, type, path, is_default, metadata) "
+        "VALUES ('nick', 'Nick Jr. Style', 'svg', 'cortex/avatar/skins/nick.svg', FALSE, '{}')",
+    )
     conn.commit()
 
 
