@@ -514,15 +514,15 @@ async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
 
     # --- Kokoro (CPU fallback — always tried if Orpheus fails) ---
     try:
-            from cortex.voice.kokoro import KokoroClient
-            kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
-            raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
-            if raw:
-                pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
-                return pcm, rate, "kokoro"
-        except Exception as e:
-            logger.warning("Kokoro TTS failed: %s", e)
+        from cortex.voice.kokoro import KokoroClient
+        kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
+        kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
+        raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
+        if raw:
+            pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
+            return pcm, rate, "kokoro"
+    except Exception as e:
+        logger.warning("Kokoro TTS failed: %s", e)
 
     # --- Piper (last resort) ---
     try:
