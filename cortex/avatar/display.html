@@ -320,11 +320,18 @@
       audioSampleRate = msg.sample_rate || 24000;
       audioQueue = [];
       audioPlaying = true;
+      _isSpeaking = true;
       _pendingTtsText = msg.text || '';
       _sentenceSamples = 0;
       _sentenceAudioStartSet = false;
       // Cancel any pending neutral reset
       if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
+      // Transition from thinking to speaking expression
+      if (currentExpr === 'thinking') {
+        setExpression('neutral', 1.0);
+      }
+      statusEl.textContent = 'speaking';
+      statusEl.className = 'active';
       // Recreate context if sample rate changed
       if (audioCtx && audioCtx.sampleRate !== audioSampleRate) {
         audioCtx.close();
