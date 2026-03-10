@@ -166,7 +166,8 @@ async def _pipeline_generator(
     t3 = time.monotonic()
     first_token_ms = 0.0
     full_response_parts: list[str] = []
-    await _fire_avatar_speaking(room, True, user_id)
+    if not _skip_avatar_tts:
+        await _fire_avatar_speaking(room, True, user_id)
     # Accumulate sentences for viseme streaming
     _sentence_buf = ""
     async for chunk in stream_llm_response(
@@ -184,16 +185,16 @@ async def _pipeline_generator(
         # Fire visemes per sentence for smoother lip-sync
         _sentence_buf += chunk
         if any(_sentence_buf.rstrip().endswith(p) for p in (".", "!", "?", "\n")):
-            _fire_avatar_visemes(room, _sentence_buf)
             if not _skip_avatar_tts:
+                _fire_avatar_visemes(room, _sentence_buf)
                 await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
             _sentence_buf = ""
         yield chunk
 
     # Flush any remaining text
     if _sentence_buf.strip():
-        _fire_avatar_visemes(room, _sentence_buf)
         if not _skip_avatar_tts:
+            _fire_avatar_visemes(room, _sentence_buf)
             await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
 
     # Fire content-aware reaction expression AFTER the response (e.g. silly after punchline)
@@ -204,7 +205,8 @@ async def _pipeline_generator(
     if _reaction and _reaction != "neutral":
         _avatar_expression = _reaction
 
-    await _fire_avatar_speaking(room, False)
+    if not _skip_avatar_tts:
+        await _fire_avatar_speaking(room, False)
 
     layer3_ms = (time.monotonic() - t3) * 1000
     total_ms = int(time.monotonic() * 1000) - start_ms
