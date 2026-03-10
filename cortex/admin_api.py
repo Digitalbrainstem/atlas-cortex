@@ -990,6 +990,14 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
     from cortex.voice.wyoming import WyomingClient
     all_voices = []
 
+    # Kokoro prefix → language mapping
+    _kokoro_lang = {
+        "a": "en", "b": "en",  # American / British English
+        "e": "es", "f": "fr", "g": "de", "h": "hi",
+        "i": "it", "j": "ja", "k": "ko", "p": "pt",
+        "z": "zh",
+    }
+
     # Kokoro voices (primary)
     try:
         from cortex.voice.kokoro import KokoroClient
@@ -998,10 +1006,12 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
         kokoro = KokoroClient(host, port, timeout=5.0)
         kokoro_voices = await kokoro.list_voices()
         for v in kokoro_voices:
+            lang = _kokoro_lang.get(v[0], "en") if len(v) > 0 else "en"
             all_voices.append({
                 "name": v,
                 "provider": "kokoro",
                 "description": v,
+                "language": lang,
                 "installed": True,
             })
     except Exception:
@@ -1015,6 +1025,7 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
                 "name": v["id"],
                 "provider": "orpheus",
                 "description": f"{v['name']} ({v['style']}, {v['gender']})",
+                "language": "en",
                 "installed": True,
             })
     except Exception:
@@ -1028,6 +1039,7 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
         piper_voices = await tts.list_voices()
         for v in piper_voices:
             v["provider"] = "piper"
+            v["language"] = v.get("language", "en")
             all_voices.append(v)
     except Exception:
         pass
