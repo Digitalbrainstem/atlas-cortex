@@ -499,6 +499,9 @@
           // Server visemes ignored — client generates visemes synced to audio
           break;
         case 'SPEAKING_START':
+          // When web satellite handles audio, skip avatar WS speaking state
+          // (satellite TTS triggers isSpeaking via handleTtsStart instead)
+          if (_suppressAvatarWsAudio) break;
           _isSpeaking = true;
           _hasReceivedAudio = false;
           _clearVisemeTimers();
@@ -509,6 +512,7 @@
           checkPupilSpeed();
           break;
         case 'SPEAKING_END': {
+          if (_suppressAvatarWsAudio) break;
           // Defer until audio actually finishes playing
           const remaining = audioRemainingMs();
           const deferMs = Math.max(0, remaining);
