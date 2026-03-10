@@ -47,6 +47,17 @@ _TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "orpheus")
 
 # Orpheus TTS configuration
 _ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
+_ORPHEUS_VOICES = {"tara", "leah", "jess", "leo", "dan", "mia", "zac", "nova"}
+
+
+def _to_orpheus_voice(voice: str) -> str:
+    """Map any voice name to a valid Orpheus voice.
+
+    Kokoro voices (af_bella, af_heart, etc.) get mapped to the default.
+    Orpheus-prefixed names get the prefix stripped.
+    """
+    bare = (voice or "tara").replace("orpheus_", "")
+    return bare if bare in _ORPHEUS_VOICES else "tara"
 
 
 def _get_satellite_voice(satellite_id: str) -> str:
@@ -603,7 +614,7 @@ async def _stream_orpheus_to_satellite(
     import io
     import wave
 
-    bare_voice = (voice or "tara").replace("orpheus_", "")
+    bare_voice = _to_orpheus_voice(voice)
     payload = {
         "input": text,
         "model": "orpheus",

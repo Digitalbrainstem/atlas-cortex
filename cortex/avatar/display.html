@@ -352,6 +352,14 @@
       if (!_sentenceAudioStartSet) {
         _sentenceAudioStart = Math.max(ctx.currentTime, nextPlayTime);
         _sentenceAudioStartSet = true;
+        // Schedule visemes immediately with estimated duration.
+        // With streaming, TTS_END arrives when audio is already playing;
+        // starting visemes now keeps the mouth in sync from the start.
+        if (_pendingTtsText) {
+          const estimatedDurationMs = _pendingTtsText.length * 95;
+          _clearVisemeTimers();
+          scheduleSyncedVisemes(_pendingTtsText, estimatedDurationMs, 0);
+        }
       }
       // Decode base64 → PCM 16-bit LE → Float32
       const raw = atob(msg.audio);
@@ -390,15 +398,29 @@
     function handleTtsEnd(msg) {
       audioPlaying = false;
       _hasReceivedAudio = false;
-      // Schedule visemes NOW — we know total audio duration
-      if (_pendingTtsText) {
+
+      // Replace estimated visemes with correctly-timed ones for remaining audio.
+      // The first-chunk estimate got the mouth moving immediately; now we know
+      // the real duration and can schedule the tail precisely.
+      _clearVisemeTimers();
+      if (_pendingTtsText && _sentenceSamples > 0) {
         const ctx = ensureAudioContext();
         const audioDurationMs = (_sentenceSamples / audioSampleRate) * 1000;
-        const delayUntilStart = Math.max(0, (_sentenceAudioStart - ctx.currentTime) * 1000);
-        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — scheduling visemes: ${audioDurationMs.toFixed(0)}ms audio, ${delayUntilStart.toFixed(0)}ms delay, text: "${_pendingTtsText.substring(0,30)}"`);
-        scheduleSyncedVisemes(_pendingTtsText, audioDurationMs, delayUntilStart);
+        const elapsed = Math.max(0, (ctx.currentTime - _sentenceAudioStart) * 1000);
+        const remaining = audioDurationMs - elapsed;
+
+        if (remaining > 200) {
+          // Audio still playing — schedule visemes for the remaining portion
+          const fraction = Math.min(1, elapsed / audioDurationMs);
+          const charStart = Math.floor(_pendingTtsText.length * fraction);
+          const remainingText = _pendingTtsText.substring(charStart);
+          if (remainingText.length > 1) {
+            scheduleSyncedVisemes(remainingText, remaining, 0);
+          }
+        }
+        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — ${audioDurationMs.toFixed(0)}ms total, ${Math.max(0, audioDurationMs - elapsed).toFixed(0)}ms remaining: "${_pendingTtsText.substring(0,30)}"`);
       } else {
-        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end (no text)`);
+        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end (no text/audio)`);
       }
       _pendingTtsText = '';
       _sentenceSamples = 0;
@@ -411,9 +433,8 @@
         setTimeout(() => setExpression(msg.expression, 1.0), exprDelay);
       }
 
-      // After audio drains, reset expression to neutral (mirrors SPEAKING_END logic).
-      // This ensures the face resets even when audio comes via satellite WS
-      // (which doesn't fire SPEAKING_END through the avatar WS).
+      // After audio drains, reset to idle. This ensures the mouth stops
+      // and the face returns to neutral even with streaming audio.
       const resetDelay = Math.max(0, remaining) + 3000;
       if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
       _neutralResetTimer = setTimeout(() => {

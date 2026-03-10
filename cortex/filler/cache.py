@@ -324,7 +324,10 @@ async def _synthesize_for_cache(
     if tts_provider in ("orpheus", "auto"):
         try:
             import aiohttp
+            # Map any voice name to valid Orpheus voice
+            orpheus_voices = {"tara", "leah", "jess", "leo", "dan", "mia", "zac", "nova"}
             bare_voice = (voice or "tara").replace("orpheus_", "")
+            bare_voice = bare_voice if bare_voice in orpheus_voices else "tara"
             payload = {
                 "input": text,
                 "model": "orpheus",
