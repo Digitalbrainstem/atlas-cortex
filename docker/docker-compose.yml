@@ -22,7 +22,7 @@ services:
       - MODEL_THINKING=${MODEL_THINKING:-qwen3:30b-a3b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
       # TTS — Kokoro primary (port 8880), Piper fallback (port 10200), Orpheus optional (port 5005)
-      - TTS_PROVIDER=${TTS_PROVIDER:-kokoro}
+      - TTS_PROVIDER=${TTS_PROVIDER:-orpheus}
       - KOKORO_HOST=${KOKORO_HOST:-localhost}
       - KOKORO_PORT=${KOKORO_PORT:-8880}
       - KOKORO_VOICE=${KOKORO_VOICE:-af_bella}
