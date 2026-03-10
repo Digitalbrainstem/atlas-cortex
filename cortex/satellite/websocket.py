@@ -945,9 +945,16 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                     # Too short — prepend to next sentence
                     token_buf = sentence + " " + token_buf
                     break
+
+                # Wait for filler to finish before first real sentence so
+                # they don't compete for the Orpheus GPU and overlap audio.
+                if _filler_task and not _filler_task.done():
+                    await _filler_task
+                    _filler_task = None
+
                 t_sent = time.monotonic()
                 sent_bytes, sent_elapsed = await _stream_orpheus_to_satellite(
-                    conn, sentence, tts_voice, is_filler=True)
+                    conn, sentence, tts_voice, is_filler=False)
                 if sent_bytes > 0:
                     logger.info("Sentence TTS [orpheus-stream] %.0fms (%d bytes): %r",
                                 sent_elapsed * 1000, sent_bytes, sentence[:60])
@@ -961,7 +968,7 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
                         logger.info("Sentence TTS [%s] %.0fms (%d bytes): %r",
                                     provider, (time.monotonic() - t_sent) * 1000,
                                     len(audio), sentence[:60])
-                        await _stream_audio_to_satellite(conn, audio, rate, sentence, is_filler=True)
+                        await _stream_audio_to_satellite(conn, audio, rate, sentence, is_filler=False)
                         sentences_sent += 1
                         total_tts_bytes += len(audio)
                         tts_used = provider

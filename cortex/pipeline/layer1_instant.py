@@ -170,7 +170,7 @@ async def try_instant_answer(
 
     if _TIME_PATTERNS.search(lower):
         now = datetime.now(tz=timezone.utc).astimezone()
-        return now.strftime("It's %I:%M %p."), 1.0
+        return now.strftime("It's %-I:%M %p."), 1.0
 
     # ── Math ───────────────────────────────────────────────────
     math_match = _MATH_PATTERNS.match(message)
