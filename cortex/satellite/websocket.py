@@ -586,11 +586,16 @@ async def _stream_audio_to_satellite(
 async def _stream_orpheus_to_satellite(
     conn: SatelliteConnection, text: str, voice: str,
     is_filler: bool = False, auto_listen: bool = False,
+    expression: str | None = None,
 ) -> tuple[int, float]:
     """Stream Orpheus TTS directly to satellite — low latency.
 
     Instead of buffering the entire WAV, streams PCM chunks as they
     arrive from the Orpheus server. First audio in ~500ms.
+
+    Args:
+        expression: Optional expression to include in TTS_END (e.g. "silly"
+            for joke punchlines). Client sets the expression when audio finishes.
 
     Returns (total_bytes, elapsed_seconds).
     """
@@ -685,6 +690,8 @@ async def _stream_orpheus_to_satellite(
             }
             if auto_listen:
                 msg["auto_listen"] = True
+            if expression:
+                msg["expression"] = expression
             await conn.send(msg)
 
     except Exception as e:
@@ -842,10 +849,13 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
         if len(tokens) == 1 and tokens[0].strip():
             # ── Instant answer (Layer 1/2): single token IS the answer ──
             instant_text = tokens[0].strip()
+            # Detect jokes (setup\npunchline) for expression timing
+            _joke_expression = "silly" if "\n" in instant_text else None
             t_tts = time.monotonic()
             total_tts_bytes, elapsed = await _stream_orpheus_to_satellite(
                 conn, instant_text, tts_voice, is_filler=False,
                 auto_listen=instant_text.rstrip().endswith("?"),
+                expression=_joke_expression,
             )
             tts_ms = elapsed * 1000
             if total_tts_bytes > 0:

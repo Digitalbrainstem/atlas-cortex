@@ -96,7 +96,11 @@ class FillerCache:
         return self._initialized
 
     async def initialize(self, voice: str | None = None, force: bool = False) -> None:
-        """Pre-generate TTS audio for all filler phrases.
+        """Pre-generate TTS audio for a subset of filler phrases.
+
+        Only generates one phrase per sentiment category at startup to
+        minimize GPU contention with user requests. Remaining phrases
+        are generated lazily as needed.
 
         Args:
             voice: TTS voice ID to use. Falls back to system default.
@@ -111,8 +115,15 @@ class FillerCache:
             self._cache.clear()
             self._recent.clear()
             self._initialized = False
-        logger.info("Filler cache: pre-generating %d phrases...",
-                     sum(len(v) for v in CACHEABLE_FILLERS.values()))
+
+        # Only pre-generate ONE phrase per category to keep startup fast
+        startup_phrases: list[tuple[str, str]] = []
+        for sentiment, phrases in CACHEABLE_FILLERS.items():
+            if phrases:
+                startup_phrases.append((sentiment, phrases[0]))
+
+        logger.info("Filler cache: pre-generating %d phrases (1 per category)...",
+                     len(startup_phrases))
 
         from cortex.voice import stream_speech, resolve_default_voice
 
@@ -120,25 +131,27 @@ class FillerCache:
         voice = voice or resolve_default_voice()
         generated = 0
 
-        for sentiment, phrases in CACHEABLE_FILLERS.items():
-            self._cache[sentiment] = []
-            for phrase in phrases:
-                try:
-                    audio_bytes, sample_rate, _ = await _synthesize_for_cache(
-                        phrase, voice)
-                    if audio_bytes:
-                        duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
-                        self._cache[sentiment].append(CachedFiller(
-                            phrase=phrase,
-                            audio=audio_bytes,
-                            sample_rate=sample_rate,
-                            duration_ms=duration_ms,
-                        ))
-                        generated += 1
-                        logger.debug("Cached filler [%s] %.1fs: %r",
-                                     sentiment, duration_ms / 1000, phrase[:50])
-                except Exception as e:
-                    logger.warning("Failed to cache filler %r: %s", phrase[:40], e)
+        for sentiment, phrase in startup_phrases:
+            if sentiment not in self._cache:
+                self._cache[sentiment] = []
+            try:
+                audio_bytes, sample_rate, _ = await _synthesize_for_cache(
+                    phrase, voice)
+                if audio_bytes:
+                    duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
+                    self._cache[sentiment].append(CachedFiller(
+                        phrase=phrase,
+                        audio=audio_bytes,
+                        sample_rate=sample_rate,
+                        duration_ms=duration_ms,
+                    ))
+                    generated += 1
+                    logger.debug("Cached filler [%s] %.1fs: %r",
+                                 sentiment, duration_ms / 1000, phrase[:50])
+                # Small delay between generations to avoid hogging the GPU
+                await asyncio.sleep(0.2)
+            except Exception as e:
+                logger.warning("Failed to cache filler %r: %s", phrase[:40], e)
 
         self._initialized = True
         self._initializing = False
