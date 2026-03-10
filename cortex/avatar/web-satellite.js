@@ -230,6 +230,22 @@
   // ── Microphone capture ────────────────────────────────────────
   async function ensureMic() {
     if (micStream) return true;
+
+    // navigator.mediaDevices may be undefined on insecure (non-HTTPS) origins
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.error('[web-sat] getUserMedia not available — likely needs HTTPS or localhost');
+      updateStatus('⚠️ mic needs HTTPS — see console');
+      alert(
+        'Microphone access requires HTTPS or localhost.\n\n' +
+        'Options:\n' +
+        '1. Open chrome://flags/#unsafely-treat-insecure-origin-as-secure\n' +
+        '   and add: http://' + location.host + '\n' +
+        '2. Use Chrome/Edge instead of Firefox\n' +
+        '3. Access via http://localhost:5100 if on the same machine'
+      );
+      return false;
+    }
+
     try {
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -250,10 +266,17 @@
       mediaStreamSource.connect(processor);
       processor.connect(micContext.destination);
 
+      updateStatus('mic ready');
       return true;
     } catch (e) {
-      console.error('[web-sat] mic access denied:', e);
-      updateStatus('mic denied');
+      console.error('[web-sat] mic error:', e.name, e.message);
+      if (e.name === 'NotAllowedError') {
+        updateStatus('⚠️ mic blocked — click 🔒 in address bar');
+      } else if (e.name === 'NotFoundError') {
+        updateStatus('⚠️ no mic found');
+      } else {
+        updateStatus('⚠️ mic error: ' + e.name);
+      }
       return false;
     }
   }

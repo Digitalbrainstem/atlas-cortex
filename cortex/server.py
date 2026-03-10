@@ -41,6 +41,14 @@ from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
 
+# Configure logging for all cortex modules (needed when running under uvicorn
+# directly, since main() isn't called and basicConfig isn't triggered).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
 # ──────────────────────────────────────────────────────────────────
 # Server mDNS announcer (so satellites can auto-discover us)
 # ──────────────────────────────────────────────────────────────────
