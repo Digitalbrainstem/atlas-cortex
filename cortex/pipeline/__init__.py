@@ -77,6 +77,10 @@ async def _pipeline_generator(
 ) -> AsyncGenerator[str, None]:
     start_ms = int(time.monotonic() * 1000)
 
+    # Skip avatar TTS for satellite requests — the satellite handles its own
+    # audio via Orpheus streaming. Kokoro synthesis here would be wasted work.
+    _skip_avatar_tts = satellite_id is not None
+
     # ── Layer 0: Context Assembly ─────────────────────────────
     t0 = time.monotonic()
     context = await assemble_context(
@@ -116,11 +120,13 @@ async def _pipeline_generator(
                 if part:
                     # Use TTS-optimized punchline for audio (phonetic pronunciation)
                     tts_text = _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part
-                    await _fire_avatar_tts(room, tts_text, expression=_avatar_expression)
+                    if not _skip_avatar_tts:
+                        await _fire_avatar_tts(room, tts_text, expression=_avatar_expression)
             # Silly expression after punchline
             await _fire_avatar_expression(room, "neutral", 0.5, f"{message} {instant_response}")
         else:
-            await _fire_avatar_tts(room, instant_response, expression=_avatar_expression)
+            if not _skip_avatar_tts:
+                await _fire_avatar_tts(room, instant_response, expression=_avatar_expression)
 
         yield instant_response
         await _fire_avatar_speaking(room, False)
@@ -142,7 +148,8 @@ async def _pipeline_generator(
         logger.info("Layer 2 hit (%.1fms): %r [total %dms]", layer2_ms, plugin_response[:80], total_ms)
         await _fire_avatar_speaking(room, True)
         _fire_avatar_visemes(room, plugin_response)
-        await _fire_avatar_tts(room, plugin_response, expression=_avatar_expression)
+        if not _skip_avatar_tts:
+            await _fire_avatar_tts(room, plugin_response, expression=_avatar_expression)
         yield plugin_response
         await _fire_avatar_speaking(room, False)
         _log_interaction(
@@ -178,14 +185,16 @@ async def _pipeline_generator(
         _sentence_buf += chunk
         if any(_sentence_buf.rstrip().endswith(p) for p in (".", "!", "?", "\n")):
             _fire_avatar_visemes(room, _sentence_buf)
-            await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
+            if not _skip_avatar_tts:
+                await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
             _sentence_buf = ""
         yield chunk
 
     # Flush any remaining text
     if _sentence_buf.strip():
         _fire_avatar_visemes(room, _sentence_buf)
-        await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
+        if not _skip_avatar_tts:
+            await _fire_avatar_tts(room, _sentence_buf, expression=_avatar_expression)
 
     # Fire content-aware reaction expression AFTER the response (e.g. silly after punchline)
     full_response = "".join(full_response_parts)
