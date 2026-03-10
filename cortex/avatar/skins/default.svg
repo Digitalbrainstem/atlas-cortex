@@ -57,9 +57,14 @@
   <!-- ── Mouth shapes (visemes) — only one visible at a time ─── -->
   <!-- Cartoon bank: 6 exaggerated shapes for clear, snappy animation -->
 
-  <!-- IDLE: big friendly smile -->
+  <!-- IDLE: big friendly smile (resting) -->
   <g id="mouth-IDLE" style="display:none">
     <path d="M140 268 Q200 310 260 268" fill="none" stroke="#C0392B" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- IDLE-TALK: smaller smile used between words while speaking -->
+  <g id="mouth-IDLE-TALK" style="display:none">
+    <path d="M160 272 Q200 296 240 272" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round"/>
   </g>
 
   <!-- CLOSED: lips pressed together (b, p, m) — firm line -->

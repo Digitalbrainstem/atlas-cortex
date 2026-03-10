@@ -107,7 +107,7 @@
 
   <script>
     const VISEMES = [
-      'IDLE','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU',
+      'IDLE','IDLE-TALK','PP','FF','TH','DD','KK','SS','SH','RR','NN','IH','EH','AA','OH','OU',
       'CLOSED','OPEN','ROUND','TEETH','FV'
     ];
     const EXPRESSIONS = [
@@ -116,6 +116,7 @@
     ];
 
     // Expression-to-animation mapping (Nick Jr. style movement behaviors)
+    let _isFaceless = false; // true when skin has no face shape (bg IS the face)
     const EXPR_ANIMATIONS = {
       neutral:   { drift: true,  scale: 1.0,  squash: false, shake: false, bounce: false, spin: false, tilt: 0 },
       happy:     { drift: true,  scale: 1.05, squash: false, shake: false, bounce: true,  spin: false, tilt: 0 },
@@ -260,6 +261,12 @@
     let _initialSkin = 'default';
     const _skinMatch = _hash.match(/skin=([a-z0-9_-]+)/);
     if (_skinMatch) _initialSkin = _skinMatch[1];
+    // Background color from hash: #bg=FF9E1B
+    const _bgMatch = location.hash.match(/bg=([0-9a-fA-F]{3,8})/);
+    if (_bgMatch) {
+      document.body.style.background = '#' + _bgMatch[1];
+      document.getElementById('avatar-container').style.background = '#' + _bgMatch[1];
+    }
 
     if (_showControls) {
       document.getElementById('controls-bar').classList.add('visible');
@@ -537,6 +544,14 @@
           _visemeBank = bank;
           CHAR_VISEME = bank === 'realistic' ? REALISTIC_VISEME : CARTOON_VISEME;
           console.log('Viseme bank:', bank);
+          // If skin has no face-base children, it's a "faceless" skin —
+          // the page background IS the face. Set CSS var for lid fills.
+          const faceBase = svg.querySelector('#face-base');
+          _isFaceless = !faceBase || faceBase.children.length === 0;
+          if (_isFaceless) {
+            const bg = getComputedStyle(document.body).backgroundColor;
+            svg.style.setProperty('--face-bg', bg);
+          }
         }
         showViseme('IDLE');
         showExpression('neutral');
@@ -556,6 +571,11 @@
       if (_exprReplacesMouth) {
         console.log('viseme BLOCKED:', viseme, '(expr has own mouth)');
         return;
+      }
+      // Use smaller talk-smile between words while speaking
+      if (viseme === 'IDLE' && _isSpeaking) {
+        const talkEl = document.getElementById('mouth-IDLE-TALK');
+        if (talkEl) viseme = 'IDLE-TALK';
       }
       const el = document.getElementById(`mouth-${viseme}`);
       if (!el && viseme !== 'IDLE') {
@@ -711,15 +731,21 @@
 
     // ── Spin animation (silly) ────────────────────────────────
     function doSpin() {
-      scaler.style.transition = 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
-      scaler.style.transform = 'scale(1.1) rotate(360deg)';
+      // For faceless skins, spin the entire page (background IS the face)
+      const target = _isFaceless ? document.getElementById('avatar-container') : scaler;
+      target.style.transition = 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      target.style.transform = 'scale(1.1) rotate(360deg)';
       setTimeout(() => {
-        scaler.style.transition = 'none';
-        scaler.style.transform = 'scale(1.1) rotate(0deg)';
+        target.style.transition = 'none';
+        target.style.transform = 'scale(1.1) rotate(0deg)';
         setTimeout(() => {
-          scaler.style.transition = 'transform 0.3s ease-out';
-          const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
-          scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+          target.style.transition = 'transform 0.3s ease-out';
+          if (_isFaceless) {
+            target.style.transform = 'scale(1) rotate(0deg)';
+          } else {
+            const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+            scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+          }
         }, 50);
       }, 600);
     }
