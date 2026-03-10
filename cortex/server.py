@@ -57,6 +57,11 @@ async def lifespan(app: FastAPI):
     # Pre-generate filler audio cache in background (don't block startup)
     async def _warm_filler_cache() -> None:
         try:
+            from cortex.jokes import _migrate_flat_cache
+            _migrate_flat_cache()
+        except Exception as e:
+            logger.warning("TTS cache migration failed: %s", e)
+        try:
             from cortex.filler.cache import get_filler_cache
             await get_filler_cache().initialize()
         except Exception as e:

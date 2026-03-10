@@ -1076,7 +1076,59 @@ async def set_default_voice(body: dict, admin: dict = Depends(require_admin)):
     db.commit()
 
     logger.info("System default TTS voice set to: %s", voice)
+
+    # Kick off background regeneration of cached audio for the new voice
+    import asyncio
+    asyncio.create_task(_regenerate_cache_for_voice(voice))
+
     return {"default_voice": voice}
+
+
+async def _regenerate_cache_for_voice(voice: str) -> None:
+    """Background task: re-generate fillers + joke audio for a voice."""
+    logger.info("Starting cache regeneration for voice: %s", voice)
+    results = {"fillers": 0, "jokes": 0, "errors": []}
+
+    # 1. Regenerate filler cache
+    try:
+        from cortex.filler.cache import get_filler_cache
+        cache = get_filler_cache()
+        await cache.initialize(voice=voice, force=True)
+        results["fillers"] = sum(len(v) for v in cache._cache.values())
+        logger.info("Filler cache regenerated: %d phrases for voice=%s", results["fillers"], voice)
+    except Exception as e:
+        logger.warning("Filler regeneration failed: %s", e)
+        results["errors"].append(f"fillers: {e}")
+
+    # 2. Regenerate joke audio
+    try:
+        from cortex.jokes import pre_generate_joke_audio
+        results["jokes"] = await pre_generate_joke_audio(voice)
+        logger.info("Joke audio regenerated: %d segments for voice=%s", results["jokes"], voice)
+    except Exception as e:
+        logger.warning("Joke audio regeneration failed: %s", e)
+        results["errors"].append(f"jokes: {e}")
+
+    logger.info("Cache regeneration complete for voice=%s: %s", voice, results)
+
+
+@router.post("/tts/regenerate")
+async def regenerate_tts_cache(body: dict, admin: dict = Depends(require_admin)):
+    """Regenerate all pre-cached TTS audio for a voice.
+
+    Body: {"voice": "af_bella"}  (optional — defaults to system default)
+    """
+    voice = body.get("voice", "")
+    if not voice:
+        db = get_db()
+        row = db.execute("SELECT value FROM system_settings WHERE key = 'default_tts_voice'").fetchone()
+        voice = row["value"] if row else ""
+    if not voice:
+        return {"error": "No voice specified and no system default set"}, 400
+
+    import asyncio
+    asyncio.create_task(_regenerate_cache_for_voice(voice))
+    return {"status": "regenerating", "voice": voice}
 
 
 @router.post("/tts/preview")

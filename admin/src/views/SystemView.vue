@@ -43,6 +43,9 @@ const loadingVoices = ref(true)
 const systemDefaultVoice = ref('')
 const selectedVoice = ref('')
 const savingVoice = ref(false)
+const previewingVoice = ref('')
+const regenerating = ref(false)
+const previewAudio = ref(null)
 
 onMounted(() => {
   fetchHardware()
@@ -115,17 +118,65 @@ async function fetchVoices() {
 
 async function saveDefaultVoice() {
   savingVoice.value = true
+  regenerating.value = true
   error.value = ''
   success.value = ''
   try {
     await api.put('/admin/tts/default_voice', { voice: selectedVoice.value })
     systemDefaultVoice.value = selectedVoice.value
-    success.value = 'Default voice updated'
-    setTimeout(() => { success.value = '' }, 3000)
+    success.value = 'Default voice updated — regenerating cached audio…'
+    // Poll briefly then clear regenerating indicator
+    setTimeout(() => {
+      regenerating.value = false
+      success.value = 'Default voice updated and cache regenerated'
+      setTimeout(() => { success.value = '' }, 4000)
+    }, 8000)
   } catch (e) {
     error.value = e.message
+    regenerating.value = false
   } finally {
     savingVoice.value = false
+  }
+}
+
+async function previewVoice(voiceName) {
+  if (previewingVoice.value === voiceName) {
+    // Stop current preview
+    if (previewAudio.value) {
+      previewAudio.value.pause()
+      previewAudio.value = null
+    }
+    previewingVoice.value = ''
+    return
+  }
+  previewingVoice.value = voiceName
+  try {
+    const resp = await fetch('/admin/tts/preview', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('atlas-admin-token')}`,
+      },
+      body: JSON.stringify({ text: 'Hi there! I\'m Atlas, your home assistant.', voice: voiceName, target: 'browser' }),
+    })
+    if (!resp.ok) throw new Error('Preview failed')
+    const blob = await resp.blob()
+    const url = URL.createObjectURL(blob)
+    if (previewAudio.value) previewAudio.value.pause()
+    const audio = new Audio(url)
+    previewAudio.value = audio
+    audio.onended = () => {
+      previewingVoice.value = ''
+      URL.revokeObjectURL(url)
+    }
+    audio.onerror = () => {
+      previewingVoice.value = ''
+      URL.revokeObjectURL(url)
+    }
+    await audio.play()
+  } catch (e) {
+    error.value = `Preview failed: ${e.message}`
+    previewingVoice.value = ''
   }
 }
 
@@ -173,12 +224,37 @@ function formatBytes(bytes) {
                 {{ savingVoice ? 'Saving…' : 'Save' }}
               </button>
             </div>
+            <div v-if="regenerating" class="regen-banner">
+              ⏳ Regenerating fillers &amp; joke audio for new voice…
+            </div>
             <div class="form-hint">
-              Voice resolution: User preference → Satellite override → System default → Environment variable
+              Voice resolution: User preference → System default → Environment variable
             </div>
           </div>
         </div>
-        <div v-if="voices.length" class="voice-count">{{ voices.length }} voices available across {{ [...new Set(voices.map(v => v.provider))].join(', ') }}</div>
+
+        <div v-if="voices.length" class="voice-list">
+          <div class="voice-list-header">Available Voices</div>
+          <div class="voice-grid">
+            <div v-for="v in voices" :key="v.name" class="voice-card" :class="{ active: v.name === systemDefaultVoice }">
+              <div class="voice-card-info">
+                <div class="voice-card-name">{{ v.name }}</div>
+                <div class="voice-card-meta">{{ v.provider }}{{ v.description && v.description !== v.name ? ' · ' + v.description : '' }}</div>
+              </div>
+              <div class="voice-card-actions">
+                <button
+                  class="btn btn-sm btn-play"
+                  :class="{ playing: previewingVoice === v.name }"
+                  @click="previewVoice(v.name)"
+                  :title="previewingVoice === v.name ? 'Stop' : 'Preview'"
+                >
+                  {{ previewingVoice === v.name ? '⏹' : '▶' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="voice-count">{{ voices.length }} voices across {{ [...new Set(voices.map(v => v.provider))].join(', ') }}</div>
+        </div>
       </div>
     </div>
 
@@ -409,6 +485,83 @@ function formatBytes(bytes) {
   font-size: 0.8rem;
   color: #888;
   margin-top: 0.8rem;
+}
+.voice-list {
+  margin-top: 1.2rem;
+}
+.voice-list-header {
+  font-size: 0.85rem;
+  color: #aaa;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.voice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.6rem;
+}
+.voice-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #16162a;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  transition: border-color 0.15s;
+}
+.voice-card.active {
+  border-color: #646cff;
+  background: rgba(100, 108, 255, 0.08);
+}
+.voice-card-name {
+  font-weight: 600;
+  color: #eee;
+  font-size: 0.9rem;
+}
+.voice-card-meta {
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 0.15rem;
+}
+.btn-play {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  border-radius: 50%;
+  background: #2a2a4a;
+  color: #ccc;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-play:hover {
+  background: #646cff;
+  color: #fff;
+}
+.btn-play.playing {
+  background: #dc3545;
+  color: #fff;
+}
+.regen-banner {
+  background: rgba(100, 108, 255, 0.12);
+  border: 1px solid rgba(100, 108, 255, 0.3);
+  color: #a0a8ff;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  animation: pulse-border 1.5s infinite;
+}
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(100, 108, 255, 0.3); }
+  50% { border-color: rgba(100, 108, 255, 0.7); }
 }
 .btn {
   border: none;

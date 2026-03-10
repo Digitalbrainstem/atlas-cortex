@@ -209,11 +209,35 @@ def get_random_joke(room: str = "default", user_id: str | None = None) -> Joke |
 
 # ── TTS pre-caching ──────────────────────────────────────────────
 
-def _cache_dir() -> Path:
+def _cache_dir(voice_id: str = "") -> Path:
     data_dir = Path(os.environ.get("CORTEX_DATA_DIR", "./data"))
-    cache = data_dir / "tts_cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    return cache
+    base = data_dir / "tts_cache"
+    if voice_id:
+        d = base / voice_id
+    else:
+        d = base
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _migrate_flat_cache() -> None:
+    """Move legacy flat {voice}_{hash}.pcm files into per-voice subdirs."""
+    base = Path(os.environ.get("CORTEX_DATA_DIR", "./data")) / "tts_cache"
+    if not base.exists():
+        return
+    for f in base.glob("*.pcm"):
+        # Legacy format: {voice_id}_{hash}.pcm — split on last underscore
+        parts = f.stem.rsplit("_", 1)
+        if len(parts) == 2:
+            voice_id, h = parts
+            dest = base / voice_id
+            dest.mkdir(parents=True, exist_ok=True)
+            new_path = dest / f"{h}.pcm"
+            if not new_path.exists():
+                f.rename(new_path)
+                logger.debug("Migrated %s → %s", f.name, new_path)
+            else:
+                f.unlink()  # duplicate
 
 
 def _text_hash(text: str) -> str:
@@ -243,16 +267,16 @@ async def cache_tts(text: str, voice_id: str = "default", speed: float = 1.0) ->
         sample_rate = getattr(tts, "sample_rate", 24000)
 
         audio_chunks = []
-        async for chunk in tts.synthesize(text, speed=speed, stream=True):
+        async for chunk in tts.synthesize(text, speed=speed, voice=voice_id, stream=True):
             audio_chunks.append(chunk)
         pcm = b"".join(audio_chunks)
 
         if not pcm:
             return None
 
-        # Save to file
+        # Save to per-voice subdirectory
         h = _text_hash(text)
-        path = _cache_dir() / f"{voice_id}_{h}.pcm"
+        path = _cache_dir(voice_id) / f"{h}.pcm"
         path.write_bytes(pcm)
 
         # Record in DB
@@ -308,7 +332,8 @@ async def stream_cached_joke_to_avatar(room: str, joke: Joke) -> bool:
     if not should_play_on_avatar(room):
         return False
 
-    voice_id = "default"  # TODO: resolve from room/user
+    from cortex.voice import resolve_default_voice
+    voice_id = resolve_default_voice()
 
     # Build (display_text, tts_text) pairs — TTS text may differ for phonetic jokes
     segments = [
