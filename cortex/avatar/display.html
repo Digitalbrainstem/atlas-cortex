@@ -402,6 +402,14 @@
       return Math.max(0, (nextPlayTime - ctx.currentTime) * 1000);
     }
 
+    // Expose TTS handlers and audio state for web-satellite overlay
+    window.handleTtsStart = handleTtsStart;
+    window.handleTtsChunk = handleTtsChunk;
+    window.handleTtsEnd = handleTtsEnd;
+    window.audioCtx = audioCtx;  // updated lazily via getter below
+    Object.defineProperty(window, 'audioCtx', { get: () => audioCtx });
+    Object.defineProperty(window, 'nextPlayTime', { get: () => nextPlayTime });
+
     // Center the face initially
     const centerX = () => (window.innerWidth - mover.offsetWidth) / 2;
     const centerY = () => (window.innerHeight - mover.offsetHeight) / 2;
@@ -985,5 +993,6 @@
     loadSkin('/avatar/skin/' + _initialSkin + '.svg');
     connect();
   </script>
+  <script src="/avatar/web-satellite.js"></script>
 </body>
 </html>
