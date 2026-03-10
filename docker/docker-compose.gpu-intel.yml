@@ -1,7 +1,8 @@
 # GPU override for Intel-only systems (single GPU).
 # Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-intel.yml up -d
 #
-# Both LLM and voice share the same Intel GPU.
+# Note: Orpheus vLLM requires CUDA. On Intel-only systems,
+# Orpheus will not work — use Kokoro as primary TTS.
 
 services:
   atlas-ollama:
@@ -11,18 +12,6 @@ services:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_KEEP_ALIVE=0
       - OLLAMA_VULKAN=1
-    group_add:
-      - video
-
-  atlas-orpheus:
-    devices:
-      - /dev/dri:/dev/dri
-    group_add:
-      - video
-
-  atlas-llama-voice:
-    devices:
-      - /dev/dri:/dev/dri
     group_add:
       - video
 

@@ -2,24 +2,19 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.gpu-nvidia.yml up -d
 #
 # Requirements:
-#   - NVIDIA GPU with CUDA support
+#   - NVIDIA GPU(s) with CUDA support
 #   - nvidia-container-toolkit installed on host
+#   - 'nvidia' runtime configured in /etc/docker/daemon.json
 
 services:
   atlas-ollama:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
   atlas-orpheus:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
