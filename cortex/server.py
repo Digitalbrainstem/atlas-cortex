@@ -355,6 +355,17 @@ async def serve_avatar_display():
     )
 
 
+@app.get("/avatar/web-satellite.js")
+async def serve_web_satellite_js():
+    """Serve the web satellite overlay script."""
+    _js = Path(__file__).resolve().parent / "avatar" / "web-satellite.js"
+    return FileResponse(
+        _js,
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 # ──────────────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────────────
