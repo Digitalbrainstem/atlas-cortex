@@ -105,8 +105,9 @@ async def _pipeline_generator(
     if instant_response is not None:
         total_ms = int(time.monotonic() * 1000) - start_ms
         logger.info("Layer 1 hit (%.1fms): %r [total %dms]", layer1_ms, instant_response[:80], total_ms)
-        await _fire_avatar_speaking(room, True)
-        _fire_avatar_visemes(room, instant_response)
+        if not _skip_avatar_tts:
+            await _fire_avatar_speaking(room, True)
+            _fire_avatar_visemes(room, instant_response)
 
         # For jokes, try pre-cached TTS (setup + punchline separately)
         _is_joke = "\n" in instant_response and any(
@@ -122,14 +123,17 @@ async def _pipeline_generator(
                     tts_text = _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part
                     if not _skip_avatar_tts:
                         await _fire_avatar_tts(room, tts_text, expression=_avatar_expression)
-            # Silly expression after punchline
-            await _fire_avatar_expression(room, "neutral", 0.5, f"{message} {instant_response}")
+            # Silly expression after punchline (only for non-satellite — satellite
+            # handles expression via TTS message timing)
+            if not _skip_avatar_tts:
+                await _fire_avatar_expression(room, "neutral", 0.5, f"{message} {instant_response}")
         else:
             if not _skip_avatar_tts:
                 await _fire_avatar_tts(room, instant_response, expression=_avatar_expression)
 
         yield instant_response
-        await _fire_avatar_speaking(room, False)
+        if not _skip_avatar_tts:
+            await _fire_avatar_speaking(room, False)
         _log_interaction(
             db_conn, context, message, instant_response,
             matched_layer="instant",
@@ -146,12 +150,13 @@ async def _pipeline_generator(
     if plugin_response is not None:
         total_ms = int(time.monotonic() * 1000) - start_ms
         logger.info("Layer 2 hit (%.1fms): %r [total %dms]", layer2_ms, plugin_response[:80], total_ms)
-        await _fire_avatar_speaking(room, True)
-        _fire_avatar_visemes(room, plugin_response)
         if not _skip_avatar_tts:
+            await _fire_avatar_speaking(room, True)
+            _fire_avatar_visemes(room, plugin_response)
             await _fire_avatar_tts(room, plugin_response, expression=_avatar_expression)
         yield plugin_response
-        await _fire_avatar_speaking(room, False)
+        if not _skip_avatar_tts:
+            await _fire_avatar_speaking(room, False)
         _log_interaction(
             db_conn, context, message, plugin_response,
             matched_layer="tool",

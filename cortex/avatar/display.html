@@ -403,10 +403,17 @@
       _pendingTtsText = '';
       _sentenceSamples = 0;
 
+      // If TTS_END includes an expression hint (e.g. "silly" after a joke
+      // punchline), schedule it to fire when the audio finishes playing.
+      const remaining = audioRemainingMs();
+      if (msg.expression && msg.expression !== 'neutral') {
+        const exprDelay = Math.max(0, remaining - 500);  // slightly before audio ends
+        setTimeout(() => setExpression(msg.expression, 1.0), exprDelay);
+      }
+
       // After audio drains, reset expression to neutral (mirrors SPEAKING_END logic).
       // This ensures the face resets even when audio comes via satellite WS
       // (which doesn't fire SPEAKING_END through the avatar WS).
-      const remaining = audioRemainingMs();
       const resetDelay = Math.max(0, remaining) + 3000;
       if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
       _neutralResetTimer = setTimeout(() => {
