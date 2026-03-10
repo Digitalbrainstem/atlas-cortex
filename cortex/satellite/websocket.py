@@ -360,21 +360,15 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
 
 def _is_hallucinated(transcript: str) -> bool:
     """Detect whisper hallucination patterns (repeated phrases, noise)."""
-    words = transcript.split()
-    if len(words) < 3:
-        return False
-    # Check for repeated short phrases (e.g. "Okay. Okay. Okay.")
-    segments = [s.strip() for s in transcript.replace("\n", " ").split(".") if s.strip()]
-    if len(segments) >= 4:
-        unique = set(s.lower() for s in segments)
-        if len(unique) <= 2:
-            return True
-    # Common whisper hallucinations on silence/noise
+    # Common whisper hallucinations on silence/noise — check these FIRST
+    # regardless of word count, since many are just 1-2 words.
     lower = transcript.lower().strip().rstrip(".")
     hallucination_exact = {
         "thank you for watching",
         "thanks for watching",
         "please subscribe",
+        "transcription by castingwords",
+        "subtitles by the amara.org community",
         "you",
         "...",
         "okay",
@@ -386,6 +380,14 @@ def _is_hallucinated(transcript: str) -> bool:
     }
     if lower in hallucination_exact:
         return True
+
+    words = transcript.split()
+    # Check for repeated short phrases (e.g. "Okay. Okay. Okay.")
+    segments = [s.strip() for s in transcript.replace("\n", " ").split(".") if s.strip()]
+    if len(segments) >= 4:
+        unique = set(s.lower() for s in segments)
+        if len(unique) <= 2:
+            return True
     # Whisper commonly hallucinates "I'm going to go..." on noise
     hallucination_prefixes = (
         "i'm going to go",
@@ -510,9 +512,8 @@ async def _synthesize_text(text: str, voice: str) -> tuple[bytes, int, str]:
         except Exception as e:
             logger.warning("Orpheus TTS failed: %s", e)
 
-    # --- Kokoro (CPU fallback) ---
-    if _TTS_PROVIDER in ("kokoro", "auto"):
-        try:
+    # --- Kokoro (CPU fallback — always tried if Orpheus fails) ---
+    try:
             from cortex.voice.kokoro import KokoroClient
             kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
             kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
@@ -571,6 +572,19 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
 
     satellite_id = conn.satellite_id
     t_start = time.monotonic()
+
+    # Reject very short audio clips — likely echo/noise, not real speech.
+    # 16kHz 16-bit mono = 32000 bytes/sec. Minimum ~1.5s of audio needed.
+    min_audio_bytes = 48000  # ~1.5s
+    if len(audio_data) < min_audio_bytes:
+        audio_sec = len(audio_data) / 32000
+        logger.info("Audio too short from %s (%.1fs, %d bytes) — dropping",
+                     satellite_id, audio_sec, len(audio_data))
+        try:
+            await conn.send({"type": "PIPELINE_ERROR", "detail": "Audio too short"})
+        except Exception:
+            pass
+        return
 
     # Always import Wyoming for Piper TTS (filler + fallback)
     from cortex.voice.wyoming import WyomingClient, WyomingError
