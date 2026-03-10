@@ -489,17 +489,6 @@
     // ════════════════════════════════════════════════════════════
     // ██  END FACE & MOUTH CONTROLLER                           ██
     // ════════════════════════════════════════════════════════════
-      if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
-      _neutralResetTimer = setTimeout(() => {
-        _neutralResetTimer = null;
-        _isSpeaking = false;
-        setViseme('IDLE', 200, 0);
-        setExpression('neutral', 1.0);
-        statusEl.textContent = 'idle';
-        statusEl.className = '';
-        checkPupilSpeed();
-      }, resetDelay);
-    }
 
     // When web-satellite overlay is active, it routes satellite TTS
     // to handleTtsStart/Chunk/End directly. Suppress avatar-WS audio
