@@ -860,8 +860,12 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
         if len(tokens) == 1 and tokens[0].strip():
             # ── Instant answer (Layer 1/2): single token IS the answer ──
             instant_text = tokens[0].strip()
-            # Detect jokes (setup\npunchline) for expression timing
-            _joke_expression = "silly" if "\n" in instant_text else None
+            # Detect jokes (setup\npunchline) — add laugh and expression
+            _joke_expression = None
+            if "\n" in instant_text:
+                _joke_expression = "laughing"
+                # Append a chuckle so Orpheus generates a laugh at the end
+                instant_text = instant_text + " <chuckle>"
             t_tts = time.monotonic()
             total_tts_bytes, elapsed = await _stream_orpheus_to_satellite(
                 conn, instant_text, tts_voice, is_filler=False,
