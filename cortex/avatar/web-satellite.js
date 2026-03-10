@@ -160,6 +160,10 @@
         isConnected = true;
         updateMode();
         console.log('[web-sat] connected as', SATELLITE_ID);
+        // Suppress avatar WS audio — satellite WS handles audio playback
+        if (typeof window.setSuppressAvatarWsAudio === 'function') {
+          window.setSuppressAvatarWsAudio(true);
+        }
         // If VAD mode, start listening immediately
         if (mode === 'vad') startListeningIfIdle();
         break;

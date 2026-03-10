@@ -402,6 +402,13 @@
       return Math.max(0, (nextPlayTime - ctx.currentTime) * 1000);
     }
 
+    // When web-satellite overlay is active, it routes satellite TTS
+    // to handleTtsStart/Chunk/End directly. Suppress avatar-WS audio
+    // to avoid double playback. Visemes and expressions still come
+    // through the avatar WS — only audio is suppressed.
+    let _suppressAvatarWsAudio = false;
+    window.setSuppressAvatarWsAudio = (v) => { _suppressAvatarWsAudio = !!v; };
+
     // Expose TTS handlers and audio state for web-satellite overlay
     window.handleTtsStart = handleTtsStart;
     window.handleTtsChunk = handleTtsChunk;
@@ -523,13 +530,13 @@
         case 'PONG':
           break;
         case 'TTS_START':
-          handleTtsStart(msg);
+          if (!_suppressAvatarWsAudio) handleTtsStart(msg);
           break;
         case 'TTS_CHUNK':
-          handleTtsChunk(msg);
+          if (!_suppressAvatarWsAudio) handleTtsChunk(msg);
           break;
         case 'TTS_END':
-          handleTtsEnd(msg);
+          if (!_suppressAvatarWsAudio) handleTtsEnd(msg);
           break;
       }
     }
