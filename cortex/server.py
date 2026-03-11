@@ -66,6 +66,13 @@ async def lifespan(app: FastAPI):
     # Register mDNS announcer as a lifecycle service
     register_service("mDNS", _server_announcer.start, _server_announcer.stop)
 
+    # Initialize memory system (HOT recall + COLD write queue)
+    from cortex.memory import MemorySystem, set_memory_system
+    from cortex.db import get_db
+    _memory = MemorySystem(conn=get_db())
+    set_memory_system(_memory)
+    register_service("memory", _memory.start, _memory.stop)
+
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
         try:

@@ -20,7 +20,7 @@ from cortex.memory.types import MemoryEntry, MemoryHit
 from cortex.memory.vector import VectorStore, get_embedding
 from cortex.memory.hot import rrf_fuse, hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
-from cortex.memory.controller import MemorySystem
+from cortex.memory.controller import MemorySystem, get_memory_system, set_memory_system
 
 # Backward compat aliases (old private names used in tests)
 _classify_memory = classify_memory
@@ -41,4 +41,6 @@ __all__ = [
     "format_memory_context",
     "MemoryWriter",
     "MemorySystem",
+    "get_memory_system",
+    "set_memory_system",
 ]
