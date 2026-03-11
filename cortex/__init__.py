@@ -12,4 +12,6 @@ Quickstart::
         print(chunk, end="", flush=True)
 """
 
+# Module ownership: Root package
+
 __version__ = "1.0.0"

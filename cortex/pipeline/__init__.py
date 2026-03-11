@@ -4,6 +4,8 @@ Exports :func:`run_pipeline` (backward-compatible, yields text strings)
 and :func:`run_pipeline_events` (yields typed :class:`PipelineEvent` objects).
 """
 
+# Module ownership: Pure NLU pipeline: yields typed events
+
 from __future__ import annotations
 
 import asyncio

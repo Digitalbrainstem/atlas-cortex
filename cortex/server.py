@@ -88,6 +88,27 @@ async def lifespan(app: FastAPI):
 
     register_startup_task("filler-cache", _warm_filler_cache)
 
+    # Register knowledge sync as background service (syncs WebDAV/CalDAV)
+    _knowledge_sync = None
+    try:
+        from cortex.integrations.knowledge.scheduler import KnowledgeSyncScheduler
+        _knowledge_sync = KnowledgeSyncScheduler(conn=get_db(), interval_minutes=60)
+        register_service("knowledge-sync", _knowledge_sync.start, _knowledge_sync.stop)
+    except Exception as e:
+        logger.debug("Knowledge sync not available: %s", e)
+
+    # Register nightly evolution as background startup task
+    async def _run_nightly_evolution() -> None:
+        try:
+            from cortex.learning import NightlyEvolution
+            evo = NightlyEvolution(conn=get_db())
+            result = await evo.run()
+            logger.info("Nightly evolution: %s", result)
+        except Exception as e:
+            logger.debug("Nightly evolution failed (non-fatal): %s", e)
+
+    register_startup_task("nightly-evolution", _run_nightly_evolution)
+
     await start_all()
     yield
     await stop_all()

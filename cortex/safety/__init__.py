@@ -10,6 +10,8 @@ Implements:
 See docs/safety-guardrails.md for the full design.
 """
 
+# Module ownership: Guardrails: input/output safety, jailbreak defense
+
 from __future__ import annotations
 
 import logging

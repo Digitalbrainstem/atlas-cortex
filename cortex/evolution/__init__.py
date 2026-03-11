@@ -8,6 +8,8 @@ Personality Evolution (C4.2), Contextual Response Personalization (C4.3),
 and Memory & Proactive Suggestions (C4.4).
 """
 
+# Module ownership: Emotional evolution: rapport, mood tracking
+
 from __future__ import annotations
 
 import json

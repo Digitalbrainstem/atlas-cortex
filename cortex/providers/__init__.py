@@ -8,6 +8,8 @@ Usage::
     provider = get_provider("openai_compatible", base_url="http://...")
 """
 
+# Module ownership: LLM providers: Ollama, OpenAI-compatible
+
 from __future__ import annotations
 
 import os
