@@ -418,10 +418,11 @@
         _sentenceAudioStartSet = true;
 
         if (_pendingTtsText) {
-          // Estimate: ~95ms per character for Orpheus at normal speed.
-          // This gets the mouth moving in sync. TTS_END refines with
-          // real duration for the tail end.
-          const estimatedDurationMs = _pendingTtsText.length * 95;
+          // Duration estimate: base 800ms (Orpheus prosody overhead) +
+          // 100ms per character. Short text gets proportionally more time
+          // due to natural pauses at sentence boundaries.
+          // TTS_END corrects with real duration for the tail end.
+          const estimatedDurationMs = Math.max(2000, 800 + _pendingTtsText.length * 100);
           // Delay = time until audio actually starts playing.
           // If filler/previous audio is queued, this is non-zero.
           const delayMs = Math.max(0, (_sentenceAudioStart - ctx.currentTime) * 1000);
