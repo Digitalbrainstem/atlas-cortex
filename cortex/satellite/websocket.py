@@ -32,88 +32,22 @@ from cortex.db import get_db, init_db
 
 logger = logging.getLogger(__name__)
 
-# STT configuration — supports "whisper_cpp" (HTTP) and "wyoming" (TCP) backends
-_STT_BACKEND = os.environ.get("STT_BACKEND", "whisper_cpp")
-_STT_HOST = os.environ.get("STT_HOST", "localhost")
-_STT_PORT = int(os.environ.get("STT_PORT", "10300"))
-_PIPER_HOST = os.environ.get("PIPER_HOST", os.environ.get("TTS_HOST", "localhost"))
-_PIPER_PORT = int(os.environ.get("PIPER_PORT", os.environ.get("TTS_PORT", "10200")))
+# Speech service — centralized TTS/STT/voice resolution
+from cortex.speech import (
+    synthesize_speech as _synthesize_text,
+    extract_pcm as _extract_pcm,
+    is_hallucinated as _is_hallucinated,
+    resolve_voice as _resolve_voice_impl,
+    to_orpheus_voice as _to_orpheus_voice,
+)
 
-# Kokoro TTS configuration
-_KOKORO_HOST = os.environ.get("KOKORO_HOST", "localhost")
-_KOKORO_PORT = int(os.environ.get("KOKORO_PORT", "8880"))
-_KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_bella")
-_TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "orpheus")
-
-# Orpheus TTS configuration
+# Re-read env vars for Orpheus streaming (still inline until Phase 4)
 _ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
-_ORPHEUS_VOICES = {"tara", "leah", "jess", "leo", "dan", "mia", "zac", "nova"}
-
-
-def _to_orpheus_voice(voice: str) -> str:
-    """Map any voice name to a valid Orpheus voice.
-
-    Kokoro voices (af_bella, af_heart, etc.) get mapped to the default.
-    Orpheus-prefixed names get the prefix stripped.
-    """
-    bare = (voice or "tara").replace("orpheus_", "")
-    return bare if bare in _ORPHEUS_VOICES else "tara"
-
-
-def _get_satellite_voice(satellite_id: str) -> str:
-    """Read the configured TTS voice for a satellite from DB."""
-    try:
-        db = get_db()
-        row = db.execute(
-            "SELECT tts_voice FROM satellites WHERE id = ?", (satellite_id,)
-        ).fetchone()
-        return (row["tts_voice"] or "") if row else ""
-    except Exception:
-        return ""
-
-
-def _get_system_default_voice() -> str:
-    """Read the system-wide default TTS voice from settings."""
-    try:
-        db = get_db()
-        row = db.execute(
-            "SELECT value FROM system_settings WHERE key = 'default_tts_voice'"
-        ).fetchone()
-        return row["value"] if row else ""
-    except Exception:
-        return ""
-
-
-def _get_user_voice(user_id: str) -> str:
-    """Read the preferred TTS voice for a user from DB."""
-    if not user_id:
-        return ""
-    try:
-        db = get_db()
-        row = db.execute(
-            "SELECT preferred_voice FROM user_profiles WHERE user_id = ?", (user_id,)
-        ).fetchone()
-        return (row["preferred_voice"] or "") if row else ""
-    except Exception:
-        return ""
 
 
 def _resolve_voice(satellite_id: str, user_id: str = "") -> str:
-    """Resolve the effective TTS voice using the shared helper."""
-    from cortex.voice import resolve_default_voice
-    return resolve_default_voice(user_id=user_id)
-
-
-def _get_orpheus_provider():
-    """Return the Orpheus TTS provider if configured, else None."""
-    try:
-        from cortex.voice.providers import get_tts_provider, _env_config
-        cfg = _env_config()
-        if cfg.get("TTS_PROVIDER", "orpheus").lower() == "orpheus":
-            return get_tts_provider(cfg)
-    except Exception:
-        pass
-    return None
+    """Resolve the effective TTS voice for a satellite session."""
+    return _resolve_voice_impl(user_id=user_id, satellite_id=satellite_id)
 
 
 # ── Connection registry ───────────────────────────────────────────
@@ -369,49 +303,8 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
 # ── Voice pipeline ────────────────────────────────────────────────
 
 
-def _is_hallucinated(transcript: str) -> bool:
-    """Detect whisper hallucination patterns (repeated phrases, noise)."""
-    # Common whisper hallucinations on silence/noise — check these FIRST
-    # regardless of word count, since many are just 1-2 words.
-    lower = transcript.lower().strip().rstrip(".")
-    hallucination_exact = {
-        "thank you for watching",
-        "thanks for watching",
-        "please subscribe",
-        "transcription by castingwords",
-        "subtitles by the amara.org community",
-        "you",
-        "...",
-        "okay",
-        "thank you",
-        "thanks",
-        "bye",
-        "goodbye",
-        "hmm",
-    }
-    if lower in hallucination_exact:
-        return True
 
-    words = transcript.split()
-    # Check for repeated short phrases (e.g. "Okay. Okay. Okay.")
-    segments = [s.strip() for s in transcript.replace("\n", " ").split(".") if s.strip()]
-    if len(segments) >= 4:
-        unique = set(s.lower() for s in segments)
-        if len(unique) <= 2:
-            return True
-    # Whisper commonly hallucinates "I'm going to go..." on noise
-    hallucination_prefixes = (
-        "i'm going to go",
-        "i'm going to get",
-        "i'm going to do",
-        "i'm going to take",
-        "i'm going to have",
-        "so i'm going to",
-        "and i'm going to",
-    )
-    if lower.startswith(hallucination_prefixes):
-        return True
-    return False
+# _is_hallucinated imported from cortex.speech (above)
 
 
 # Generic LLM "help offer" closers that should NOT trigger auto-listen.
@@ -477,90 +370,8 @@ def _split_sentences(text: str) -> list[str]:
     return sentences
 
 
-def _extract_pcm(raw_audio: bytes, default_rate: int = 24000) -> tuple[bytes, int]:
-    """Extract PCM data and sample rate from WAV or raw audio."""
-    if raw_audio and raw_audio[:4] == b"RIFF":
-        import wave, io
-        with wave.open(io.BytesIO(raw_audio), "rb") as wf:
-            return wf.readframes(wf.getnframes()), wf.getframerate()
-    return raw_audio, default_rate
 
-
-async def _synthesize_text(text: str, voice: str, *, fast: bool = False) -> tuple[bytes, int, str]:
-    """Synthesize text to PCM audio using available TTS providers.
-
-    Returns (pcm_audio, sample_rate, provider_name).
-    Provider priority: Orpheus (GPU) → Kokoro → Piper.
-    When fast=True, prefer Kokoro (CPU, ~200ms) over Orpheus (GPU, ~5s)
-    for latency-sensitive paths like instant answers and fillers.
-    """
-    from cortex.voice.wyoming import WyomingClient, WyomingError
-
-    # --- Fast path: Kokoro first for instant answers/fillers ---
-    if fast or _TTS_PROVIDER == "kokoro":
-        try:
-            from cortex.voice.kokoro import KokoroClient
-            kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
-            raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
-            if raw:
-                pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
-                return pcm, rate, "kokoro"
-        except Exception as e:
-            logger.warning("Kokoro TTS failed: %s", e)
-
-    # --- Orpheus (CUDA GPU, higher quality) ---
-    if _TTS_PROVIDER in ("orpheus", "auto"):
-        try:
-            import aiohttp
-            bare_voice = (voice or "tara").replace("orpheus_", "")
-            payload = {
-                "input": text,
-                "model": "orpheus",
-                "voice": bare_voice,
-                "response_format": "wav",
-                "stream": False,
-            }
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{_ORPHEUS_URL}/v1/audio/speech",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as resp:
-                    if resp.status == 200:
-                        raw = await resp.read()
-                        if raw:
-                            pcm, rate = _extract_pcm(raw, 24000)
-                            return pcm, rate, "orpheus"
-                    else:
-                        error = await resp.text()
-                        logger.warning("Orpheus TTS failed (%d): %s", resp.status, error[:200])
-        except Exception as e:
-            logger.warning("Orpheus TTS failed: %s", e)
-
-    # --- Kokoro (fallback if Orpheus fails) ---
-    if not fast:
-        try:
-            from cortex.voice.kokoro import KokoroClient
-            kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else _KOKORO_VOICE
-            raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
-            if raw:
-                pcm, rate = _extract_pcm(raw, info.get("rate", 24000))
-                return pcm, rate, "kokoro"
-        except Exception as e:
-            logger.warning("Kokoro TTS failed: %s", e)
-
-    # --- Piper (last resort) ---
-    try:
-        piper = WyomingClient(_PIPER_HOST, _PIPER_PORT, timeout=15.0)
-        piper_voice = voice if voice and not voice.startswith("orpheus_") else None
-        audio, info = await piper.synthesize(text, voice=piper_voice)
-        return audio, info.get("rate", 22050), "piper"
-    except Exception as e:
-        logger.warning("Piper TTS failed: %s", e)
-
-    return b"", 24000, "none"
+# _extract_pcm and _synthesize_text imported from cortex.speech (above)
 
 
 async def _stream_audio_to_satellite(
@@ -731,25 +542,17 @@ async def _process_voice_pipeline(conn: SatelliteConnection, audio_data: bytes) 
             pass
         return
 
-    # Always import Wyoming for Piper TTS (filler + fallback)
-    from cortex.voice.wyoming import WyomingClient, WyomingError
-
     try:
         # ── Step 1: STT ──────────────────────────────────────────
         t_stt_start = time.monotonic()
+        from cortex.speech import transcribe as _speech_transcribe
+        from cortex.speech.stt import _STT_BACKEND
         logger.info("Running STT on %d bytes (%.1fs audio) from %s (backend=%s)",
                      len(audio_data), len(audio_data) / 32000,
                      satellite_id, _STT_BACKEND)
 
         try:
-            if _STT_BACKEND == "whisper_cpp":
-                from cortex.voice.whisper_cpp import WhisperCppClient, WhisperCppError
-                stt_client = WhisperCppClient(_STT_HOST, _STT_PORT, timeout=60.0)
-                transcript = await stt_client.transcribe(audio_data, sample_rate=16000)
-            else:
-                from cortex.voice.wyoming import WyomingClient, WyomingError as _WErr
-                stt_client = WyomingClient(_STT_HOST, _STT_PORT, timeout=30.0)
-                transcript = await stt_client.transcribe(audio_data, sample_rate=16000)
+            transcript = await _speech_transcribe(audio_data, sample_rate=16000)
         except Exception as e:
             logger.error("STT failed for %s: %s", satellite_id, e)
             try:
