@@ -90,7 +90,10 @@ async def lifespan(app: FastAPI):
 
     # Register integrity monitor as a background service
     _integrity_monitor = IntegrityMonitor(conn=get_db(), interval_minutes=60)
-    register_service("integrity-monitor", _integrity_monitor.start, _integrity_monitor.stop)
+    async def _start_integrity():
+        import asyncio
+        asyncio.create_task(_integrity_monitor.start())
+    register_service("integrity-monitor", _start_integrity, _integrity_monitor.stop)
 
     # Register mDNS announcer as a lifecycle service
     register_service("mDNS", _server_announcer.start, _server_announcer.stop)
