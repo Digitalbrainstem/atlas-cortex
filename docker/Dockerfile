@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source
 COPY cortex/ ./cortex/
+COPY CORE_PRINCIPLES.md ./
 
 # Copy pre-built admin UI from build stage
 COPY --from=admin-build /build/dist/ ./admin/dist/
