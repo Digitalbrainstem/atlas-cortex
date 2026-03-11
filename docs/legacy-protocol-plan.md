@@ -68,6 +68,32 @@ DORMANT ──→ WARNING ──→ GRACE ──→ PENDING_VERIFICATION ──�
 - `ACTIVE_ONGOING` — Post-walkthrough. Legacy contact has full access. Atlas remains available as guide.
 - `COMPLETE` — Optional: legacy contact marks transition as done (for audit trail).
 
+### Activation Phrases
+
+The activation passphrase is fully admin-configurable — no baked-in default. During
+setup, the Admin UI presents suggested templates and the admin writes their own.
+Longer phrases are preferred to minimize false-positive risk.
+
+**Suggested templates (shown in Admin UI setup wizard):**
+- `"{Wake}, I need to activate the Lazarus Pit for {Name}"` — clear intent, codename, identifies who
+- `"{Wake}, activate the Lazarus Pit for {Name}"` — shorter variant
+- `"{Wake}, it's time for the Lazarus Pit"` — softer, no one has to say "gone"
+- `"{Wake}, {Name} needs the Lazarus Pit"` — feels like doing something *for* them
+- `"{Wake}, open the Lazarus Pit for {Name}"` — echoes "open the Batcave"
+- `"{Wake}, initiate Lazarus Protocol for {Name}"` — military/formal tone
+- `"{Wake}, I need to activate {Name}'s legacy"` — no codename, still clear
+- `"{Wake}, begin the legacy protocol for {Name}"` — clinical, low emotion
+- Or write your own — "Use something meaningful to your family."
+
+**Protocol name extraction:** Atlas parses the admin's activation phrase during setup
+to extract the codename (e.g., "Lazarus Pit" from "activate the Lazarus Pit for Nick").
+If it can't determine a codename, it defaults to "Legacy Protocol". This extracted name
+is used in all voice responses (e.g., "I am activating the Lazarus Pit" vs. "I am
+activating the Legacy Protocol").
+
+**Matching:** The activation phrase triggers `PENDING_VERIFICATION` — it opens the
+front door, not the vault. Atlas then walks the contact through identity verification.
+
 ### Pre-Cached Legacy Voice Modules
 
 Compassionate audio phrases pre-synthesized at configuration time and encrypted in the
@@ -75,23 +101,73 @@ vault. When the Legacy Protocol activates, they're decrypted into memory — giv
 an instant, warm voice with zero TTS latency for the first interaction (when TTS services
 may not yet be warmed up, or the person is grieving and shouldn't wait).
 
-**Phrase Categories:**
-- `greeting` — "Hello. I'm Atlas — your family's home assistant. I've been expecting you, and I'm here to help."
-- `comfort` — "Take your time. There's no rush. I'll be here whenever you're ready."
-- `orientation` — "Let me start by giving you the essentials — things you might need right away."
-- `walkthrough_intro` — "When you're ready, I can walk you through every room and system in the house."
-- `credential_handoff` — "Here's the information [admin name] wanted you to have."
-- `personal_message_intro` — "[Admin name] left a personal message for you. Would you like to hear it now?"
-- `ongoing` — "I'm always here if you need help with anything. Just ask."
+#### Voice Selection
+
+The legacy voice is **separate from the system default voice**. It is auto-selected
+during protocol setup based on:
+
+1. **Prefer emotion-capable voices** — Orpheus voices support dynamic emotion tags
+   (`gentle`, `warm`, `sad`) which are critical for compassionate delivery.
+2. **Prefer soft/gentle style** — `orpheus_mia` (gentle, female) is ideal. Fallback
+   chain: `orpheus_tara` (warm) → `bf_emma` (warm, Kokoro) → `af_bella` (warm, Kokoro).
+3. **Match user's language** — query `tts_voices` table for matching `language` field.
+4. **Admin override** — admin can pick any voice during setup if they prefer a specific one.
+
+The legacy voice is stored in vault config (`legacy_tts_voice`) and used exclusively
+for legacy mode interactions. The system default voice is never used during legacy mode.
+
+If Orpheus is available, phrases are synthesized with emotion tags:
+- Acknowledgment phrases: `<emotion: gentle, sad>`
+- Comfort phrases: `<emotion: warm, gentle>`
+- Orientation/instruction phrases: `<emotion: warm, calm>`
+- Ongoing/closing phrases: `<emotion: warm>`
+
+#### Phrase Categories
+
+Phrases are templated with `{legacy_name}` (contact's name), `{admin_name}`, and
+`{protocol_name}` (extracted codename or "Legacy Protocol"). All are pre-synthesized
+at setup with the chosen legacy voice.
+
+**Stage 1 — Activation Acknowledgment** (played immediately when passphrase matches):
+- `activation_ack` — "I'm so sorry, {legacy_name}. I am activating the {protocol_name}. This will take a moment — I'll let you know when everything is ready."
+- `activation_ack_alt` — "{legacy_name}, I hear you. I'm beginning the {protocol_name} now. Please give me just a moment to prepare."
+
+**Stage 2 — Processing / Verification** (played during verification steps):
+- `verification_intro` — "Before I can give you access, I need to confirm your identity. {admin_name} set this up to protect you and the family. It won't take long."
+- `verification_patience` — "Take your time. There's no rush with any of this."
+- `verification_success` — "Thank you, {legacy_name}. I've confirmed who you are. I'm ready to help."
+- `verification_retry` — "That didn't quite match. Let's try again — no pressure."
+
+**Stage 3 — Ready / Essentials** (played when vault access is granted):
+- `ready` — "Everything is ready, {legacy_name}. I'm going to start with the essentials — things you might need right away."
+- `essentials_intro` — "Here's what {admin_name} wanted you to have first."
+- `personal_message_intro` — "{admin_name} left a personal message for you. Would you like to hear it now, or would you prefer to wait?"
+
+**Stage 4 — Guided Walkthrough** (played when contact is ready for full tour):
+- `walkthrough_intro` — "Whenever you're ready, I can walk you through the house — room by room, system by system. There's no timeline on this."
+- `walkthrough_room` — "Let me show you how {admin_name} had things set up in the {room}."
+
+**Stage 5 — Ongoing Comfort** (available anytime after activation):
+- `comfort` — "Take your time with all of this. There's no rush. I'll be here whenever you need me."
+- `ongoing` — "I'm always here, {legacy_name}. Anytime you need help with anything in the house, just ask."
 - `closing` — "You're doing great. This house is in good hands."
+- `return_greeting` — "Welcome back, {legacy_name}. What can I help you with today?"
 
-**Storage:** Same pattern as filler cache — JSON with base64 PCM audio, but stored
-encrypted in `data/legacy/files/voice_cache.enc`. Decrypted to memory on activation.
+#### Storage & Generation
 
-**Generation:** Admin triggers pre-cache during Legacy Protocol setup (Admin UI button).
-Uses current TTS voice. Can be regenerated if voice changes.
+**Voice selection:** Auto-selected at setup (emotion-capable preferred), stored in vault
+config. Admin can override.
+
+**Generation trigger:** Auto-generated when admin completes Legacy Protocol setup.
+Regenerated if admin changes the legacy voice, contact name, or protocol name.
+Admin UI has a "Preview & Regenerate" button.
+
+**Storage:** Same pattern as filler cache — JSON with base64 PCM audio, encrypted
+with vault master key, stored in `data/legacy/files/voice_cache.enc`.
+Decrypted to memory on protocol activation.
 
 **Format:** 24kHz 16-bit mono PCM (matches filler cache). ~86KB per phrase.
+~16 phrases × 86KB ≈ 1.4MB encrypted on disk.
 
 ### Legacy Fast-Path Patterns
 
