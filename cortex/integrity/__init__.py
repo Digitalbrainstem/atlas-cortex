@@ -1,4 +1,5 @@
 """Integrity verification for Atlas Cortex.
+# Module ownership: Startup integrity checks and principle seal
 
 THIS FILE IS FROZEN. Do not modify without explicit human approval.
 

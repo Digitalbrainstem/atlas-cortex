@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
     init_db()
 
     # ── Integrity verification (blocking — Atlas won't start if this fails)
+    from cortex.db import get_db
     from cortex.integrity import verify_startup_integrity, IntegrityError, IntegrityMonitor
     try:
         integrity_result = await verify_startup_integrity(get_db())
@@ -96,7 +97,6 @@ async def lifespan(app: FastAPI):
 
     # Initialize memory system (HOT recall + COLD write queue)
     from cortex.memory import MemorySystem, set_memory_system
-    from cortex.db import get_db
     _memory = MemorySystem(conn=get_db())
     set_memory_system(_memory)
     register_service("memory", _memory.start, _memory.stop)
