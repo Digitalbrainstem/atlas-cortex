@@ -169,6 +169,52 @@ Decrypted to memory on protocol activation.
 **Format:** 24kHz 16-bit mono PCM (matches filler cache). ~86KB per phrase.
 ~16 phrases × 86KB ≈ 1.4MB encrypted on disk.
 
+### Legacy Avatar Mode
+
+When the Legacy Protocol activates, the avatar switches to a **compassionate mode** —
+not sad, not grinning, but calm and present. This affects both the expression and
+optionally the skin.
+
+#### Compassionate Expression
+
+A new `compassionate` expression preset added to `cortex/avatar/expressions.py`:
+- Slight eyebrow raise (attentive, not alarmed): `eyebrow_raise: 0.15`
+- Minimal eye squint (soft, warm gaze): `eye_squint: 0.1`
+- Mouth neutral-to-slight-warmth (not smiling, not frowning): `mouth_smile: 0.05`
+- Very slight head tilt (engaged, listening): `head_tilt: 0.1`
+- Slow blink rate (calm, unhurried): `blink_rate: 0.2`
+
+This sits between `neutral` (all zeros, feels flat/robotic) and `happy` (too cheerful).
+It communicates: "I'm here. I'm calm. Take your time."
+
+#### Expression Behavior by Stage
+
+| Protocol State | Avatar Expression | Rationale |
+|----------------|-------------------|-----------|
+| `PENDING_VERIFICATION` | `compassionate` | Warm, calm presence during a hard moment |
+| `ACTIVE` (essentials) | `compassionate` | Steady, not overly emotional |
+| `ACTIVE` (personal message) | `sad` at 0.4 intensity | Gentle empathy, not dramatic |
+| `ACTIVE` (walkthrough) | `compassionate` | Patient, guiding |
+| `ACTIVE_ONGOING` | `compassionate` → normal | Gradually returns to standard expression mapping as interactions normalize |
+| Comfort phrases | `compassionate` | Always compassionate for comfort |
+
+#### Sentiment Override
+
+During legacy mode, the standard sentiment-to-expression mapping is bypassed.
+Instead, `cortex/avatar/controller.set_expression()` checks protocol state and
+defaults to `compassionate` unless the interaction specifically calls for another
+expression (e.g., a joke request during ongoing mode could still use `silly`).
+
+As the legacy contact settles in over days/weeks, Atlas gradually relaxes back to
+normal expression mapping — the transition from `ACTIVE` to `ACTIVE_ONGOING` widens
+the expression range incrementally.
+
+#### Optional: Legacy Skin
+
+Admin can optionally designate a specific avatar skin for legacy mode (e.g., a softer
+color palette, subdued animation). This is stored in vault config (`legacy_skin_id`).
+If not configured, the current default skin is used with the compassionate expression.
+
 ### Legacy Fast-Path Patterns
 
 Dormant Layer 1 / Layer 2 patterns that "wake up" when protocol state is ACTIVE.
@@ -361,25 +407,33 @@ CREATE TABLE legacy_audit (
 - [ ] Admin setup: enroll legacy contact voice samples via existing speaker ID
 - [ ] Tests: each verification method, MFA chain, failure scenarios
 
-### Phase 4: Transition Experience & Voice Cache
+### Phase 4: Transition Experience, Voice Cache & Avatar
 - [ ] Implement `transition.py` — tiered access controller
 - [ ] Tier 1 (Essentials): auto-present on first verified access
 - [ ] Tier 2 (Guided walkthrough): room-by-room smart home tour, credential details
 - [ ] Ongoing access: legacy contact can ask about any system anytime
 - [ ] Personal message playback: audio and/or text from admin
 - [ ] Implement `voice_cache.py` — pre-cached compassionate voice phrases
-  - Pre-synthesize ~8 phrases (greeting, comfort, orientation, walkthrough, credential, personal message intro, ongoing, closing)
+  - Pre-synthesize ~16 phrases across 5 stages (ack, verification, ready, walkthrough, comfort)
   - Encrypt and store in `data/legacy/files/voice_cache.enc`
   - Decrypt into memory on protocol activation (zero TTS latency for first interaction)
-  - Admin UI trigger to generate/regenerate cache (uses current TTS voice)
+  - Auto-generated at setup, regenerated on voice/name/protocol change
 - [ ] Implement `fast_paths.py` — dormant Layer 1/2 patterns for legacy mode
   - Layer 1: "WiFi password?", "alarm code?", "thermostat?", "personal message?" → vault instant lookup
   - Layer 2: "credentials for {system}", "walk me through {room}", "what services are running?"
   - Check protocol_state before matching — invisible when DORMANT, active when ACTIVE
   - Priority: run BEFORE standard pipeline patterns (first match wins)
 - [ ] Wire fast_paths into pipeline layer1 and layer2 as pre-check
+- [ ] Add `compassionate` expression preset to `cortex/avatar/expressions.py`
+  - Calm, present, warm but not smiling (eyebrow_raise: 0.15, mouth_smile: 0.05, slow blink)
+  - Sits between `neutral` (robotic) and `happy` (too cheerful)
+- [ ] Legacy avatar mode: bypass standard sentiment→expression mapping during legacy mode
+  - Default to `compassionate` expression during PENDING_VERIFICATION and ACTIVE states
+  - Personal message playback uses `sad` at 0.4 intensity (gentle empathy)
+  - Gradual return to normal expression mapping as contact settles in (ACTIVE_ONGOING)
+  - Optional legacy skin support (admin-configurable, stored in vault config)
 - [ ] Pipeline integration: inject legacy-guide persona into system prompt when ACTIVE
-- [ ] Tests: tier progression, voice cache encrypt/decrypt round-trip, fast-path matching, persona injection
+- [ ] Tests: tier progression, voice cache encrypt/decrypt, fast-path matching, compassionate expression, avatar mode switching
 
 ### Phase 5: Notifications & Outbound Channels
 - [ ] Implement `notifications.py` — legacy-specific notification dispatch
