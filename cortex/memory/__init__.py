@@ -11,6 +11,8 @@ Sub-modules:
 
 See docs/memory-system.md for full design.
 """
+
+# Module ownership: Memory system: HOT recall, COLD write
 from __future__ import annotations
 
 # Re-export public API from submodules for backward compatibility

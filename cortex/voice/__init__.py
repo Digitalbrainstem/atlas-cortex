@@ -1,12 +1,22 @@
 """cortex.voice — Voice & Speech Engine (C11).
 
-Public re-exports for convenient import.
+DEPRECATED: Use cortex.speech for TTS/STT and cortex.speech.voices for voice
+resolution. This module remains for backward compatibility.
 """
+
+# Module ownership: DEPRECATED: Use cortex.speech instead
 
 from __future__ import annotations
 
 import logging
 import os
+import warnings
+
+warnings.warn(
+    "cortex.voice is deprecated — use cortex.speech instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from cortex.voice.base import TTSProvider
 from cortex.voice.composer import EmotionComposer

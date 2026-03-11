@@ -9,6 +9,8 @@ Handles:
 See docs/grounding.md for full design.
 """
 
+# Module ownership: Anti-hallucination: confidence scoring
+
 from __future__ import annotations
 
 import logging

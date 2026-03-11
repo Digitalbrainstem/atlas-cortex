@@ -262,14 +262,8 @@ def get_cached_audio(text: str, voice_id: str = "default") -> tuple[bytes, int] 
 async def cache_tts(text: str, voice_id: str = "default", speed: float = 1.0) -> tuple[bytes, int] | None:
     """Synthesize and cache TTS for text. Returns (pcm_bytes, sample_rate)."""
     try:
-        from cortex.voice.providers import get_tts_provider
-        tts = get_tts_provider()
-        sample_rate = getattr(tts, "sample_rate", 24000)
-
-        audio_chunks = []
-        async for chunk in tts.synthesize(text, speed=speed, voice=voice_id, stream=True):
-            audio_chunks.append(chunk)
-        pcm = b"".join(audio_chunks)
+        from cortex.speech import synthesize_speech
+        pcm, sample_rate, _provider = await synthesize_speech(text, voice_id)
 
         if not pcm:
             return None

@@ -9,6 +9,8 @@ Sub-modules:
   text   — Text processing helpers (sentence splitting, help-offer detection)
   filler — Filler phrase dispatch (cache → Orpheus → fallback)
 """
+
+# Module ownership: Request coordination: STT > pipeline > TTS
 from __future__ import annotations
 
 from cortex.orchestrator.voice import process_voice_pipeline
