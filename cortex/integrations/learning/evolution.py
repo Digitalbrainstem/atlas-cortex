@@ -19,6 +19,19 @@ from .lifecycle import PatternLifecycle
 logger = logging.getLogger(__name__)
 
 
+def _log_evolution_audit(conn: Any, details: str, severity: str = "info") -> None:
+    """Write evolution events to the audit log (best-effort)."""
+    try:
+        conn.execute(
+            "INSERT INTO audit_log (event_type, severity, details, source) "
+            "VALUES ('evolution_change', ?, ?, 'evolution')",
+            (severity, details),
+        )
+        conn.commit()
+    except Exception:
+        pass  # audit logging is best-effort
+
+
 class NightlyEvolution:
     """Orchestrate nightly learning and evolution tasks."""
 
@@ -63,6 +76,11 @@ class NightlyEvolution:
             stats["fallthroughs_analyzed"] = analysis.get("fallthroughs_analyzed", 0)
             stats["patterns_proposed"] = analysis.get("patterns_proposed", 0)
             logger.info("Nightly: fallthrough analysis — %s", analysis)
+            _log_evolution_audit(
+                self._conn,
+                f"Fallthrough analysis: proposed={analysis.get('patterns_proposed', 0)} "
+                f"saved={analysis.get('patterns_saved', 0)}",
+            )
         except Exception as exc:
             logger.error("Nightly: fallthrough analysis failed: %s", exc)
 
@@ -73,6 +91,10 @@ class NightlyEvolution:
             stats["patterns_pruned"] = pruned
             stats["patterns_boosted"] = boosted
             logger.info("Nightly: lifecycle — pruned=%d boosted=%d", pruned, boosted)
+            _log_evolution_audit(
+                self._conn,
+                f"Pattern lifecycle: pruned={pruned} boosted={boosted}",
+            )
         except Exception as exc:
             logger.error("Nightly: lifecycle management failed: %s", exc)
 
