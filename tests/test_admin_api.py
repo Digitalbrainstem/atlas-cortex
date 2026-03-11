@@ -110,7 +110,7 @@ def client(db_path):
         _seed(conn)
         return conn
 
-    with patch("cortex.admin_api._db", get_test_db):
+    with patch("cortex.admin.helpers._db", get_test_db):
         yield TestClient(test_app)
 
 
