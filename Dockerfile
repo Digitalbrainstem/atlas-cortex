@@ -14,6 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application code
 COPY cortex/ cortex/
+COPY CORE_PRINCIPLES.md .
 COPY admin/dist/ admin/dist/
 
 # Data directory (SQLite DB, keys, etc.)
