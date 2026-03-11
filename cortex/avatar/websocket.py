@@ -373,12 +373,27 @@ _greeted_rooms: set[str] = set()
 
 
 async def _handle_connect_greeting(room: str) -> None:
-    """Play a short audio greeting when the avatar display connects."""
+    """Play a short audio greeting when the avatar display connects.
+
+    Skipped when a web satellite is connected — the satellite handles
+    its own audio and the Kokoro greeting would interfere with timing.
+    """
     import random
     from datetime import datetime
 
     # Small delay so the skin and audio context have time to initialize
     await asyncio.sleep(1.5)
+
+    # Skip greeting if a web satellite is active — it handles its own audio
+    # and the Kokoro greeting would play through the avatar WS, confusing timing.
+    try:
+        from cortex.satellite.websocket import get_connected_satellites
+        sats = get_connected_satellites()
+        if any(sid.startswith("web-satellite-") for sid in sats):
+            logger.info("Connect greeting skipped for room=%s (web satellite active)", room)
+            return
+    except Exception:
+        pass
 
     try:
         first_visit = room not in _greeted_rooms
