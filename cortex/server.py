@@ -59,13 +59,17 @@ _server_announcer = ServerAnnouncer(port=5100)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start/stop server-level services."""
-    init_db()
-    await _server_announcer.start()
+    from cortex.scheduler import register_startup_task, register_service, start_all, stop_all
 
-    # Pre-generate filler audio cache in background (don't block startup)
+    init_db()
+
+    # Register mDNS announcer as a lifecycle service
+    register_service("mDNS", _server_announcer.start, _server_announcer.stop)
+
+    # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
         try:
-            from cortex.jokes import _migrate_flat_cache
+            from cortex.content.jokes import _migrate_flat_cache
             _migrate_flat_cache()
         except Exception as e:
             logger.warning("TTS cache migration failed: %s", e)
@@ -75,10 +79,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Filler cache init failed (will use live TTS): %s", e)
 
-    asyncio.create_task(_warm_filler_cache())
+    register_startup_task("filler-cache", _warm_filler_cache)
 
+    await start_all()
     yield
-    await _server_announcer.stop()
+    await stop_all()
 
 
 # ──────────────────────────────────────────────────────────────────
