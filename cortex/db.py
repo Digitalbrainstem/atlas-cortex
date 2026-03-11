@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS knowledge_docs (
 CREATE INDEX IF NOT EXISTS idx_knowledge_owner  ON knowledge_docs(owner_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_access ON knowledge_docs(access_level);
 CREATE INDEX IF NOT EXISTS idx_knowledge_source ON knowledge_docs(source);
+CREATE INDEX IF NOT EXISTS idx_knowledge_hash   ON knowledge_docs(content_hash);
 
 CREATE TABLE IF NOT EXISTS knowledge_shared_with (
     doc_id  TEXT NOT NULL,
@@ -378,6 +379,7 @@ CREATE TABLE IF NOT EXISTS list_permissions (
     FOREIGN KEY (list_id) REFERENCES list_registry(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_list_perms_user ON list_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_list_perms_view ON list_permissions(user_id, can_view);
 
 CREATE TABLE IF NOT EXISTS list_items (
     id         TEXT PRIMARY KEY,
