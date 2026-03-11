@@ -4,10 +4,21 @@ Manages avatar state including mouth visemes (from phoneme timing),
 facial expressions (from emotional state), and visual feedback.
 Designed to drive browser-based SVG or canvas avatars on satellite displays.
 
+Sub-modules:
+  expressions — Expression presets and sentiment/content mapping
+  visemes     — Phoneme-to-viseme generation
+  skins       — Skin resolution from DB
+  broadcast   — WebSocket broadcast to display clients
+  controller  — Single entry point for pipeline/orchestrator
+
 See docs/avatar-system.md for full design (Phase C7).
 """
 
 from __future__ import annotations
+
+# Re-export public API from submodules for backward compatibility
+from cortex.avatar.expressions import AvatarExpression, EXPRESSIONS
+from cortex.avatar.visemes import VisemeFrame, VISEME_MAP, VISEME_CATEGORIES
 
 import logging
 import re
@@ -16,213 +27,30 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────────
-# Phoneme → Viseme mapping (simplified IPA, Oculus/Microsoft standard)
-# ──────────────────────────────────────────────────────────────────
+# ── Backward-compatible imports ──────────────────────────────────
+# These are used by existing code that imports from cortex.avatar directly.
+# New code should import from submodules or use the controller.
 
-VISEME_MAP: dict[str, str] = {
-    # Silence
-    "sil": "IDLE",
-    # Bilabials — lips pressed
-    "p": "PP", "b": "PP", "m": "PP",
-    # Labiodentals — bottom lip tucked
-    "f": "FF", "v": "FF",
-    # Dentals (th sounds)
-    "T": "TH", "D": "TH",
-    # Alveolars — tongue tip up
-    "t": "DD", "d": "DD", "n": "DD",
-    # Velars
-    "k": "KK", "g": "KK",
-    # Sibilants
-    "s": "SS", "z": "SS",
-    # Post-alveolar fricatives (sh, zh)
-    "S": "SH", "Z": "SH",
-    # Rhotic
-    "r": "RR",
-    # Lateral / glides
-    "l": "NN", "j": "NN", "w": "NN",
-    # Close front vowels
-    "i": "IH", "I": "IH",
-    # Open-mid front vowels
-    "e": "EH", "E": "EH",
-    # Open vowels
-    "a": "AA", "A": "AA",
-    # Close-mid back vowels
-    "o": "OH", "O": "OH",
-    # Close back vowels
-    "u": "OU", "U": "OU",
-}
+from cortex.avatar.expressions import (
+    _SENTIMENT_EXPRESSION,
+    _CONTENT_EXPRESSION_PATTERNS,
+    resolve_from_sentiment,
+    resolve_from_content,
+)
+from cortex.avatar.visemes import (
+    _DIGRAPH_MAP,
+    _CHAR_PHONEME,
+    _text_to_phonemes,
+    _VOWEL_VISEMES,
+    text_to_visemes,
+)
 
-# All valid viseme categories
-VISEME_CATEGORIES: set[str] = {
-    "IDLE", "PP", "FF", "TH", "DD", "KK", "SS", "SH",
-    "RR", "NN", "IH", "EH", "AA", "OH", "OU",
-}
-
-# ──────────────────────────────────────────────────────────────────
-# Simple character → phoneme heuristic (no full G2P engine)
-# ──────────────────────────────────────────────────────────────────
-
-# Digraphs checked first, then single characters
-_DIGRAPH_MAP: list[tuple[str, str]] = [
-    ("th", "T"),
-    ("sh", "S"),
-    ("ch", "S"),
-    ("ph", "f"),
-    ("wh", "w"),
-    ("ck", "k"),
-    ("ng", "n"),
-    ("qu", "k"),
-]
-
-_CHAR_PHONEME: dict[str, str] = {
-    "a": "a", "b": "b", "c": "k", "d": "d", "e": "e",
-    "f": "f", "g": "g", "h": "sil", "i": "i", "j": "j",
-    "k": "k", "l": "l", "m": "m", "n": "n", "o": "o",
-    "p": "p", "q": "k", "r": "r", "s": "s", "t": "t",
-    "u": "u", "v": "v", "w": "w", "x": "k", "y": "i",
-    "z": "z",
-}
-
-
-def _text_to_phonemes(text: str) -> list[str]:
-    """Convert text to a rough phoneme sequence using character heuristics.
-
-    This is intentionally simple — a real system would use espeak-ng or
-    Piper's built-in phoneme output.  Good enough for approximate lip-sync.
-    """
-    text = text.lower().strip()
-    phonemes: list[str] = []
-    i = 0
-    while i < len(text):
-        ch = text[i]
-        # Non-alpha → silence gap
-        if not ch.isalpha():
-            if not phonemes or phonemes[-1] != "sil":
-                phonemes.append("sil")
-            i += 1
-            continue
-        # Try digraphs first
-        matched = False
-        if i + 1 < len(text):
-            pair = text[i : i + 2]
-            for digraph, phoneme in _DIGRAPH_MAP:
-                if pair == digraph:
-                    phonemes.append(phoneme)
-                    i += 2
-                    matched = True
-                    break
-        if not matched:
-            phonemes.append(_CHAR_PHONEME.get(ch, "sil"))
-            i += 1
-    return phonemes
-
-
-# ──────────────────────────────────────────────────────────────────
-# Dataclasses
-# ──────────────────────────────────────────────────────────────────
-
-@dataclass
-class VisemeFrame:
-    """A single viseme keyframe for lip-sync animation."""
-
-    viseme: str        # "PP", "AA", "IDLE", etc.
-    start_ms: int      # start time in milliseconds
-    duration_ms: int   # how long to hold this viseme
-    intensity: float   # 0.0–1.0 mouth openness
-
-
-@dataclass
-class AvatarExpression:
-    """Facial expression parameters for avatar rendering."""
-
-    name: str              # "neutral", "happy", "thinking", etc.
-    eyebrow_raise: float   # -1.0 (frown) to 1.0 (raise)
-    eye_squint: float      # 0.0–1.0
-    mouth_smile: float     # -1.0 (frown) to 1.0 (smile)
-    head_tilt: float       # -1.0 to 1.0 (degrees normalised)
-    blink_rate: float      # blinks per second
-
-
-# ──────────────────────────────────────────────────────────────────
-# Expression presets (driven by emotion / sentiment)
-# ──────────────────────────────────────────────────────────────────
-
-EXPRESSIONS: dict[str, AvatarExpression] = {
-    "neutral":   AvatarExpression("neutral",   0.0,  0.0, 0.0,  0.0,   0.3),
-    "happy":     AvatarExpression("happy",     0.2,  0.2, 0.8,  0.0,   0.3),
-    "thinking":  AvatarExpression("thinking",  0.5,  0.3, 0.0,  0.15,  0.15),
-    "surprised": AvatarExpression("surprised", 0.8,  0.0, 0.3,  0.0,   0.5),
-    "sad":       AvatarExpression("sad",      -0.3,  0.0, -0.5, -0.1,  0.2),
-    "excited":   AvatarExpression("excited",   0.6,  0.0, 0.9,  0.0,   0.4),
-    "concerned": AvatarExpression("concerned", 0.3,  0.2, -0.2,  0.1,  0.25),
-    "listening": AvatarExpression("listening", 0.1,  0.0, 0.1,  0.05,  0.3),
-    "laughing":  AvatarExpression("laughing",  0.3,  0.5, 1.0,  0.0,   0.1),
-    "crying":    AvatarExpression("crying",   -0.4,  0.0, -0.8, -0.1,  0.15),
-    "silly":     AvatarExpression("silly",     0.4,  0.1, 0.6,  0.2,   0.35),
-    "winking":   AvatarExpression("winking",   0.2,  0.0, 0.5,  0.1,   0.25),
-    "angry":     AvatarExpression("angry",    -0.6,  0.4, -0.6,  0.0,  0.2),
-    "confused":  AvatarExpression("confused",  0.4,  0.1, 0.0,  0.2,   0.3),
-    "love":      AvatarExpression("love",      0.3,  0.0, 0.9,  0.0,   0.2),
-    "sleepy":    AvatarExpression("sleepy",   -0.1,  0.5, 0.1, -0.1,   0.1),
-    "proud":     AvatarExpression("proud",     0.3,  0.3, 0.7,  0.0,   0.25),
-    "scared":    AvatarExpression("scared",    0.7,  0.0, -0.3,  0.0,  0.6),
-}
-
-# Pipeline sentiment → avatar expression
-_SENTIMENT_EXPRESSION: dict[str, str] = {
-    "greeting":   "happy",
-    "casual":     "neutral",
-    "question":   "thinking",
-    "command":    "neutral",
-    "frustrated": "angry",
-    "positive":   "happy",
-    "negative":   "sad",
-    "excited":    "excited",
-    "neutral":    "neutral",
-}
-
-# Content-aware expression hints (pattern → expression)
-# Used by the pipeline to override sentiment-based expression
-_CONTENT_EXPRESSION_PATTERNS: list[tuple[str, str]] = [
-    # Jokes and humor
-    (r"\bjoke\b|\bfunny\b|\blaugh\b|\bhaha\b|\blol\b|\bhumor\b", "silly"),
-    # Love and affection
-    (r"\blove\b|\bheart\b|\badore\b|\bsweet\b|\bcute\b", "love"),
-    # Confusion
-    (r"\bconfus\w*\b|\bwhat\??$|\bhuh\b|\bweird\b", "confused"),
-    # Fear and scary
-    (r"\bscar[ey]\w*\b|\bafraid\b|\bfrightened\b|\bcreepy\b|\bhorror\b", "scared"),
-    # Anger
-    (r"\bangr[iy]\w*\b|\bfurious\b|\bmad\b|\bhate\b", "angry"),
-    # Crying / very sad
-    (r"\bcry\w*\b|\bterribl\w*\b|\bawful\b|\bdevast\w*\b|\bmiss(?:ing)?\b", "crying"),
-    # Pride and accomplishment
-    (r"\bproud\b|\baccomplish\w*\b|\bdid it\b|\bnailed\b|\bawesome\b", "proud"),
-    # Sleepy
-    (r"\btired\b|\bsleep\w*\b|\bbed\s*time\b|\byawn\b|\bnap\b", "sleepy"),
-    # Excitement
-    (r"\bwow\b|\bamazing\b|\bincredible\b|\bexcit\w*\b|\byay\b|\byeah\b", "excited"),
-    # Surprise
-    (r"\breally\?|\bno way\b|\bsurpris\w*\b|\bunbeliev\w*\b|\bwhoa\b", "surprised"),
-    # Winking / playful
-    (r"\bsecret\b|\bguess what\b|\bhint\b|\bwink\b|\bshhh\b", "winking"),
-]
-
-# Vowel visemes get higher mouth openness than consonants
-_VOWEL_VISEMES: set[str] = {"AA", "EH", "IH", "OH", "OU"}
-
-
-# ──────────────────────────────────────────────────────────────────
-# AvatarState
-# ──────────────────────────────────────────────────────────────────
 
 class AvatarState:
     """Manages current avatar visual state.
 
-    Holds the active expression, a queue of viseme frames for lip-sync,
-    and speaking/listening flags.  Serialises to JSON for WebSocket
-    broadcast to satellite displays.
+    DEPRECATED: New code should use cortex.avatar.controller instead.
+    Kept for backward compatibility with existing callers.
     """
 
     def __init__(self) -> None:
@@ -231,104 +59,30 @@ class AvatarState:
         self.is_speaking: bool = False
         self.is_listening: bool = False
 
-    # ── expression helpers ────────────────────────────────────────
-
     def set_expression(self, emotion: str) -> None:
-        """Set facial expression from emotion name.
-
-        Falls back to ``"neutral"`` for unknown emotions.
-        """
         self.expression = EXPRESSIONS.get(emotion, EXPRESSIONS["neutral"])
         logger.debug("expression → %s", self.expression.name)
 
     def expression_from_sentiment(
         self, sentiment: str, confidence: float = 1.0,
     ) -> AvatarExpression:
-        """Map pipeline sentiment label to an avatar expression.
-
-        Args:
-            sentiment: Sentiment label from the pipeline (e.g. ``"greeting"``).
-            confidence: 0.0–1.0 — scales expression intensity.
-
-        Returns:
-            The matching :class:`AvatarExpression` (also sets it on *self*).
-        """
-        expr_name = _SENTIMENT_EXPRESSION.get(sentiment, "neutral")
-        base = EXPRESSIONS[expr_name]
-        if confidence < 1.0:
-            neutral = EXPRESSIONS["neutral"]
-            scaled = AvatarExpression(
-                name=base.name,
-                eyebrow_raise=neutral.eyebrow_raise + (base.eyebrow_raise - neutral.eyebrow_raise) * confidence,
-                eye_squint=neutral.eye_squint + (base.eye_squint - neutral.eye_squint) * confidence,
-                mouth_smile=neutral.mouth_smile + (base.mouth_smile - neutral.mouth_smile) * confidence,
-                head_tilt=neutral.head_tilt + (base.head_tilt - neutral.head_tilt) * confidence,
-                blink_rate=neutral.blink_rate + (base.blink_rate - neutral.blink_rate) * confidence,
-            )
-        else:
-            scaled = base
-        self.expression = scaled
-        logger.debug("sentiment %r (%.2f) → expression %s", sentiment, confidence, scaled.name)
-        return scaled
+        expr = resolve_from_sentiment(sentiment, confidence)
+        self.expression = expr
+        return expr
 
     def expression_from_content(self, text: str) -> AvatarExpression | None:
-        """Detect expression from message content using pattern matching.
-
-        Returns the expression if a content pattern matches, or None to
-        fall back to sentiment-based expression.
-        """
-        lower = text.lower()
-        for pattern, expr_name in _CONTENT_EXPRESSION_PATTERNS:
-            if re.search(pattern, lower):
-                expr = EXPRESSIONS.get(expr_name)
-                if expr:
-                    self.expression = expr
-                    logger.debug("content match %r → expression %s", pattern, expr_name)
-                    return expr
-        return None
-
-    # ── lip-sync ──────────────────────────────────────────────────
+        expr = resolve_from_content(text)
+        if expr:
+            self.expression = expr
+        return expr
 
     def text_to_visemes(self, text: str, wpm: int = 150) -> list[VisemeFrame]:
-        """Convert text to an approximate viseme sequence for lip-sync.
-
-        Uses simple character-to-phoneme heuristics (no full G2P engine).
-        *wpm* controls speaking speed.  Returns a list of
-        :class:`VisemeFrame` objects and stores them in *viseme_queue*.
-        """
-        phonemes = _text_to_phonemes(text)
-        if not phonemes:
-            return []
-
-        # Estimate duration per phoneme from wpm.
-        # Average word ≈ 5 chars ≈ 5 phonemes in our simple model.
-        phonemes_per_sec = (wpm * 5) / 60
-        ms_per_phoneme = int(1000 / phonemes_per_sec) if phonemes_per_sec > 0 else 80
-
-        frames: list[VisemeFrame] = []
-        cursor_ms = 0
-        for ph in phonemes:
-            viseme = VISEME_MAP.get(ph, "IDLE")
-            intensity = 0.7 if viseme in _VOWEL_VISEMES else 0.4
-            if viseme == "IDLE":
-                intensity = 0.0
-            frames.append(VisemeFrame(
-                viseme=viseme,
-                start_ms=cursor_ms,
-                duration_ms=ms_per_phoneme,
-                intensity=round(intensity, 2),
-            ))
-            cursor_ms += ms_per_phoneme
-
+        frames = text_to_visemes(text, wpm)
         self.viseme_queue = frames
         self.is_speaking = True
-        logger.debug("text_to_visemes: %d frames, %d ms total", len(frames), cursor_ms)
         return frames
 
-    # ── serialisation ─────────────────────────────────────────────
-
     def to_json(self) -> dict[str, Any]:
-        """Serialise current state for WebSocket broadcast to avatar clients."""
         return {
             "expression": {
                 "name": self.expression.name,

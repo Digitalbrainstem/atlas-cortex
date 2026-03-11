@@ -280,79 +280,31 @@ def _log_interaction(
 
 # ── Avatar broadcasting (best-effort, never blocks pipeline) ─────
 
+# ── Avatar control (delegates to cortex.avatar.controller) ───────
+
 async def _fire_avatar_expression(room: str | None, sentiment: str, confidence: float, text: str = "") -> str | None:
-    """Broadcast an avatar expression (awaited so it sends before pipeline continues)."""
-    if not room:
-        return None
-    try:
-        from cortex.avatar import AvatarState
-        from cortex.avatar.websocket import broadcast_expression, get_connected_rooms
-        state = AvatarState()
-        content_expr = state.expression_from_content(text) if text else None
-        if content_expr:
-            expr = content_expr
-        else:
-            expr = state.expression_from_sentiment(sentiment, confidence)
-        rooms = get_connected_rooms()
-        logger.info("avatar: fire expression %s to room=%s (connected: %s)", expr.name, room, rooms)
-        await broadcast_expression(room, expr.name, confidence)
-        return expr.name
-    except Exception:
-        logger.exception("avatar: expression fire failed")
-        return None
+    """Broadcast an avatar expression via the controller."""
+    from cortex.avatar.controller import set_expression
+    return await set_expression(room, sentiment, confidence, text)
 
 
 def _fire_avatar_visemes(room: str | None, text: str) -> None:
-    """Schedule avatar viseme sequence for a text response (non-blocking)."""
-    if not room:
-        return
-    try:
-        from cortex.avatar import AvatarState
-        from cortex.avatar.websocket import broadcast_viseme_sequence, get_connected_rooms
-        state = AvatarState()
-        frames = state.text_to_visemes(text)
-        frame_dicts = [
-            {"viseme": f.viseme, "start_ms": f.start_ms, "duration_ms": f.duration_ms, "intensity": f.intensity}
-            for f in frames
-        ]
-        rooms = get_connected_rooms()
-        logger.info("avatar: fire %d visemes to room=%s (connected: %s)", len(frame_dicts), room, rooms)
-        asyncio.ensure_future(broadcast_viseme_sequence(room, frame_dicts))
-    except Exception:
-        logger.exception("avatar: viseme fire failed")
+    """Schedule avatar viseme sequence via the controller."""
+    from cortex.avatar.controller import send_visemes
+    send_visemes(room, text)
 
 
 async def _fire_avatar_speaking(room: str | None, start: bool, user_id: str | None = None) -> None:
-    """Notify avatar displays of speaking state change (awaited for delivery)."""
-    if not room:
-        return
-    try:
-        if start:
-            from cortex.avatar.websocket import broadcast_speaking_start, get_connected_rooms
-            logger.info("avatar: fire speaking_start to room=%s (connected: %s)", room, get_connected_rooms())
-            await broadcast_speaking_start(room, user_id)
-        else:
-            from cortex.avatar.websocket import broadcast_speaking_end, get_connected_rooms
-            logger.info("avatar: fire speaking_end to room=%s (connected: %s)", room, get_connected_rooms())
-            await broadcast_speaking_end(room)
-    except Exception:
-        logger.exception("avatar: speaking fire failed")
+    """Notify avatar displays of speaking state change via the controller."""
+    if start:
+        from cortex.avatar.controller import speaking_start
+        await speaking_start(room, user_id)
+    else:
+        from cortex.avatar.controller import speaking_end
+        await speaking_end(room)
 
 
 async def _fire_avatar_tts(room: str | None, text: str, expression: str | None = None) -> None:
-    """Stream TTS audio to avatar displays (non-blocking background task).
-
-    Runs TTS synthesis as a fire-and-forget task so the pipeline generator
-    can yield tokens immediately. When web satellite is active, avatar
-    audio is suppressed on the client anyway.
-    """
-    if not room or not text.strip():
-        return
-    try:
-        from cortex.avatar.websocket import stream_tts_to_avatar, get_connected_rooms
-        rooms = get_connected_rooms()
-        if room in rooms:
-            logger.info("avatar: fire TTS for %d chars to room=%s", len(text), room)
-            asyncio.create_task(stream_tts_to_avatar(room, text, expression=expression))
-    except Exception:
-        logger.exception("avatar: TTS fire failed")
+    """Stream TTS audio to avatar displays via the controller."""
+    from cortex.avatar.controller import stream_tts
+    await stream_tts(room, text, expression)
