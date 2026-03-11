@@ -41,6 +41,12 @@ from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
 
+# ──────────────────────────────────────────────────────────────────
+# Safety middleware (global — initialised during startup)
+# ──────────────────────────────────────────────────────────────────
+
+_safety_middleware = None
+
 # Configure logging for all cortex modules (needed when running under uvicorn
 # directly, since main() isn't called and basicConfig isn't triggered).
 logging.basicConfig(
@@ -62,6 +68,28 @@ async def lifespan(app: FastAPI):
     from cortex.scheduler import register_startup_task, register_service, start_all, stop_all
 
     init_db()
+
+    # ── Integrity verification (blocking — Atlas won't start if this fails)
+    from cortex.integrity import verify_startup_integrity, IntegrityError, IntegrityMonitor
+    try:
+        integrity_result = await verify_startup_integrity(get_db())
+        logger.info("Integrity verified: %s", integrity_result)
+    except IntegrityError as exc:
+        logger.critical("INTEGRITY CHECK FAILED — Atlas cannot start: %s", exc)
+        raise SystemExit(1) from exc
+
+    # ── Safety middleware initialisation
+    global _safety_middleware
+    from cortex.safety.middleware import PipelineSafetyMiddleware, SafetySystemOfflineError
+    try:
+        _safety_middleware = PipelineSafetyMiddleware(db_conn=get_db())
+    except SafetySystemOfflineError as exc:
+        logger.critical("SAFETY SYSTEM OFFLINE — Atlas cannot start: %s", exc)
+        raise SystemExit(1) from exc
+
+    # Register integrity monitor as a background service
+    _integrity_monitor = IntegrityMonitor(conn=get_db(), interval_minutes=60)
+    register_service("integrity-monitor", _integrity_monitor.start, _integrity_monitor.stop)
 
     # Register mDNS announcer as a lifecycle service
     register_service("mDNS", _server_announcer.start, _server_announcer.stop)
@@ -230,6 +258,29 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     user_id = request.user or request.metadata.get("user_id", "default")
     metadata = request.metadata
 
+    # ── Input guardrails (Principle II, IV — safety before pipeline) ──
+    from cortex.safety import Severity
+    if _safety_middleware is not None:
+        input_result = _safety_middleware.check_input(user_message, user_id, metadata)
+        if input_result.severity >= Severity.SOFT_BLOCK:
+            blocked_text = input_result.suggested_response or (
+                "I'm not able to help with that. Is there something else I can help you with?"
+            )
+            if request.stream:
+                async def _blocked_stream():
+                    yield blocked_text
+                return StreamingResponse(
+                    _sse_stream(_blocked_stream(), request.model),
+                    media_type="text/event-stream",
+                )
+            else:
+                return _json_response(blocked_text, request.model)
+
+    # ── Build safety-aware system prompt for Layer 3 ──
+    system_prompt = ""
+    if _safety_middleware is not None:
+        system_prompt = _safety_middleware.build_system_prompt(user_id, metadata)
+
     pipeline = await run_pipeline(
         message=user_message,
         provider=provider,
@@ -237,6 +288,7 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
         conversation_history=conversation_history,
         metadata=metadata,
         db_conn=db_conn,
+        system_prompt=system_prompt,
     )
 
     if request.stream:
@@ -246,6 +298,16 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
         )
     else:
         full = "".join([chunk async for chunk in pipeline])
+        # ── Output guardrails (Principle II, IV — safety after LLM) ──
+        if _safety_middleware is not None:
+            output_result = _safety_middleware.check_output(
+                full, user_id, user_message, system_prompt, metadata,
+            )
+            if output_result.severity >= Severity.SOFT_BLOCK:
+                full = output_result.suggested_response or (
+                    "I'm not able to provide that kind of content. "
+                    "Is there something else I can help you with?"
+                )
         return _json_response(full, request.model)
 
 

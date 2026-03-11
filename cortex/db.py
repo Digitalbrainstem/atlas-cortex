@@ -595,6 +595,26 @@ CREATE TABLE IF NOT EXISTS jailbreak_exemplars (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ── Integrity & Audit ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS file_checksums (
+    file_path    TEXT PRIMARY KEY,
+    sha256_hash  TEXT NOT NULL,
+    zone         TEXT NOT NULL DEFAULT 'frozen',
+    verified_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type   TEXT NOT NULL,
+    severity     TEXT NOT NULL DEFAULT 'info',
+    details      TEXT,
+    source       TEXT DEFAULT 'system',
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_severity ON audit_log(severity);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
 -- ── Voice / TTS ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS tts_voices (
     id            TEXT PRIMARY KEY,

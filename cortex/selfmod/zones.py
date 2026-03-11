@@ -32,6 +32,7 @@ _ZONE_RULES: list[ZoneRule] = [
     # FROZEN: Safety system — never auto-modified
     ZoneRule("safety/*", Zone.FROZEN, "Safety guardrails are human-reviewed only"),
     ZoneRule("selfmod/*", Zone.FROZEN, "Self-modification rules are human-reviewed only"),
+    ZoneRule("integrity/*", Zone.FROZEN, "Integrity verification is human-reviewed only"),
     ZoneRule("auth.py", Zone.FROZEN, "Authentication is security-critical"),
     ZoneRule("db.py", Zone.FROZEN, "Database schema changes require migration planning"),
 

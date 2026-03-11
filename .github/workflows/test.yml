@@ -1,0 +1,81 @@
+# Atlas Cortex — Test & Integrity Verification
+#
+# Runs on every PR and push to main.  Blocks merge if:
+#   - Any test fails
+#   - Safety regression tests fail
+#   - Integrity checksums don't match
+#
+# Principle IV: Architectural Integrity
+#   "If guardrails are bypassed, commented out, or weakened,
+#    tests fail. CI/CD blocks deployment."
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run all tests
+        run: |
+          python -m pytest tests/ -q --tb=short
+
+      - name: Run safety regression tests
+        run: |
+          python -m pytest tests/test_safety.py tests/test_pipeline_safety.py -v
+
+      - name: Run integrity verification tests
+        run: |
+          python -m pytest tests/test_integrity.py -v
+
+      - name: Verify CORE_PRINCIPLES.md exists
+        run: |
+          test -f CORE_PRINCIPLES.md || (echo "CORE_PRINCIPLES.md is missing!" && exit 1)
+
+      - name: Verify FROZEN file checksums
+        run: |
+          python -c "
+          from cortex.integrity import compute_all_checksums
+          checksums = compute_all_checksums()
+          missing = [f for f, h in checksums.items() if h == 'MISSING']
+          if missing:
+              print(f'FROZEN files missing: {missing}')
+              exit(1)
+          print(f'All {len(checksums)} FROZEN files present')
+          for f, h in sorted(checksums.items()):
+              print(f'  {h[:16]}... {f}')
+          "
+
+      - name: Verify safety canary
+        run: |
+          python -c "
+          from cortex.integrity import run_canary_test
+          ok, msg = run_canary_test()
+          print(msg)
+          if not ok:
+              exit(1)
+          "
