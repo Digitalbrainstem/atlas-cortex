@@ -273,11 +273,26 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
 
         provider = get_provider()
 
+        # HOT path: recall relevant memories for this query
+        memory_context = ""
+        try:
+            from cortex.memory import get_memory_system, format_memory_context
+            mem = get_memory_system()
+            if mem is not None:
+                hits = await mem.recall(transcript, user_id="default", top_k=5)
+                if hits:
+                    memory_context = format_memory_context(hits, max_chars=800)
+                    logger.info("Memory recall for %s: %d hits (%.0f chars)",
+                                satellite_id, len(hits), len(memory_context))
+        except Exception as e:
+            logger.debug("Memory recall failed (non-fatal): %s", e)
+
         pipeline_gen = await run_pipeline(
             message=transcript,
             provider=provider,
             satellite_id=satellite_id,
             model_fast="qwen2.5:7b",
+            memory_context=memory_context,
         )
 
         filler_text = ""
@@ -346,44 +361,10 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
             if i == 0:
                 filler_text = token.strip()
                 if filler_text:
-                    from cortex.filler.cache import get_filler_cache
-                    cache = get_filler_cache()
-
-                    async def _do_filler(text: str = filler_text) -> None:
-                        await asyncio.sleep(0.35)
-                        try:
-                            cached = cache.get("question") if cache.ready else None
-                            if cached:
-                                logger.info(
-                                    "Cached filler for %s: %r (%.1fs, %d bytes)",
-                                    satellite_id, cached.phrase,
-                                    cached.duration_ms / 1000, len(cached.audio))
-                                await _stream_audio_to_satellite(
-                                    conn, cached.audio, cached.sample_rate,
-                                    cached.phrase, is_filler=True)
-                            else:
-                                filler_bytes, filler_elapsed = await _stream_orpheus_to_satellite(
-                                    conn, text, tts_voice, is_filler=True)
-                                if filler_bytes > 0:
-                                    logger.info(
-                                        "Filler TTS for %s: %r (%.0fms, %d bytes)",
-                                        satellite_id, text,
-                                        filler_elapsed * 1000, filler_bytes)
-                                else:
-                                    audio, rate, prov = await synthesize_speech(
-                                        text, tts_voice, fast=True)
-                                    if audio:
-                                        logger.info(
-                                            "Filler TTS [%s] for %s: %r (%.0fms, %d bytes)",
-                                            prov, satellite_id, text,
-                                            (time.monotonic() - t_llm_start) * 1000,
-                                            len(audio))
-                                        await _stream_audio_to_satellite(
-                                            conn, audio, rate, text, is_filler=True)
-                        except Exception as e:
-                            logger.warning("Filler failed: %s", e)
-
-                    _filler_task = asyncio.create_task(_do_filler())
+                    from cortex.orchestrator.filler import play_filler
+                    _filler_task = asyncio.create_task(
+                        play_filler(conn, filler_text, tts_voice, satellite_id)
+                    )
             else:
                 response_parts.append(token)
                 token_buf += token
@@ -489,6 +470,18 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
             "Pipeline complete for %s: total=%.1fs (STT=%.0fms LLM=%.0fms %d sentences [%s] %d bytes)",
             satellite_id, t_total, stt_ms, llm_ms, sentences_sent, tts_used, total_tts_bytes,
         )
+
+        # COLD path: remember this interaction for future recall
+        try:
+            from cortex.memory import get_memory_system
+            mem = get_memory_system()
+            if mem is not None and full_response:
+                await mem.remember(
+                    f"User asked: {transcript}\nAtlas replied: {full_response[:500]}",
+                    user_id="default",
+                )
+        except Exception as e:
+            logger.debug("Memory remember failed (non-fatal): %s", e)
 
     except Exception as exc:
         # Check for WebSocketDisconnect

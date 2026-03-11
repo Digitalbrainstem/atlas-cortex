@@ -2,6 +2,16 @@
 
 Import from cortex.content.jokes (or cortex.content) instead.
 """
+from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "cortex.jokes is deprecated — use cortex.content.jokes instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from cortex.content.jokes import *  # noqa: F401, F403
 from cortex.content.jokes import (
     Joke,

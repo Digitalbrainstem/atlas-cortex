@@ -3,6 +3,7 @@
 Single entry point for the rest of the system:
   - recall(query, user_id)  → HOT path retrieval
   - remember(text, user_id) → COLD path async write
+  - get_memory_system()     → module-level singleton accessor
 """
 from __future__ import annotations
 
@@ -15,6 +16,20 @@ from cortex.memory.hot import hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
 
 logger = logging.getLogger(__name__)
+
+# Module-level singleton
+_memory_system: MemorySystem | None = None
+
+
+def get_memory_system() -> MemorySystem | None:
+    """Return the initialized MemorySystem singleton, or None if not started."""
+    return _memory_system
+
+
+def set_memory_system(ms: MemorySystem) -> None:
+    """Set the module-level MemorySystem singleton (called from server lifespan)."""
+    global _memory_system
+    _memory_system = ms
 
 
 class MemorySystem:

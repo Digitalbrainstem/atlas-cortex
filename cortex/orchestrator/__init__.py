@@ -5,8 +5,9 @@ The satellite/websocket module handles only WS connection lifecycle
 and delegates voice processing here.
 
 Sub-modules:
-  voice — Full voice pipeline: STT → pipeline → TTS → stream
-  text  — Text processing helpers (sentence splitting, help-offer detection)
+  voice  — Full voice pipeline: STT → pipeline → TTS → stream
+  text   — Text processing helpers (sentence splitting, help-offer detection)
+  filler — Filler phrase dispatch (cache → Orpheus → fallback)
 """
 from __future__ import annotations
 

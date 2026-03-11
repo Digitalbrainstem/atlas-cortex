@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 
 _MAX_TRIGGER_TEXT_LENGTH = 500
 
+
+def _notify_safety_event(result: GuardrailResult, trigger_text: str) -> None:
+    """Fire-and-forget notification for safety events (WARN or higher)."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no event loop — skip (sync context)
+    try:
+        from cortex.notifications import send_notification
+        level = "critical" if result.severity >= Severity.HARD_BLOCK else "warning"
+        loop.create_task(send_notification(
+            level=level,
+            title=f"Safety {result.category}: {result.severity.name}",
+            message=f"{result.reason} — trigger: {trigger_text[:100]}",
+            source="safety",
+        ))
+    except Exception:
+        pass  # best-effort, never block the guardrail
+
 __all__ = [
     "Severity",
     "GuardrailResult",
@@ -267,6 +287,10 @@ class InputGuardrails:
             self._check_injection(message),
         ]
         worst = max(results, key=lambda r: r.severity)
+
+        # Fire notification for non-PASS results
+        if worst.severity >= Severity.WARN:
+            _notify_safety_event(worst, message[:200])
         return worst
 
     # ── individual checks ──────────────────────────────────────
