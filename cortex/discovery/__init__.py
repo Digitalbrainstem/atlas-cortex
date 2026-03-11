@@ -7,6 +7,8 @@ Exports:
     ServiceConfig       — alias for the service_config table dict shape
 """
 
+# Module ownership: Network service discovery and mDNS
+
 from __future__ import annotations
 
 from cortex.discovery.registry import ServiceRegistry

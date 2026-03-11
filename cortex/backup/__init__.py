@@ -10,6 +10,8 @@ Usage::
 See docs/backup-restore.md for full design.
 """
 
+# Module ownership: Backup and restore
+
 from __future__ import annotations
 
 import argparse

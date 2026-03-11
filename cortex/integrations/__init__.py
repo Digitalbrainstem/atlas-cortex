@@ -7,6 +7,8 @@ Provides concrete plugin implementations for Layer 2 dispatch:
   - Lists (multi-backend list management)
 """
 
+# Module ownership: Plugin implementations (HA, knowledge, lists)
+
 from __future__ import annotations
 
 from cortex.integrations.ha import HAPlugin

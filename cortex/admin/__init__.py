@@ -1,5 +1,7 @@
 """Admin API package — domain routers assembled under /admin prefix."""
 
+# Module ownership: Admin API domain routers
+
 from __future__ import annotations
 
 from fastapi import APIRouter

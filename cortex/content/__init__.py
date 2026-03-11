@@ -3,6 +3,8 @@
 Sub-modules:
   jokes — Kid-friendly joke bank with rotation + TTS caching
 """
+
+# Module ownership: Pre-cached content: jokes, stories
 from __future__ import annotations
 
 from cortex.content.jokes import (

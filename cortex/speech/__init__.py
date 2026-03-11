@@ -4,6 +4,8 @@ OWNERSHIP: This module owns ALL audio synthesis and transcription.
 ENTRY POINT: Import from this file only.
 FORBIDDEN: No other module should directly call Kokoro, Orpheus, Piper, or Whisper.
 """
+
+# Module ownership: All audio synthesis and transcription
 from __future__ import annotations
 
 from cortex.speech.tts import synthesize_speech, stream_orpheus, extract_pcm

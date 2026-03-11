@@ -3,6 +3,8 @@
 Re-exports core discovery classes from :mod:`cortex.discovery` for convenience.
 """
 
+# Module ownership: Network service discovery (legacy)
+
 from __future__ import annotations
 
 from cortex.discovery import (

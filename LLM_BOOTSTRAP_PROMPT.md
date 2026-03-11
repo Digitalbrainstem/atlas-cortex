@@ -137,36 +137,91 @@ cortex/
 ├── server.py                    # FastAPI server (:5100)
 ├── pipe.py                      # Open WebUI Pipe function
 ├── db.py                        # SQLite schema (50+ tables)
-├── admin_api.py                 # Admin REST API
+├── auth.py                      # JWT authentication
+├── admin_api.py                 # DEPRECATED shim → cortex.admin
+├── jokes.py                     # DEPRECATED shim → cortex.content.jokes
+├── admin/                       # Admin API domain routers
+│   ├── __init__.py              # Assembles 9 sub-routers
+│   ├── helpers.py               # Shared _db(), _rows(), _row()
+│   ├── auth.py                  # Login, session, password
+│   ├── dashboard.py             # Dashboard stats
+│   ├── users.py                 # User CRUD, parental controls
+│   ├── safety.py                # Safety events, jailbreak patterns
+│   ├── devices.py               # Speakers, HA devices
+│   ├── system.py                # Settings, evolution, system info
+│   ├── satellites.py            # Satellite management
+│   ├── tts.py                   # TTS preview, voice management
+│   └── avatar.py                # Avatar skins, audio routing
+├── orchestrator/                # Request coordination
+│   ├── __init__.py              # Entry: process_voice_pipeline()
+│   ├── voice.py                 # STT → pipeline → TTS flow
+│   ├── text.py                  # Sentence splitting, auto-listen
+│   └── filler.py                # Filler dispatch (cache → live)
+├── speech/                      # All audio synthesis/transcription
+│   ├── __init__.py              # Entry: synthesize_speech, transcribe
+│   ├── tts.py                   # Multi-provider TTS (Orpheus→Kokoro→Piper)
+│   ├── stt.py                   # Whisper + Wyoming STT
+│   ├── voices.py                # Voice resolution (satellite→user→system)
+│   └── cache.py                 # Unified audio cache (data/tts_cache/)
 ├── pipeline/
 │   ├── __init__.py              # Pipeline orchestrator (run_pipeline)
+│   ├── events.py                # Typed events (TextToken, ExpressionEvent, etc.)
 │   ├── layer0_context.py        # Context assembly
 │   ├── layer1_instant.py        # Instant answers (no LLM)
-│   ├── layer2_plugins.py        # Plugin dispatch
+│   ├── layer2_plugins.py        # Learned patterns + plugin dispatch
 │   └── layer3_llm.py            # Filler + LLM streaming
-├── voice/
-│   ├── kokoro.py                # KokoroClient (HTTP client)
-│   ├── base.py                  # TTSProvider abstract class
-│   ├── providers/
-│   │   ├── __init__.py          # Provider factory + registry
-│   │   ├── kokoro.py            # KokoroTTSProvider (primary)
-│   │   ├── orpheus.py           # OrpheusTTSProvider (alternate)
-│   │   └── piper.py             # PiperTTSProvider (fallback)
-│   ├── registry.py              # Voice DB (tts_voices table)
-│   └── streaming.py             # Sentence-boundary TTS streaming
+├── avatar/                      # Avatar state: face, mouth, skin
+│   ├── __init__.py              # Public API + backward compat
+│   ├── controller.py            # Single entry point for avatar control
+│   ├── expressions.py           # Expression mapping (19 emotions)
+│   ├── visemes.py               # Lip-sync viseme generation
+│   ├── skins/                   # SVG skins (default, nick)
+│   ├── broadcast.py             # WS transport to display clients
+│   ├── websocket.py             # WS handler (connect, greeting, jokes)
+│   └── display.html             # Client-side renderer
+├── memory/                      # HOT/COLD memory system
+│   ├── __init__.py              # Re-exports + backward compat
+│   ├── controller.py            # MemorySystem singleton
+│   ├── hot.py                   # HOT recall (BM25 + vector, RRF)
+│   ├── cold.py                  # COLD async write queue
+│   ├── classification.py        # Memory type classifier
+│   ├── pii.py                   # PII redaction
+│   ├── vector.py                # ChromaDB wrapper
+│   └── types.py                 # MemoryEntry, MemoryHit
+├── notifications/               # Alert and notification system
+│   ├── __init__.py              # Entry: send_notification()
+│   └── channels.py              # NotificationChannel ABC, LogChannel
+├── selfmod/                     # Self-evolution with security gates
+│   ├── __init__.py              # Entry: validate_change()
+│   └── zones.py                 # FROZEN/MUTABLE zone definitions
+├── learning/                    # Self-learning (re-exports)
+│   └── __init__.py              # FallthroughAnalyzer, NightlyEvolution
+├── content/                     # Pre-cached content
+│   ├── __init__.py              # Entry: jokes module
+│   └── jokes.py                 # Joke bank, rotation, TTS pre-gen
+├── scheduler/                   # Background task management
+│   └── __init__.py              # register_task, start_all, stop_all
+├── voice/                       # DEPRECATED → use cortex.speech
+│   ├── providers/               # TTS provider implementations
+│   └── ...                      # Legacy voice module
 ├── satellite/
-│   ├── websocket.py             # WebSocket handler (filler, TTS, auto-listen)
+│   ├── websocket.py             # Thin WS handler → delegates to orchestrator
 │   └── provisioning.py          # Satellite setup/config
 ├── safety/
-│   ├── __init__.py              # Input/Output guardrails
+│   ├── __init__.py              # Input/Output guardrails → notifications
 │   └── jailbreak.py             # 5-layer jailbreak defense
-├── memory/
-│   └── __init__.py              # HOT/COLD memory (BM25 + vector)
 ├── filler/
 │   └── cache.py                 # Pre-generated filler audio cache
-└── plugins/
-    ├── base.py                  # CortexPlugin abstract class
-    └── __init__.py              # PluginRegistry
+├── evolution/                   # Emotional evolution (rapport, mood)
+├── grounding/                   # Anti-hallucination (confidence scoring)
+├── plugins/
+│   ├── base.py                  # CortexPlugin abstract class
+│   └── __init__.py              # PluginRegistry
+├── providers/                   # LLM providers (Ollama, OpenAI)
+├── profiles/                    # User profiles, parental controls
+├── context/                     # Token budgeting
+└── integrations/                # Plugin impls (HA, knowledge, lists)
+    └── learning/                # Fallthrough analysis, pattern lifecycle
 
 satellite/atlas_satellite/
 ├── agent.py                     # Satellite state machine

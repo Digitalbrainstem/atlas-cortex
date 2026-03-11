@@ -23,10 +23,13 @@ CORTEX_ROOT = Path(__file__).parent.parent / "cortex"
 BOUNDARY_RULES: dict[str, list[str]] = {
     "pipeline": ["avatar", "speech", "satellite", "orchestrator"],
     "satellite": ["speech", "avatar"],
-    "avatar": ["speech"],
+    "avatar": ["satellite"],
     "speech": ["avatar", "satellite", "pipeline"],
     "content": [],
     "memory": ["avatar", "satellite", "orchestrator"],
+    "learning": ["avatar", "satellite", "orchestrator"],
+    "notifications": ["avatar", "satellite", "orchestrator"],
+    "selfmod": ["avatar", "satellite", "orchestrator", "pipeline"],
 }
 
 # Known violations pending deeper refactor — tracked so they don't grow

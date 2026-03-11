@@ -7,6 +7,8 @@ OWNERSHIP: This module is the ONLY place that starts or stops
 background services. No other module should call asyncio.create_task()
 for long-running services directly.
 """
+
+# Module ownership: Background task management
 from __future__ import annotations
 
 import asyncio

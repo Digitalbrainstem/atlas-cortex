@@ -6,6 +6,8 @@ system and which are frozen (safety-critical).
 Sub-modules:
   zones — FROZEN/MUTABLE zone definitions
 """
+
+# Module ownership: Self-evolution with security gates
 from __future__ import annotations
 
 from cortex.selfmod.zones import (

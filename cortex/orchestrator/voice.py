@@ -275,11 +275,13 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
 
         # HOT path: recall relevant memories for this query
         memory_context = ""
+        memory_hit_count = 0
         try:
             from cortex.memory import get_memory_system, format_memory_context
             mem = get_memory_system()
             if mem is not None:
                 hits = await mem.recall(transcript, user_id="default", top_k=5)
+                memory_hit_count = len(hits) if hits else 0
                 if hits:
                     memory_context = format_memory_context(hits, max_chars=800)
                     logger.info("Memory recall for %s: %d hits (%.0f chars)",
@@ -287,12 +289,34 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
         except Exception as e:
             logger.debug("Memory recall failed (non-fatal): %s", e)
 
+        # Evolution: get personality modifiers for this user
+        personality_context = ""
+        try:
+            from cortex.evolution import EmotionalProfile
+            from cortex.db import get_db as _get_db
+            profile = EmotionalProfile(_get_db())
+            mods = profile.get_personality_modifiers(user_id="default")
+            if mods and mods.get("tone"):
+                personality_context = (
+                    f"Personality: tone={mods['tone']}, "
+                    f"formality={mods.get('formality', 'moderate')}, "
+                    f"humor={mods.get('humor_level', 'occasional')}, "
+                    f"verbosity={mods.get('verbosity', 'concise')}."
+                )
+        except Exception as e:
+            logger.debug("Evolution personality failed (non-fatal): %s", e)
+
+        # Combine memory + personality into extra context
+        extra_context = memory_context
+        if personality_context:
+            extra_context = f"{personality_context}\n{extra_context}" if extra_context else personality_context
+
         pipeline_gen = await run_pipeline(
             message=transcript,
             provider=provider,
             satellite_id=satellite_id,
             model_fast="qwen2.5:7b",
-            memory_context=memory_context,
+            memory_context=extra_context,
         )
 
         filler_text = ""
@@ -482,6 +506,30 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
                 )
         except Exception as e:
             logger.debug("Memory remember failed (non-fatal): %s", e)
+
+        # Evolution: record interaction for rapport tracking
+        try:
+            from cortex.evolution import EmotionalProfile
+            from cortex.db import get_db as _get_db
+            profile = EmotionalProfile(_get_db())
+            sentiment = "positive" if is_question else "neutral"
+            profile.record_interaction(user_id="default", sentiment=sentiment)
+        except Exception as e:
+            logger.debug("Evolution record_interaction failed (non-fatal): %s", e)
+
+        # Grounding: assess confidence of response
+        try:
+            from cortex.grounding import assess_confidence
+            confidence = assess_confidence(
+                response=full_response,
+                layer=tts_used if tts_used else "llm",
+                memory_hits=memory_hit_count,
+            )
+            if confidence < 0.4:
+                logger.info("Low confidence (%.2f) for %s: %s",
+                            confidence, satellite_id, transcript[:80])
+        except Exception as e:
+            logger.debug("Grounding assess_confidence failed (non-fatal): %s", e)
 
     except Exception as exc:
         # Check for WebSocketDisconnect

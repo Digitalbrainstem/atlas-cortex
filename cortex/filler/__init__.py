@@ -12,6 +12,8 @@ Database-backed filler pools (per user, grown by nightly evolution job).
 Falls back to built-in default pools when no DB rows are present.
 """
 
+# Module ownership: Pre-cached filler phrases
+
 from __future__ import annotations
 
 import random

@@ -4,6 +4,8 @@ Plugins register themselves here. The pipeline calls
 :meth:`PluginRegistry.dispatch` for every message.
 """
 
+# Module ownership: Plugin framework: registry, base class
+
 from __future__ import annotations
 
 import logging

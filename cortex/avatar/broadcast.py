@@ -207,24 +207,19 @@ async def stream_tts_to_avatar(
     speed = _EXPR_SPEED.get(expression, 1.0)
 
     try:
-        from cortex.voice.providers import get_tts_provider
-        tts = get_tts_provider()
-        sample_rate = getattr(tts, "sample_rate", 24000)
+        from cortex.speech import synthesize_speech
+        pcm_bytes, sample_rate, _provider = await synthesize_speech(text, voice="")
+        if not pcm_bytes:
+            return
 
         await broadcast_tts_start(room, sid, sample_rate, text)
 
         chunk_size = 4096
-        audio_buffer = b""
-
-        async for audio_chunk in tts.synthesize(text, speed=speed, stream=True):
-            audio_buffer += audio_chunk
-            while len(audio_buffer) >= chunk_size:
-                chunk = audio_buffer[:chunk_size]
-                audio_buffer = audio_buffer[chunk_size:]
-                await broadcast_tts_chunk(room, sid, base64.b64encode(chunk).decode("ascii"))
-
-        if audio_buffer:
-            await broadcast_tts_chunk(room, sid, base64.b64encode(audio_buffer).decode("ascii"))
+        offset = 0
+        while offset < len(pcm_bytes):
+            chunk = pcm_bytes[offset:offset + chunk_size]
+            offset += chunk_size
+            await broadcast_tts_chunk(room, sid, base64.b64encode(chunk).decode("ascii"))
 
         await broadcast_tts_end(room, sid)
         logger.info("avatar TTS: streamed %r to room=%s (speed=%.2f)", text[:60], room, speed)

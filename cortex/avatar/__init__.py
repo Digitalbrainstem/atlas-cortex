@@ -14,6 +14,8 @@ Sub-modules:
 See docs/avatar-system.md for full design (Phase C7).
 """
 
+# Module ownership: Avatar state: face, mouth, skin, expressions
+
 from __future__ import annotations
 
 # Re-export public API from submodules for backward compatibility

@@ -7,3 +7,5 @@ Server-side components for managing distributed satellite devices:
   - WebSocket: real-time audio streaming and command channel
   - Manager: orchestrates lifecycle for all satellites
 """
+
+# Module ownership: Satellite device protocol and management

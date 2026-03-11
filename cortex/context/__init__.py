@@ -9,6 +9,8 @@ Handles:
 See docs/context-management.md for full design.
 """
 
+# Module ownership: Token budgeting and context window
+
 from __future__ import annotations
 
 import logging

@@ -9,6 +9,8 @@ Manages:
 See docs/user-profiles.md for full design.
 """
 
+# Module ownership: User profiles and parental controls
+
 from __future__ import annotations
 
 import logging

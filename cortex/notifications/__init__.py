@@ -6,6 +6,8 @@ system alerts, and operational notifications.
 Sub-modules:
   channels — NotificationChannel ABC + concrete implementations
 """
+
+# Module ownership: Notification channels and alerting
 from __future__ import annotations
 
 from cortex.notifications.channels import (
