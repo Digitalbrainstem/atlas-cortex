@@ -1,5 +1,38 @@
 # Atlas Cortex — Copilot Instructions
 
+## Novel Ideas → Blog Drafts
+
+When a conversation produces a novel idea, architecture pattern, or technique that
+hasn't been widely documented in the industry, **save it as a self-contained blog
+article draft** in the private repo:
+
+**Repo:** `Betanu701/atlas-blog-drafts` (private, GitHub)
+**Local clone:** `~/atlas-blog-drafts/`
+
+### What qualifies as "novel"
+- New architectural patterns (e.g., GPU choreography, two-phase self-evolution)
+- Creative applications of existing techniques to new domains
+- Compound approaches that combine known techniques in undocumented ways
+- Insights from Atlas development that others could learn from
+
+### How to save
+1. Create a numbered directory: `articles/NN-short-slug/article.md`
+2. Write a **self-contained** draft — someone should be able to construct a full blog
+   post from it without needing any other context
+3. Include: TL;DR, problem statement, technical details (code/diagrams), "what makes
+   this novel" section, and references
+4. Update `README.md` with the new article in the table
+5. Commit and push to `Betanu701/atlas-blog-drafts`
+
+### Existing articles
+- 01: Application-Aware MoE Surgery
+- 02: GPU Choreography for Self-Evolving AI
+- 03: Two-Phase Self-Evolution on 8GB
+- 04: Universal Distillation Philosophy
+- 05: Model Scout with Safety Gates
+
+Always check the repo for the current highest number before creating a new article.
+
 ## Build, Test & Run
 
 ```bash
@@ -32,7 +65,7 @@ context, mock setup, current state, pending todos, and directory structure.
 
 ## Architecture
 
-Atlas Cortex is a self-evolving AI home assistant with an OpenAI-compatible API. It has two entry points that share the same pipeline:
+Atlas Cortex is a self-evolving personal AI with an OpenAI-compatible API. It has two entry points that share the same pipeline:
 
 - **`cortex/server.py`** — Standalone FastAPI server on port 5100
 - **`cortex/pipe.py`** — Open WebUI Pipe function (drop-in, no separate server)
@@ -50,8 +83,8 @@ Every message flows through layers sequentially; **first match wins**:
 
 ### Voice Engine (`cortex/voice/`)
 
-**Primary TTS: Kokoro** (82M params, CPU, sub-2s synthesis, port 8880).
-Alternate: Orpheus (GPU, emotion tags). Fallback: Piper (CPU, fast).
+**Primary TTS: Orpheus** (3B params, GPU, emotion tags, port 8880).
+Fallback: Kokoro (82M, CPU, sub-2s). Last resort: Piper (CPU, fast).
 
 Provider factory: `get_tts_provider()` in `cortex/voice/providers/__init__.py`.
 Default voice: `af_bella`. Env vars: `TTS_PROVIDER`, `KOKORO_HOST`, `KOKORO_PORT`, `KOKORO_VOICE`.
