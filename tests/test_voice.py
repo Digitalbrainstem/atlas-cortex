@@ -37,9 +37,9 @@ class TestTTSProviderInterface:
         from cortex.voice.base import TTSProvider
 
         p = TTSProvider()
-        import asyncio
         with pytest.raises(NotImplementedError):
-            asyncio.get_event_loop().run_until_complete(p.synthesize("hello"))
+            import asyncio
+            asyncio.run(p.synthesize("hello"))
 
     def test_default_capabilities(self):
         from cortex.voice.base import TTSProvider
@@ -60,7 +60,7 @@ class TestOrpheusTTSProvider:
         from cortex.voice.providers.orpheus import OrpheusTTSProvider
 
         p = OrpheusTTSProvider()
-        assert p.ollama_url == "http://localhost:11434"
+        assert p.ollama_url == "http://localhost:11435"
         assert "Orpheus" in p.model
         assert p.fastapi_url is None
 
@@ -517,8 +517,13 @@ class TestSpeechEndpoint:
     async def test_list_voices(self):
         from cortex.server import app
 
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.get("/v1/audio/voices")
+        mock_voices = [{"id": f"v{i}", "name": f"Voice {i}"} for i in range(8)]
+        mock_provider = MagicMock()
+        mock_provider.list_voices.return_value = mock_voices
+
+        with patch("cortex.server.get_tts_provider", return_value=mock_provider):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/v1/audio/voices")
         assert resp.status_code == 200
         data = resp.json()
         assert "voices" in data

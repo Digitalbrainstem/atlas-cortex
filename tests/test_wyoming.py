@@ -11,6 +11,20 @@ import pytest
 from cortex.voice.wyoming import WyomingClient, WyomingError
 
 
+def _parse_wyoming_event(data: bytes) -> tuple[dict, dict]:
+    """Parse a Wyoming wire-format event (header line + optional data payload).
+
+    Returns (header_dict, data_dict).
+    """
+    first_nl = data.index(b"\n")
+    header = json.loads(data[:first_nl])
+    payload = {}
+    data_len = header.get("data_length", 0)
+    if data_len > 0:
+        payload = json.loads(data[first_nl + 1:first_nl + 1 + data_len])
+    return header, payload
+
+
 # ------------------------------------------------------------------ #
 # Helpers
 # ------------------------------------------------------------------ #
@@ -60,21 +74,20 @@ def _patch_connect(reader, writer):
 import contextlib
 
 def _patch_read_json(reader):
-    """Patch _read_json and _read_line to bypass asyncio.wait_for."""
-    async def _fake_read_line(self_, r):
-        return await r.readline()
-
-    async def _fake_read_json(self_, r):
+    """Patch _read_event to bypass asyncio.wait_for."""
+    async def _fake_read_event(self_, r):
         line = await r.readline()
         if not line:
-            raise WyomingError("Connection closed before response")
-        return json.loads(line.strip())
+            raise WyomingError("Connection closed")
+        header = json.loads(line.strip())
+        evt_type = header.get("type", "")
+        data = header.get("data", {})
+        return evt_type, data, None
 
     @contextlib.contextmanager
     def _combined():
-        with patch.object(WyomingClient, "_read_json", _fake_read_json):
-            with patch.object(WyomingClient, "_read_line", _fake_read_line):
-                yield
+        with patch.object(WyomingClient, "_read_event", _fake_read_event):
+            yield
 
     return _combined()
 
@@ -98,13 +111,12 @@ class TestTranscribe:
         assert result == "hello world"
 
         written = bytes(writer.data)
-        # First message is audio-start JSON
-        first_line_end = written.index(b"\n")
-        first = json.loads(written[:first_line_end])
-        assert first["type"] == "audio-start"
-        assert first["data"]["rate"] == 16000
-        assert first["data"]["width"] == 2
-        assert first["data"]["channels"] == 1
+        # First event is audio-start (header + data payload)
+        header, data = _parse_wyoming_event(written)
+        assert header["type"] == "audio-start"
+        assert data["rate"] == 16000
+        assert data["width"] == 2
+        assert data["channels"] == 1
 
         # audio-stop JSON is written after the raw audio
         assert b'"audio-stop"' in written
@@ -142,10 +154,8 @@ class TestTranscribe:
 class TestSynthesize:
     @pytest.mark.asyncio
     async def test_basic_synthesis(self):
-        audio_chunk = b"\x00\x01\x02\x03audio_data_here\n"
         reader = FakeStreamReader([
             json.dumps({"type": "audio-start", "data": {"rate": 22050, "width": 2, "channels": 1}}).encode() + b"\n",
-            audio_chunk,
             json.dumps({"type": "audio-stop"}).encode() + b"\n",
         ])
         writer = FakeStreamWriter()
@@ -155,9 +165,9 @@ class TestSynthesize:
             result = await client.synthesize("Hello there")
 
         written = bytes(writer.data)
-        msg = json.loads(written.split(b"\n")[0])
-        assert msg["type"] == "synthesize"
-        assert msg["data"]["text"] == "Hello there"
+        header, data = _parse_wyoming_event(written)
+        assert header["type"] == "synthesize"
+        assert data["text"] == "Hello there"
 
     @pytest.mark.asyncio
     async def test_synthesis_with_voice(self):
@@ -172,8 +182,8 @@ class TestSynthesize:
             await client.synthesize("Hi", voice="en-amy")
 
         written = bytes(writer.data)
-        msg = json.loads(written.split(b"\n")[0])
-        assert msg["data"]["voice"] == {"name": "en-amy"}
+        header, data = _parse_wyoming_event(written)
+        assert data["voice"] == {"name": "en-amy"}
 
     @pytest.mark.asyncio
     async def test_unexpected_header(self):
