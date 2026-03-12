@@ -41,18 +41,13 @@ Always check the repo for the current highest number before creating a new artic
 
 ### Orpheus LoRA for TTS/STT Vocabulary
 
-**Research doc:** `docs/research-lora-tts-stt.md`
+**Research location:** `Betanu701/atlas-blog-drafts` → `research/orpheus-lora-vocabulary/`
+**Agent instructions:** `research/orpheus-lora-vocabulary/AGENT_INSTRUCTIONS.md`
 
-Orpheus (our primary TTS) is a decoder-only transformer — it natively supports LoRA.
-Whisper (STT) is an encoder-decoder transformer that also supports LoRA. Research
-thread explores using domain-specific LoRA adapters to improve:
-- TTS pronunciation of specialized vocabulary (drug names, technical terms)
-- STT recognition of domain-specific speech
-- Coordinated "skill packages" that activate LLM + TTS + STT adapters together
-
-Open questions documented in the research file. When continuing this research,
-focus on: practical training pipeline, synthetic data generation, and integration
-with the Universal Skill Package architecture (Article 08).
+This research thread is kept private in the blog repo, NOT in atlas-cortex.
+It explores domain-specific LoRA adapters for TTS pronunciation and STT recognition
+(medication names, technical terms). When continuing this research, clone/open the
+blog repo and read the agent instructions there.
 
 ### Bio-Inspired Architecture
 
