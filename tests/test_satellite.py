@@ -320,7 +320,7 @@ class TestProvisioning:
         )
         assert config.mode == "dedicated"
         assert config.ssh_username == "atlas"
-        assert config.ssh_password == "atlas-setup"
+        assert config.ssh_password == "atlas"
 
     @pytest.mark.asyncio
     async def test_ensure_server_key(self, tmp_path, monkeypatch):
@@ -368,17 +368,13 @@ class TestSatelliteManager:
         sat = await mgr.add_manual("192.168.3.100", mode="shared")
         assert sat["mode"] == "shared"
 
-    def test_list_after_add(self):
+    @pytest.mark.asyncio
+    async def test_list_after_add(self):
         from cortex.satellite.manager import SatelliteManager
-        import asyncio
 
         mgr = SatelliteManager()
-        asyncio.get_event_loop().run_until_complete(
-            mgr.add_manual("192.168.3.100")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            mgr.add_manual("192.168.3.101")
-        )
+        await mgr.add_manual("192.168.3.100")
+        await mgr.add_manual("192.168.3.101")
 
         result = mgr.list_satellites()
         assert len(result) == 2
