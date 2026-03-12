@@ -18,7 +18,7 @@ const newUser = ref({ display_name: '', user_id: '' })
 const creating = ref(false)
 
 const columns = [
-  { key: 'id', label: 'ID' },
+  { key: 'user_id', label: 'ID' },
   { key: 'display_name', label: 'Name' },
   { key: 'age_group', label: 'Age Group' },
   { key: 'vocabulary_level', label: 'Vocabulary' },
@@ -43,7 +43,7 @@ async function fetchUsers() {
 onMounted(fetchUsers)
 
 function onRowClick(row) {
-  router.push(`/users/${row.id}`)
+  router.push(`/users/${row.user_id}`)
 }
 
 function prevPage() {
