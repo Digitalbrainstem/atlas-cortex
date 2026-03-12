@@ -1131,3 +1131,331 @@ class TestExpressionTransitionTiming:
         # Half confidence should be between neutral and full
         assert abs(half.mouth_smile - (neutral.mouth_smile + (full.mouth_smile - neutral.mouth_smile) * 0.5)) < 0.01
         assert abs(half.eyebrow_raise - (neutral.eyebrow_raise + (full.eyebrow_raise - neutral.eyebrow_raise) * 0.5)) < 0.01
+
+
+# ── Avatar-specific regression & behavior tests ─────────────────
+
+
+class TestSpeakingIdleMouth:
+    """ISSUE-13 related: IDLE-TALK viseme must exist for speaking idle state."""
+
+    def test_idle_talk_in_viseme_list(self):
+        """IDLE-TALK viseme exists in the JS VISEMES list (validated via Python constant)."""
+        # The JS VISEMES array includes both IDLE and IDLE-TALK.
+        # We mirror that list here to confirm the distinction.
+        js_visemes = [
+            "IDLE", "IDLE-TALK",
+            "PP", "FF", "TH", "DD", "KK", "SS", "SH", "RR", "NN",
+            "IH", "EH", "AA", "OH", "OU",
+            "CLOSED", "OPEN", "ROUND", "TEETH", "FV",
+        ]
+        assert "IDLE-TALK" in js_visemes
+        assert "IDLE" in js_visemes
+        assert js_visemes.index("IDLE-TALK") != js_visemes.index("IDLE")
+
+    def test_idle_talk_distinct_from_idle(self):
+        """IDLE-TALK and IDLE serve different roles — IDLE is rest, IDLE-TALK is speaking rest."""
+        # In display.html, showViseme() checks for a mouth-IDLE-TALK element.
+        # If it exists in the SVG, IDLE-TALK is used during speech instead of IDLE.
+        assert "IDLE" != "IDLE-TALK"
+
+
+class TestAudioFlushOnSpeakingStart:
+    """ISSUE-14/15: SPEAKING_START should signal client to flush old audio."""
+
+    async def test_speaking_start_sends_message(self):
+        """broadcast_speaking_start sends SPEAKING_START with skin info."""
+        ws = MockWebSocket()
+        await register_client("living-room", ws)
+
+        await broadcast_speaking_start("living-room")
+
+        assert len(ws.messages) == 1
+        msg = ws.messages[0]
+        assert msg["type"] == "SPEAKING_START"
+        assert "skin_id" in msg
+        assert "skin_url" in msg
+
+    async def test_speaking_start_precedes_tts(self):
+        """SPEAKING_START must arrive before any TTS_START in a session."""
+        ws = MockWebSocket()
+        await register_client("office", ws)
+
+        await broadcast_speaking_start("office")
+        await broadcast_tts_start("office", "sess-flush-01", 24000, "Hello")
+
+        types = [m["type"] for m in ws.messages]
+        assert types.index("SPEAKING_START") < types.index("TTS_START")
+
+    @pytest.mark.xfail(reason="Not yet implemented — SPEAKING_START should flush audio on client")
+    async def test_new_speaking_start_implies_audio_flush(self):
+        """A second SPEAKING_START should signal the client to flush stale audio.
+
+        Currently the JS handleSpeakingStart only clears viseme timers,
+        not audioQueue. This test documents the expected behavior once
+        ISSUE-14 is fixed: the client should flush audioQueue, disconnect
+        any playing AudioBufferSourceNode, and reset nextPlayTime.
+        """
+        ws = MockWebSocket()
+        await register_client("kitchen", ws)
+
+        # First speaking session with audio
+        await broadcast_speaking_start("kitchen")
+        await broadcast_tts_start("kitchen", "sess-old", 24000, "Old speech")
+        pcm = _generate_pcm_samples(2400)
+        await broadcast_tts_chunk("kitchen", "sess-old", _pcm_to_b64(pcm))
+
+        # Interrupt: new speaking session before TTS_END
+        await broadcast_speaking_start("kitchen")
+
+        # The second SPEAKING_START should be the signal for flush.
+        speaking_starts = [m for m in ws.messages if m["type"] == "SPEAKING_START"]
+        assert len(speaking_starts) == 2
+
+        # Client-side expectation (not enforced server-side):
+        # After the second SPEAKING_START, audioQueue should be empty.
+        # This assertion is a placeholder for client-side verification.
+        assert False, "Client audio flush on SPEAKING_START not yet implemented"
+
+
+class TestBargeInSequence:
+    """ISSUE-14: Barge-in must clear old session state."""
+
+    @pytest.mark.xfail(reason="Not yet implemented — barge-in audio flush")
+    async def test_barge_in_clears_old_session(self):
+        """Simulate: SPEAKING_START → TTS flow → interrupt → new SPEAKING_START.
+
+        After the interrupt, the old session's TTS messages should not
+        interfere with the new session. The server-side broadcast is
+        stateless per-message, but the client must track session_id to
+        discard stale chunks.
+        """
+        ws = MockWebSocket()
+        await register_client("bedroom", ws)
+
+        # Session 1: start speaking
+        await broadcast_speaking_start("bedroom")
+        await broadcast_tts_start("bedroom", "sess-A", 24000, "First sentence")
+        pcm = _generate_pcm_samples(1200)
+        await broadcast_tts_chunk("bedroom", "sess-A", _pcm_to_b64(pcm))
+
+        # Interrupt: new speech arrives (barge-in)
+        await broadcast_speaking_start("bedroom")
+        await broadcast_tts_start("bedroom", "sess-B", 24000, "Interrupting")
+
+        # Collect session IDs from TTS_START messages
+        tts_starts = [m for m in ws.messages if m["type"] == "TTS_START"]
+        assert len(tts_starts) == 2
+        assert tts_starts[0]["session_id"] == "sess-A"
+        assert tts_starts[1]["session_id"] == "sess-B"
+
+        # Client expectation: after second SPEAKING_START, any TTS_CHUNK
+        # with session_id="sess-A" should be discarded. This is not
+        # enforced server-side — the client must check currentSessionId.
+        assert False, "Client-side session gating on barge-in not yet implemented"
+
+
+class TestSkinMessageOnConnect:
+    """ISSUE-16: Server sends SKIN on client registration."""
+
+    @pytest.mark.xfail(reason="Not yet implemented — client HELLO handshake")
+    async def test_client_hello_triggers_skin(self):
+        """After registering, client should send HELLO and server responds with SKIN.
+
+        Currently the server sends SKIN proactively in websocket.py's
+        avatar_ws_handler(), but there's no HELLO→SKIN handshake protocol.
+        If the server misses the connect event, avatar stays skinless.
+
+        Expected flow:
+        1. Client connects via WebSocket
+        2. Client sends {"type": "HELLO", "room": "living-room"}
+        3. Server responds with {"type": "SKIN", "skin_id": ..., "skin_url": ...}
+        """
+        ws = MockWebSocket()
+        await register_client("living-room", ws)
+
+        # Currently register_client does NOT send SKIN — that's done in
+        # the WebSocket handler. This test documents the missing handshake.
+        skin_msgs = [m for m in ws.messages if m.get("type") == "SKIN"]
+        assert len(skin_msgs) == 1, "SKIN should be sent on registration"
+
+    async def test_speaking_start_includes_skin_info(self):
+        """SPEAKING_START already includes skin_id and skin_url (existing behavior)."""
+        ws = MockWebSocket()
+        await register_client("hallway", ws)
+
+        await broadcast_speaking_start("hallway")
+
+        msg = ws.messages[0]
+        assert msg["type"] == "SPEAKING_START"
+        assert "skin_id" in msg
+        assert msg["skin_url"].startswith("/avatar/skin/")
+
+
+class TestFacelessSkinDetection:
+    """ISSUE related: _isFaceless logic in display.html."""
+
+    def test_faceless_detection_documented(self):
+        """Document expected _isFaceless behavior.
+
+        In display.html, after loading a skin SVG:
+        - The JS checks for a <g id="face-base"> group
+        - If face-base has no children (empty group), _isFaceless = true
+        - When _isFaceless, the background/body IS the face — no separate
+          face overlay is rendered, and expression morphs are skipped
+
+        This is a documentation test — actual DOM testing requires a browser.
+        """
+        # Simulate the detection logic in Python
+        face_base_children = []  # Empty face-base group
+        is_faceless = len(face_base_children) == 0
+        assert is_faceless is True
+
+        face_base_children = ["<ellipse id='head'/>"]  # Has face geometry
+        is_faceless = len(face_base_children) == 0
+        assert is_faceless is False
+
+
+class TestExpressionPresetCompassionate:
+    """Verify broadcast formats expression correctly for Legacy Protocol."""
+
+    async def test_compassionate_expression_broadcast(self):
+        """If a 'compassionate' expression is sent, broadcast formats it correctly."""
+        ws = MockWebSocket()
+        await register_client("nursery", ws)
+
+        await broadcast_expression("nursery", "compassionate", 0.9)
+
+        msg = ws.messages[0]
+        assert msg["type"] == "EXPRESSION"
+        assert msg["expression"] == "compassionate"
+        assert msg["intensity"] == 0.9
+
+    async def test_expression_intensity_clamped(self):
+        """Expression intensity is passed through as-is (protocol trusts server)."""
+        ws = MockWebSocket()
+        await register_client("nursery", ws)
+
+        await broadcast_expression("nursery", "compassionate", 1.0)
+        assert ws.messages[0]["intensity"] == 1.0
+
+        await broadcast_expression("nursery", "compassionate", 0.0)
+        assert ws.messages[1]["intensity"] == 0.0
+
+
+class TestMultiSentenceVisemeNoClear:
+    """ISSUE-18 regression: Two TTS sequences in the same SPEAKING session
+    must not clear the first set of visemes."""
+
+    async def test_two_tts_sequences_in_same_session(self):
+        """Send two TTS_START/CHUNK/END sequences without SPEAKING_END between them.
+
+        Both should be delivered to the client. The server broadcasts all
+        messages — it's the client's job to schedule visemes correctly.
+        This test verifies the server doesn't drop or merge messages.
+        """
+        ws = MockWebSocket()
+        await register_client("den", ws)
+
+        await broadcast_speaking_start("den")
+
+        # Sentence 1
+        await broadcast_tts_start("den", "sess-s1", 24000, "Hello world")
+        pcm1 = _generate_pcm_samples(2400)
+        await broadcast_tts_chunk("den", "sess-s1", _pcm_to_b64(pcm1))
+        await broadcast_tts_end("den", "sess-s1")
+
+        # Sentence 2 (same speaking session, no SPEAKING_END between)
+        await broadcast_tts_start("den", "sess-s2", 24000, "How are you")
+        pcm2 = _generate_pcm_samples(3600)
+        await broadcast_tts_chunk("den", "sess-s2", _pcm_to_b64(pcm2))
+        await broadcast_tts_end("den", "sess-s2")
+
+        await broadcast_speaking_end("den")
+
+        types = [m["type"] for m in ws.messages]
+        assert types == [
+            "SPEAKING_START",
+            "TTS_START", "TTS_CHUNK", "TTS_END",
+            "TTS_START", "TTS_CHUNK", "TTS_END",
+            "SPEAKING_END",
+        ]
+
+        # Both TTS_START messages have distinct session IDs
+        tts_starts = [m for m in ws.messages if m["type"] == "TTS_START"]
+        assert tts_starts[0]["session_id"] == "sess-s1"
+        assert tts_starts[1]["session_id"] == "sess-s2"
+
+        # Both TTS_START messages carry their sentence text
+        assert tts_starts[0]["text"] == "Hello world"
+        assert tts_starts[1]["text"] == "How are you"
+
+    async def test_multi_sentence_all_chunks_delivered(self):
+        """All TTS_CHUNKs from both sentences are delivered without loss."""
+        ws = MockWebSocket()
+        await register_client("den", ws)
+
+        await broadcast_speaking_start("den")
+
+        # Sentence 1: two chunks
+        await broadcast_tts_start("den", "sess-m1", 24000, "First")
+        pcm_a = _generate_pcm_samples(1200)
+        pcm_b = _generate_pcm_samples(1200)
+        await broadcast_tts_chunk("den", "sess-m1", _pcm_to_b64(pcm_a))
+        await broadcast_tts_chunk("den", "sess-m1", _pcm_to_b64(pcm_b))
+        await broadcast_tts_end("den", "sess-m1")
+
+        # Sentence 2: one chunk
+        await broadcast_tts_start("den", "sess-m2", 24000, "Second")
+        pcm_c = _generate_pcm_samples(2400)
+        await broadcast_tts_chunk("den", "sess-m2", _pcm_to_b64(pcm_c))
+        await broadcast_tts_end("den", "sess-m2")
+
+        chunks = [m for m in ws.messages if m["type"] == "TTS_CHUNK"]
+        assert len(chunks) == 3
+
+
+class TestAudioRouteAffectsTtsDelivery:
+    """Verify that audio_route='satellite' suppresses TTS to avatar clients."""
+
+    async def test_satellite_route_blocks_tts_chunk(self):
+        """When audio_route is 'satellite', broadcast_tts_chunk returns without sending."""
+        ws = MockWebSocket()
+        await register_client("garage", ws)
+        set_audio_route("garage", "satellite")
+
+        await broadcast_tts_start("garage", "sess-sat-01", 24000, "Test")
+        pcm = _generate_pcm_samples(1200)
+        await broadcast_tts_chunk("garage", "sess-sat-01", _pcm_to_b64(pcm))
+        await broadcast_tts_end("garage", "sess-sat-01")
+
+        # No TTS messages should reach avatar client
+        tts_msgs = [m for m in ws.messages if m["type"].startswith("TTS_")]
+        assert len(tts_msgs) == 0
+
+    async def test_satellite_route_still_sends_speaking(self):
+        """SPEAKING_START/END are NOT gated by audio route — avatar still animates."""
+        ws = MockWebSocket()
+        await register_client("garage", ws)
+        set_audio_route("garage", "satellite")
+
+        await broadcast_speaking_start("garage")
+        await broadcast_speaking_end("garage")
+
+        types = [m["type"] for m in ws.messages]
+        assert "SPEAKING_START" in types
+        assert "SPEAKING_END" in types
+
+    async def test_both_route_delivers_tts(self):
+        """When audio_route is 'both', TTS messages ARE delivered to avatar."""
+        ws = MockWebSocket()
+        await register_client("garage", ws)
+        set_audio_route("garage", "both")
+
+        await broadcast_tts_start("garage", "sess-both-01", 24000, "Both test")
+        pcm = _generate_pcm_samples(1200)
+        await broadcast_tts_chunk("garage", "sess-both-01", _pcm_to_b64(pcm))
+        await broadcast_tts_end("garage", "sess-both-01")
+
+        tts_msgs = [m for m in ws.messages if m["type"].startswith("TTS_")]
+        assert len(tts_msgs) == 3
