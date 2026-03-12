@@ -30,8 +30,38 @@ article draft** in the private repo:
 - 03: Two-Phase Self-Evolution on 8GB
 - 04: Universal Distillation Philosophy
 - 05: Model Scout with Safety Gates
+- 06: The Atlas Body (Bio-Inspired Architecture)
+- 07: Breaking the I/O Wall (Zero-I/O Pipeline)
+- 08: Universal Skill Packages (Coordinated LoRA)
+- 09: Autonomous LoRA Training on Consumer Hardware
 
 Always check the repo for the current highest number before creating a new article.
+
+## Research Threads
+
+### Orpheus LoRA for TTS/STT Vocabulary
+
+**Research doc:** `docs/research-lora-tts-stt.md`
+
+Orpheus (our primary TTS) is a decoder-only transformer — it natively supports LoRA.
+Whisper (STT) is an encoder-decoder transformer that also supports LoRA. Research
+thread explores using domain-specific LoRA adapters to improve:
+- TTS pronunciation of specialized vocabulary (drug names, technical terms)
+- STT recognition of domain-specific speech
+- Coordinated "skill packages" that activate LLM + TTS + STT adapters together
+
+Open questions documented in the research file. When continuing this research,
+focus on: practical training pipeline, synthetic data generation, and integration
+with the Universal Skill Package architecture (Article 08).
+
+### Bio-Inspired Architecture
+
+**Implementation plan:** `docs/bio-architecture-plan.md`
+
+Focused plan for implementing bio-inspired patterns: parallel pipeline, muscle
+memory cache, thalamus triage, hormonal engine, sleep architecture, immune vaccine.
+This is SEPARATE from the LLM optimization strategy and should be treated as its
+own work stream.
 
 ## Build, Test & Run
 
