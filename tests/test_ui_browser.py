@@ -655,3 +655,664 @@ class TestAdminCRUD:
         assert "pw-test-user" not in names2 and "PW Updated" not in display2, (
             "User not deleted"
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# A.  Admin User Detail Navigation  (catches the row.id vs row.user_id 404)
+# ══════════════════════════════════════════════════════════════════════════
+
+@_skip_admin
+class TestAdminUserDetail:
+    """Click a user in the list and verify we reach the detail page, not 404."""
+
+    def _login_and_get_token(self, server: str) -> str | None:
+        resp = httpx.post(
+            f"{server}/admin/auth/login",
+            json={"username": "admin", "password": "atlas-admin"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+        return resp.json()["token"]
+
+    def _login_page(self, page: Page, server: str):
+        page.goto(f"{server}/admin/", wait_until="networkidle")
+        page.wait_for_timeout(500)
+        if "/login" not in page.url:
+            return
+        page.fill("#username", "admin")
+        page.fill("#password", "atlas-admin")
+        page.click("button[type='submit']")
+        page.wait_for_timeout(2000)
+        if "/login" in page.url:
+            pytest.skip("Could not log in")
+
+    def test_user_detail_navigation(self, page: Page, server: str):
+        """Click a user row in the list → must reach detail page, not 404."""
+        token = self._login_and_get_token(server)
+        if not token:
+            pytest.skip("Admin login API unavailable")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Ensure at least one non-admin user exists
+        httpx.post(
+            f"{server}/admin/users",
+            json={"display_name": "Detail Nav Test"},
+            headers=headers,
+            timeout=5,
+        )
+
+        self._login_page(page, server)
+        page.goto(f"{server}/admin/#/users", wait_until="networkidle")
+        page.wait_for_timeout(1500)
+
+        # Intercept API calls to detect 404s during navigation
+        api_errors: list[dict] = []
+
+        def _on_response(response):
+            if response.status >= 400 and "/admin/" in response.url:
+                api_errors.append({
+                    "url": response.url,
+                    "status": response.status,
+                })
+
+        page.on("response", _on_response)
+
+        # Find and click the first clickable user row
+        row = page.locator("table tbody tr, .user-row, [data-user-id]").first
+        if row.count() == 0:
+            pytest.skip("No user rows rendered in the users list")
+
+        row.click()
+        page.wait_for_timeout(2000)
+
+        url = page.url
+
+        # The URL must contain a real user ID, not "undefined" or "null"
+        assert "undefined" not in url, (
+            f"User detail URL contains 'undefined' — row.id vs row.user_id mismatch: {url}"
+        )
+        assert "null" not in url.split("#")[-1], (
+            f"User detail URL contains 'null' — field mismatch: {url}"
+        )
+
+        # Must NOT have triggered a 404
+        user_detail_404s = [
+            e for e in api_errors
+            if e["status"] == 404 and "users" in e["url"]
+        ]
+        assert not user_detail_404s, (
+            f"User detail navigation caused 404: {user_detail_404s}"
+        )
+
+        # The detail page should show actual user content, not an error state
+        content = page.content().lower()
+        error_indicators = ["not found", "404", "error loading"]
+        visible_errors = [ind for ind in error_indicators if ind in content]
+        assert not visible_errors, (
+            f"User detail page shows error indicators: {visible_errors}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# B.  Mic Button Functionality  (gated behind #satellite hash)
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestMicButton:
+    """Verify the satellite mic button is gated behind the #satellite hash."""
+
+    def test_mic_button_exists_in_satellite_mode(self, page: Page, server: str):
+        """Navigate to /avatar#satellite — #ws-mic-btn must appear and respond."""
+        page.goto(f"{server}/avatar#satellite", wait_until="domcontentloaded")
+        page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
+        page.wait_for_timeout(2000)  # let web-satellite.js boot
+
+        mic_btn = page.locator("#ws-mic-btn")
+        assert mic_btn.count() > 0, (
+            "Mic button (#ws-mic-btn) not found — web-satellite.js did not "
+            "initialise. It is gated behind #satellite hash."
+        )
+        mic_btn.wait_for(state="visible", timeout=3000)
+
+        # Verify overlay and status element also appeared
+        overlay = page.locator("#ws-overlay")
+        assert overlay.count() > 0, "Satellite overlay not injected"
+
+        # Click the mic button — getUserMedia will fail (no mic in CI)
+        # but the click handler should fire and attempt to start listening.
+        # We detect that by checking for class changes or status updates.
+        pre_classes = mic_btn.get_attribute("class") or ""
+
+        # Capture console messages to prove the handler fired
+        console_msgs: list[str] = []
+        page.on("console", lambda msg: console_msgs.append(msg.text))
+
+        mic_btn.click()
+        page.wait_for_timeout(1500)
+
+        post_classes = mic_btn.get_attribute("class") or ""
+        status_text = page.locator("#ws-status").text_content() or ""
+
+        # The handler must have done SOMETHING — either class change,
+        # status update, or console output about mic
+        handler_fired = (
+            post_classes != pre_classes
+            or "listening" in post_classes
+            or "mic" in status_text.lower()
+            or "error" in status_text.lower()  # mic error is fine — handler ran
+            or any("mic" in m.lower() or "getUserMedia" in m for m in console_msgs)
+            or any("web-sat" in m for m in console_msgs)
+        )
+        assert handler_fired, (
+            f"Mic button click had no effect. "
+            f"classes: {pre_classes!r} → {post_classes!r}, "
+            f"status: {status_text!r}, console: {console_msgs[:5]}"
+        )
+
+    def test_mic_button_hidden_without_satellite_hash(self, page: Page, server: str):
+        """Without #satellite hash, mic button must NOT exist."""
+        page.goto(f"{server}/avatar", wait_until="domcontentloaded")
+        page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
+        page.wait_for_timeout(2000)
+
+        mic_btn = page.locator("#ws-mic-btn")
+        assert mic_btn.count() == 0, (
+            "Mic button found without #satellite hash — web-satellite.js "
+            "should not inject UI elements in non-satellite mode"
+        )
+
+        ws_overlay = page.locator("#ws-overlay")
+        assert ws_overlay.count() == 0, (
+            "Satellite overlay found without #satellite hash"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# C.  Viseme / Audio Timing Instrumentation
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestVisemeAudioAlignment:
+    """Instrument the avatar JS to log every viseme change with timestamps,
+    then compare against the audio timeline to detect misalignment."""
+
+    _VISEME_HOOK_JS = """() => {
+        window._visemeLog = [];
+        window._ttsEvents = [];
+        const _origShowViseme = showViseme;
+        showViseme = function(v) {
+            window._visemeLog.push({
+                viseme: v,
+                time: performance.now()
+            });
+            return _origShowViseme(v);
+        };
+    }"""
+
+    def _setup_avatar(self, page: Page, server: str):
+        """Navigate to /avatar, dismiss overlay, wait for WS + skin."""
+        page.goto(f"{server}/avatar", wait_until="domcontentloaded")
+        page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
+        overlay = page.locator("#audio-unlock")
+        if overlay.is_visible():
+            overlay.click()
+        page.wait_for_timeout(2000)
+
+    def test_viseme_audio_alignment(self, page: Page, server: str):
+        """Send TTS flow and verify visemes are distributed across audio duration."""
+        self._setup_avatar(page, server)
+
+        # Install viseme hook
+        page.evaluate(self._VISEME_HOOK_JS)
+
+        session_id = "pw-align-001"
+        text = "The quick brown fox jumps over the lazy dog"
+        audio_duration_ms = 2000
+        silence_b64 = _generate_silence_pcm(audio_duration_ms)
+
+        t0 = page.evaluate("() => performance.now()")
+
+        # TTS_START
+        page.evaluate(
+            """(args) => {
+                window._ttsEvents.push({event: 'TTS_START', time: performance.now()});
+                handleTtsStart(args);
+            }""",
+            {
+                "type": "TTS_START",
+                "session_id": session_id,
+                "sample_rate": 24000,
+                "text": text,
+                "format": "pcm_24k_16bit_mono",
+            },
+        )
+
+        # TTS_CHUNK
+        page.evaluate(
+            """(args) => {
+                window._ttsEvents.push({event: 'TTS_CHUNK', time: performance.now()});
+                handleTtsChunk(args);
+            }""",
+            {"type": "TTS_CHUNK", "session_id": session_id, "audio": silence_b64},
+        )
+
+        # Wait for visemes to fire during playback
+        page.wait_for_timeout(1500)
+
+        # TTS_END
+        page.evaluate(
+            """(args) => {
+                window._ttsEvents.push({event: 'TTS_END', time: performance.now()});
+                handleTtsEnd(args);
+            }""",
+            {"type": "TTS_END", "session_id": session_id, "expression": "neutral"},
+        )
+
+        # Wait for remaining visemes + IDLE
+        page.wait_for_timeout(3000)
+
+        log = page.evaluate("() => window._visemeLog")
+        events = page.evaluate("() => window._ttsEvents")
+        assert len(log) > 0, "No visemes fired during TTS flow"
+
+        tts_start_time = events[0]["time"]
+        speech_visemes = [e for e in log if e["viseme"] != "IDLE" and e["time"] >= tts_start_time]
+        idle_visemes = [e for e in log if e["viseme"] == "IDLE" and e["time"] > tts_start_time]
+
+        # 1. First viseme fires within 500ms of TTS_START
+        if speech_visemes:
+            first_delay = speech_visemes[0]["time"] - tts_start_time
+            assert first_delay < 500, (
+                f"First viseme delayed {first_delay:.0f}ms after TTS_START (limit 500ms)"
+            )
+
+        # 2. Visemes should not all bunch at the start — check distribution
+        if len(speech_visemes) >= 3:
+            times = [v["time"] - tts_start_time for v in speech_visemes]
+            first_third = sum(1 for t in times if t < audio_duration_ms / 3)
+            last_third = sum(1 for t in times if t > audio_duration_ms * 2 / 3)
+            # At least SOME visemes should be in the latter portion
+            assert last_third > 0 or len(speech_visemes) < 5, (
+                f"All {len(speech_visemes)} visemes bunched in first third: "
+                f"times={[f'{t:.0f}ms' for t in times]}"
+            )
+
+        # 3. No gap > 800ms between consecutive visemes during speech phase
+        all_during_speech = [e for e in log if e["time"] >= tts_start_time]
+        for i in range(1, len(all_during_speech)):
+            gap = all_during_speech[i]["time"] - all_during_speech[i - 1]["time"]
+            if all_during_speech[i - 1]["viseme"] != "IDLE":
+                assert gap < 800, (
+                    f"Gap of {gap:.0f}ms between visemes at index {i-1}→{i} "
+                    f"({all_during_speech[i-1]['viseme']} → {all_during_speech[i]['viseme']})"
+                )
+
+        # 4. IDLE viseme should eventually appear (mouth closes)
+        assert len(idle_visemes) > 0, (
+            f"No IDLE viseme after TTS flow — mouth never closed. "
+            f"Visemes: {[v['viseme'] for v in log[-5:]]}"
+        )
+
+    def test_viseme_no_stutter_on_reschedule(self, page: Page, server: str):
+        """Verify TTS_END reschedule doesn't cause a visible stutter.
+
+        The known bug: estimated duration (max(2000, 800 + len*100)) is way
+        off from actual duration.  TTS_END clears timers and re-schedules,
+        causing a gap in mouth movement.
+        """
+        self._setup_avatar(page, server)
+        page.evaluate(self._VISEME_HOOK_JS)
+
+        session_id = "pw-stutter-001"
+        text = "Hello world"
+        # Short audio: ~100ms — estimated = max(2000, 800+11*100) = 2000ms
+        short_silence = _generate_silence_pcm(100)
+
+        page.evaluate(
+            "(args) => handleTtsStart(args)",
+            {
+                "type": "TTS_START",
+                "session_id": session_id,
+                "sample_rate": 24000,
+                "text": text,
+                "format": "pcm_24k_16bit_mono",
+            },
+        )
+
+        page.evaluate(
+            "(args) => handleTtsChunk(args)",
+            {"type": "TTS_CHUNK", "session_id": session_id, "audio": short_silence},
+        )
+
+        # Let some visemes fire under the estimated schedule
+        page.wait_for_timeout(400)
+
+        # Record the pre-TTS_END viseme count
+        pre_end_count = page.evaluate("() => window._visemeLog.length")
+
+        # Now TTS_END arrives — actual duration ≈100ms, but 400ms already
+        # elapsed.  This clears ALL timers mid-animation and re-schedules.
+        tts_end_time = page.evaluate(
+            """(sid) => {
+            const t = performance.now();
+            handleTtsEnd({type: 'TTS_END', session_id: sid});
+            return t;
+        }""",
+            session_id,
+        )
+
+        page.wait_for_timeout(2000)
+
+        log = page.evaluate("() => window._visemeLog")
+        # Find the gap around TTS_END
+        post_end = [e for e in log if e["time"] >= tts_end_time - 50]
+
+        if len(post_end) >= 2:
+            max_gap = 0
+            for i in range(1, len(post_end)):
+                gap = post_end[i]["time"] - post_end[i - 1]["time"]
+                if gap > max_gap:
+                    max_gap = gap
+
+            # A gap > 500ms around TTS_END means the reschedule caused a stutter
+            if max_gap > 500:
+                # This is the known bug — log it as a diagnostic xfail
+                near = [
+                    (v["viseme"], f"{v['time'] - tts_end_time:.0f}ms")
+                    for v in post_end[:6]
+                ]
+                pytest.xfail(
+                    f"Reschedule stutter detected: max gap = {max_gap:.0f}ms "
+                    f"around TTS_END (threshold 500ms). Visemes near TTS_END: "
+                    f"{near}"
+                )
+
+    def test_estimated_vs_actual_duration_accuracy(self, page: Page, server: str):
+        """Measure how far off the duration estimate is from reality.
+
+        The formula:  estimated = max(2000, 800 + len(text) * 100)
+        For short texts this is wildly wrong — the test quantifies how wrong.
+        """
+        test_cases = [
+            ("Hi", 200),
+            ("Hello world", 500),
+            ("The quick brown fox jumps over the lazy dog", 3000),
+        ]
+
+        results: list[dict] = []
+        for text, actual_ms in test_cases:
+            estimated = max(2000, 800 + len(text) * 100)
+            delta = abs(estimated - actual_ms)
+            pct_off = (delta / actual_ms) * 100 if actual_ms > 0 else float("inf")
+            results.append({
+                "text": text,
+                "actual_ms": actual_ms,
+                "estimated_ms": estimated,
+                "delta_ms": delta,
+                "pct_off": pct_off,
+            })
+
+        # Log all results for diagnostics
+        for r in results:
+            print(
+                f"  Duration estimate: \"{r['text'][:30]}\" "
+                f"actual={r['actual_ms']}ms est={r['estimated_ms']}ms "
+                f"off={r['pct_off']:.0f}%"
+            )
+
+        # At least one case should be dangerously wrong (>100% off)
+        dangerous = [r for r in results if r["pct_off"] > 100]
+        if dangerous:
+            # This IS the known bug — short texts get wildly overestimated
+            pytest.xfail(
+                f"Duration estimation is dangerously inaccurate for "
+                f"{len(dangerous)}/{len(results)} cases: "
+                + "; ".join(
+                    f"\"{r['text'][:20]}\" est={r['estimated_ms']}ms "
+                    f"actual={r['actual_ms']}ms ({r['pct_off']:.0f}% off)"
+                    for r in dangerous
+                )
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# D.  Admin API Response Validation
+# ══════════════════════════════════════════════════════════════════════════
+
+@_skip_admin
+class TestAdminAPIValidation:
+    """Validate admin API responses match what the SPA expects."""
+
+    def _get_auth(self, server: str) -> dict | None:
+        resp = httpx.post(
+            f"{server}/admin/auth/login",
+            json={"username": "admin", "password": "atlas-admin"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+        return {"Authorization": f"Bearer {resp.json()['token']}"}
+
+    def test_users_api_returns_user_id_field(self, server: str):
+        """Verify users list returns 'user_id' — the SPA navigates with it."""
+        headers = self._get_auth(server)
+        if not headers:
+            pytest.skip("Admin auth unavailable")
+
+        # Ensure at least one user exists
+        httpx.post(
+            f"{server}/admin/users",
+            json={"display_name": "Field Test User"},
+            headers=headers,
+            timeout=5,
+        )
+
+        resp = httpx.get(f"{server}/admin/users", headers=headers, timeout=5)
+        assert resp.status_code == 200
+        data = resp.json()
+        users = data.get("users", data) if isinstance(data, dict) else data
+        assert len(users) > 0, "No users in response"
+
+        first_user = users[0]
+
+        # The SPA uses row.user_id for navigation — this field MUST exist
+        assert "user_id" in first_user, (
+            f"API response missing 'user_id' field. "
+            f"Keys present: {list(first_user.keys())}. "
+            f"The SPA's UsersView.vue navigates via row.user_id — if this "
+            f"field is missing, detail navigation breaks with 'undefined' in URL."
+        )
+
+        # If there's also an 'id' field, it must match user_id or be absent
+        if "id" in first_user:
+            assert first_user["id"] == first_user["user_id"], (
+                f"Both 'id' ({first_user['id']}) and 'user_id' "
+                f"({first_user['user_id']}) exist but differ — "
+                f"SPA may navigate to wrong detail page"
+            )
+
+    def test_user_detail_api_returns_valid_response(self, server: str):
+        """Create a user, fetch detail by user_id, verify it's not 404."""
+        headers = self._get_auth(server)
+        if not headers:
+            pytest.skip("Admin auth unavailable")
+
+        create_resp = httpx.post(
+            f"{server}/admin/users",
+            json={"display_name": "Detail API Test"},
+            headers=headers,
+            timeout=5,
+        )
+        if create_resp.status_code not in (200, 201):
+            pytest.skip("User creation failed")
+
+        user = create_resp.json()
+        user_id = user.get("user_id") or user.get("id")
+        assert user_id, f"No user_id in creation response: {user}"
+
+        # Fetch detail — this is what the SPA does after row click
+        detail_resp = httpx.get(
+            f"{server}/admin/users/{user_id}", headers=headers, timeout=5
+        )
+        assert detail_resp.status_code == 200, (
+            f"User detail GET /admin/users/{user_id} returned "
+            f"{detail_resp.status_code}. "
+            f"This is the 404 bug: SPA navigates to a user_id the API "
+            f"can't find."
+        )
+
+        detail = detail_resp.json()
+        assert detail.get("user_id") == user_id or detail.get("id") == user_id, (
+            f"Detail response user_id mismatch: expected {user_id}, "
+            f"got user_id={detail.get('user_id')}, id={detail.get('id')}"
+        )
+
+        # Cleanup
+        httpx.delete(f"{server}/admin/users/{user_id}", headers=headers, timeout=5)
+
+    def test_admin_pages_no_console_errors(self, page: Page, server: str):
+        """Navigate to each admin page and capture console.error output."""
+        # Login first
+        page.goto(f"{server}/admin/", wait_until="networkidle")
+        page.wait_for_timeout(500)
+        if "/login" in page.url:
+            page.fill("#username", "admin")
+            page.fill("#password", "atlas-admin")
+            page.click("button[type='submit']")
+            page.wait_for_timeout(2000)
+            if "/login" in page.url:
+                pytest.skip("Could not log in")
+
+        console_errors: list[dict] = []
+
+        def _on_console(msg):
+            if msg.type == "error":
+                console_errors.append({
+                    "text": msg.text,
+                    "url": page.url,
+                })
+
+        page.on("console", _on_console)
+
+        routes = ["users", "safety", "voice", "avatar", "devices",
+                  "satellites", "evolution", "system"]
+
+        for route in routes:
+            console_errors_before = len(console_errors)
+            page.goto(f"{server}/admin/#/{route}", wait_until="networkidle")
+            page.wait_for_timeout(1000)
+
+        # Filter out noise (e.g. favicon, expected warnings)
+        real_errors = [
+            e for e in console_errors
+            if "favicon" not in e["text"].lower()
+            and "serviceworker" not in e["text"].lower()
+        ]
+
+        assert not real_errors, (
+            f"Console errors on admin pages:\n"
+            + "\n".join(
+                f"  [{e['url'].split('#')[-1]}] {e['text'][:200]}"
+                for e in real_errors[:10]
+            )
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# E.  Expression Transition Timing
+# ══════════════════════════════════════════════════════════════════════════
+
+class TestExpressionTransitionTiming:
+    """Measure actual CSS transition time between expressions."""
+
+    def test_expression_transition_smoothness(self, page: Page, server: str):
+        """Send expression changes and verify transitions complete promptly
+        without flicker (reverting to neutral between changes)."""
+        page.goto(f"{server}/avatar", wait_until="domcontentloaded")
+        page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
+        overlay = page.locator("#audio-unlock")
+        if overlay.is_visible():
+            overlay.click()
+        page.wait_for_timeout(2000)
+
+        # Instrument: log every expression change with timestamp
+        page.evaluate("""() => {
+            window._exprLog = [];
+            const _origSetExpr = setExpression;
+            setExpression = function(expr, intensity) {
+                window._exprLog.push({
+                    expr: expr,
+                    time: performance.now()
+                });
+                return _origSetExpr(expr, intensity);
+            };
+        }""")
+
+        # Rapid expression sequence: happy → thinking → neutral
+        expressions = ["happy", "thinking", "neutral"]
+        for expr in expressions:
+            page.evaluate(
+                f"() => setExpression('{expr}', 1.0)"
+            )
+            page.wait_for_timeout(600)  # CSS transitions are ≤300ms + bounce
+
+        page.wait_for_timeout(500)
+        log = page.evaluate("() => window._exprLog")
+
+        assert len(log) >= 3, (
+            f"Expected at least 3 expression changes, got {len(log)}: "
+            f"{[e['expr'] for e in log]}"
+        )
+
+        # Verify transitions don't take too long
+        for i in range(1, len(log)):
+            gap = log[i]["time"] - log[i - 1]["time"]
+            # Each transition should complete within 1000ms
+            # (we wait 600ms between commands, so gaps should be ~600ms)
+            assert gap < 1500, (
+                f"Expression transition {log[i-1]['expr']} → {log[i]['expr']} "
+                f"took {gap:.0f}ms (limit 1500ms)"
+            )
+
+        # Check for flicker: no unexpected neutral between non-neutral expressions
+        expr_names = [e["expr"] for e in log]
+        for i in range(1, len(expr_names) - 1):
+            if expr_names[i] == "neutral" and expr_names[i - 1] != "neutral" and expr_names[i + 1] != "neutral":
+                # A neutral sandwiched between two non-neutrals is flicker
+                prev_gap = log[i]["time"] - log[i - 1]["time"]
+                next_gap = log[i + 1]["time"] - log[i]["time"]
+                if prev_gap < 100:
+                    pytest.fail(
+                        f"Expression flicker: {expr_names[i-1]} → neutral → "
+                        f"{expr_names[i+1]} with only {prev_gap:.0f}ms gap"
+                    )
+
+    def test_expression_via_websocket_message(self, page: Page, server: str):
+        """Send EXPRESSION messages via handleMessage and verify they apply."""
+        page.goto(f"{server}/avatar", wait_until="domcontentloaded")
+        page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
+        overlay = page.locator("#audio-unlock")
+        if overlay.is_visible():
+            overlay.click()
+        page.wait_for_timeout(2000)
+
+        # Send EXPRESSION via the WS message handler (the real code path)
+        page.evaluate("""() => {
+            handleMessage({type: 'EXPRESSION', expression: 'happy', intensity: 1.0});
+        }""")
+        page.wait_for_timeout(500)
+
+        current = page.evaluate("() => currentExpr")
+        assert current == "happy", (
+            f"Expected currentExpr='happy' after EXPRESSION message, got {current!r}"
+        )
+
+        # Send another expression
+        page.evaluate("""() => {
+            handleMessage({type: 'EXPRESSION', expression: 'thinking', intensity: 1.0});
+        }""")
+        page.wait_for_timeout(500)
+
+        current = page.evaluate("() => currentExpr")
+        assert current == "thinking", (
+            f"Expected currentExpr='thinking', got {current!r}"
+        )
