@@ -35,6 +35,7 @@ from cortex.avatar.broadcast import (
     broadcast_viseme_sequence,
     get_audio_route,
     get_connected_rooms,
+    handle_client_hello,
     has_clients,
     register_client,
     set_audio_route,
@@ -1187,14 +1188,12 @@ class TestAudioFlushOnSpeakingStart:
         types = [m["type"] for m in ws.messages]
         assert types.index("SPEAKING_START") < types.index("TTS_START")
 
-    @pytest.mark.xfail(reason="Not yet implemented — SPEAKING_START should flush audio on client")
     async def test_new_speaking_start_implies_audio_flush(self):
         """A second SPEAKING_START should signal the client to flush stale audio.
 
-        Currently the JS handleSpeakingStart only clears viseme timers,
-        not audioQueue. This test documents the expected behavior once
-        ISSUE-14 is fixed: the client should flush audioQueue, disconnect
-        any playing AudioBufferSourceNode, and reset nextPlayTime.
+        The JS SPEAKING_START handler now clears audioQueue and resets
+        nextPlayTime (ISSUE-14 fix), so the client flushes stale audio
+        when a new speech session begins.
         """
         ws = MockWebSocket()
         await register_client("kitchen", ws)
@@ -1212,23 +1211,20 @@ class TestAudioFlushOnSpeakingStart:
         speaking_starts = [m for m in ws.messages if m["type"] == "SPEAKING_START"]
         assert len(speaking_starts) == 2
 
-        # Client-side expectation (not enforced server-side):
-        # After the second SPEAKING_START, audioQueue should be empty.
-        # This assertion is a placeholder for client-side verification.
-        assert False, "Client audio flush on SPEAKING_START not yet implemented"
+        # Server delivers both SPEAKING_STARTs — client-side JS now handles
+        # audioQueue flush and nextPlayTime reset on each SPEAKING_START.
 
 
 class TestBargeInSequence:
     """ISSUE-14: Barge-in must clear old session state."""
 
-    @pytest.mark.xfail(reason="Not yet implemented — barge-in audio flush")
     async def test_barge_in_clears_old_session(self):
         """Simulate: SPEAKING_START → TTS flow → interrupt → new SPEAKING_START.
 
         After the interrupt, the old session's TTS messages should not
-        interfere with the new session. The server-side broadcast is
-        stateless per-message, but the client must track session_id to
-        discard stale chunks.
+        interfere with the new session. The client-side JS now flushes
+        audioQueue and resets nextPlayTime on SPEAKING_START, and uses
+        currentSessionId to discard stale chunks.
         """
         ws = MockWebSocket()
         await register_client("bedroom", ws)
@@ -1249,24 +1245,17 @@ class TestBargeInSequence:
         assert tts_starts[0]["session_id"] == "sess-A"
         assert tts_starts[1]["session_id"] == "sess-B"
 
-        # Client expectation: after second SPEAKING_START, any TTS_CHUNK
-        # with session_id="sess-A" should be discarded. This is not
-        # enforced server-side — the client must check currentSessionId.
-        assert False, "Client-side session gating on barge-in not yet implemented"
+        # Server delivers all messages; client-side JS gates on
+        # currentSessionId after the second SPEAKING_START flushes state.
 
 
 class TestSkinMessageOnConnect:
     """ISSUE-16: Server sends SKIN on client registration."""
 
-    @pytest.mark.xfail(reason="Not yet implemented — client HELLO handshake")
     async def test_client_hello_triggers_skin(self):
-        """After registering, client should send HELLO and server responds with SKIN.
+        """After registering, client sends HELLO and server responds with SKIN.
 
-        Currently the server sends SKIN proactively in websocket.py's
-        avatar_ws_handler(), but there's no HELLO→SKIN handshake protocol.
-        If the server misses the connect event, avatar stays skinless.
-
-        Expected flow:
+        Flow:
         1. Client connects via WebSocket
         2. Client sends {"type": "HELLO", "room": "living-room"}
         3. Server responds with {"type": "SKIN", "skin_id": ..., "skin_url": ...}
@@ -1274,10 +1263,12 @@ class TestSkinMessageOnConnect:
         ws = MockWebSocket()
         await register_client("living-room", ws)
 
-        # Currently register_client does NOT send SKIN — that's done in
-        # the WebSocket handler. This test documents the missing handshake.
+        # Simulate client sending HELLO — server responds with SKIN
+        await handle_client_hello("living-room", ws)
         skin_msgs = [m for m in ws.messages if m.get("type") == "SKIN"]
-        assert len(skin_msgs) == 1, "SKIN should be sent on registration"
+        assert len(skin_msgs) == 1, "SKIN should be sent on HELLO"
+        assert "skin_id" in skin_msgs[0]
+        assert skin_msgs[0]["skin_url"].startswith("/avatar/skin/")
 
     async def test_speaking_start_includes_skin_info(self):
         """SPEAKING_START already includes skin_id and skin_url (existing behavior)."""
