@@ -23,6 +23,7 @@ from cortex.avatar.broadcast import (
     broadcast_speaking_end,
     stream_tts_to_avatar,
     get_connected_rooms,
+    handle_client_hello,
 )
 from cortex.avatar.skins import resolve_skin
 
@@ -74,6 +75,8 @@ async def avatar_ws_handler(ws: WebSocket) -> None:
                 msg = json.loads(data)
                 if msg.get("type") == "PING":
                     await ws.send_json({"type": "PONG", "ts": time.time()})
+                elif msg.get("type") == "HELLO":
+                    await handle_client_hello(room, ws)
                 elif msg.get("type") == "TELL_JOKE":
                     asyncio.ensure_future(_handle_tell_joke(room))
             except (json.JSONDecodeError, TypeError):

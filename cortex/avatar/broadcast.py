@@ -27,6 +27,18 @@ async def register_client(room: str, ws: WebSocket) -> None:
         _clients.setdefault(room, []).append(ws)
 
 
+async def handle_client_hello(room: str, ws: WebSocket) -> None:
+    """Handle a HELLO message from a client — respond with SKIN."""
+    from cortex.avatar.skins import resolve_skin
+    skin = resolve_skin(room)
+    await ws.send_json({
+        "type": "SKIN",
+        "skin_id": skin["id"],
+        "skin_url": f"/avatar/skin/{skin['id']}.svg",
+        "skin_name": skin["name"],
+    })
+
+
 async def unregister_client(room: str, ws: WebSocket) -> None:
     """Remove a WebSocket client from a room's display list."""
     async with _clients_lock:

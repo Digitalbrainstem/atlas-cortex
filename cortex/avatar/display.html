@@ -328,6 +328,7 @@
     let _sentenceAudioStart = 0; // ctx.currentTime when this sentence's audio begins
     let _sentenceSamples = 0;    // total PCM samples for this sentence
     let nextPlayTime = 0;
+    let _lastEstimatedDurationMs = 0;
 
     function ensureAudioContext() {
       if (!audioCtx) {
@@ -418,11 +419,12 @@
         _sentenceAudioStartSet = true;
 
         if (_pendingTtsText) {
-          // Duration estimate: base 800ms (Orpheus prosody overhead) +
-          // 100ms per character. Short text gets proportionally more time
-          // due to natural pauses at sentence boundaries.
-          // TTS_END corrects with real duration for the tail end.
-          const estimatedDurationMs = Math.max(2000, 800 + _pendingTtsText.length * 100);
+          // Estimate from first chunk: assume remaining chunks are similar size
+          // For single-chunk audio (common for short text), this is exact
+          const chunkDurationMs = (float32.length / audioSampleRate) * 1000;
+          // Estimate total: for short text assume 1-2 chunks, for longer text estimate from text/chunk ratio
+          const estimatedDurationMs = Math.max(chunkDurationMs, chunkDurationMs * Math.ceil(_pendingTtsText.length / 20));
+          _lastEstimatedDurationMs = estimatedDurationMs;
           // Delay = time until audio actually starts playing.
           // If filler/previous audio is queued, this is non-zero.
           const delayMs = Math.max(0, (_sentenceAudioStart - ctx.currentTime) * 1000);
@@ -439,30 +441,40 @@
       audioPlaying = false;
       _hasReceivedAudio = false;
 
-      // Now we know the real audio duration. Clear estimated visemes and
-      // re-schedule for whatever audio is still playing.
-      _clearVisemeTimers();
+      // Now we know the real audio duration. Only clear and re-schedule
+      // if the estimated duration was significantly wrong (>30% off).
       if (_pendingTtsText && _sentenceSamples > 0) {
         const ctx = ensureAudioContext();
         const audioDurationMs = (_sentenceSamples / audioSampleRate) * 1000;
         const elapsed = Math.max(0, (ctx.currentTime - _sentenceAudioStart) * 1000);
         const remaining = Math.max(0, audioDurationMs - elapsed);
 
-        if (remaining > 200) {
-          // Audio still playing — schedule visemes for remaining portion
-          const fraction = Math.min(0.99, elapsed / audioDurationMs);
-          const charStart = Math.floor(_pendingTtsText.length * fraction);
-          const remainingText = _pendingTtsText.substring(charStart);
-          if (remainingText.length > 1) {
-            scheduleSyncedVisemes(remainingText, remaining, 0);
+        const estimatedMs = _lastEstimatedDurationMs || 0;
+        const actualMs = audioDurationMs;
+        const driftRatio = Math.abs(estimatedMs - actualMs) / Math.max(actualMs, 1);
+
+        if (driftRatio > 0.3) {
+          // Estimate was way off — reschedule
+          _clearVisemeTimers();
+          if (remaining > 200) {
+            // Audio still playing — schedule visemes for remaining portion
+            const fraction = Math.min(0.99, elapsed / audioDurationMs);
+            const charStart = Math.floor(_pendingTtsText.length * fraction);
+            const remainingText = _pendingTtsText.substring(charStart);
+            if (remainingText.length > 1) {
+              scheduleSyncedVisemes(remainingText, remaining, 0);
+            }
           }
+          console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — rescheduled: est ${estimatedMs.toFixed(0)}ms actual ${audioDurationMs.toFixed(0)}ms drift ${(driftRatio*100).toFixed(0)}%, ${remaining.toFixed(0)}ms remaining: "${_pendingTtsText.substring(0, 30)}"`);
+        } else {
+          console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — no reschedule: est ${estimatedMs.toFixed(0)}ms actual ${audioDurationMs.toFixed(0)}ms drift ${(driftRatio*100).toFixed(0)}%, ${remaining.toFixed(0)}ms remaining: "${_pendingTtsText.substring(0, 30)}"`);
         }
-        console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end — ${audioDurationMs.toFixed(0)}ms total, ${remaining.toFixed(0)}ms remaining: "${_pendingTtsText.substring(0, 30)}"`);
       } else {
         console.log(`[${(performance.now()/1000).toFixed(2)}s] TTS end (no text/audio)`);
       }
       _pendingTtsText = '';
       _sentenceSamples = 0;
+      _lastEstimatedDurationMs = 0;
 
       // Expression hint in TTS_END (e.g. "silly" or "laughing" after a
       // joke punchline). Scheduled near the end of remaining audio.
@@ -529,6 +541,7 @@
       ws.onopen = () => {
         statusEl.textContent = 'connected';
         statusEl.className = 'active';
+        ws.send(JSON.stringify({type: 'HELLO', room: room || 'default'}));
         setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'PING' }));
@@ -578,6 +591,9 @@
           _isSpeaking = true;
           _hasReceivedAudio = false;
           _clearVisemeTimers();
+          // Flush stale audio from previous speech (barge-in support)
+          audioQueue = [];
+          nextPlayTime = 0;
           if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
           statusEl.textContent = 'speaking';
           statusEl.className = 'active';
