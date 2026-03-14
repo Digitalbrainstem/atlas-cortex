@@ -47,11 +47,11 @@
     <!-- Left eye -->
     <ellipse cx="145" cy="170" rx="32" ry="36" fill="white"/>
     <circle cx="150" cy="175" r="16" fill="#2D2D2D" class="pupil-left"/>
-    <circle cx="156" cy="166" r="6" fill="white"/>
+    <circle cx="156" cy="166" r="6" fill="white" class="glint"/>
     <!-- Right eye -->
     <ellipse cx="255" cy="170" rx="32" ry="36" fill="white"/>
     <circle cx="250" cy="175" r="16" fill="#2D2D2D" class="pupil-right"/>
-    <circle cx="244" cy="166" r="6" fill="white"/>
+    <circle cx="244" cy="166" r="6" fill="white" class="glint"/>
   </g>
 
   <!-- ── Mouth shapes (visemes) — only one visible at a time ─── -->

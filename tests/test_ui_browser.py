@@ -811,7 +811,7 @@ class TestMicButton:
         )
 
     def test_mic_button_hidden_without_satellite_hash(self, page: Page, server: str):
-        """Without #satellite hash, mic button must NOT exist."""
+        """Without #satellite hash, satellite mic button must NOT exist but mic-hint should."""
         page.goto(f"{server}/avatar", wait_until="domcontentloaded")
         page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
         page.wait_for_timeout(2000)
@@ -825,6 +825,15 @@ class TestMicButton:
         ws_overlay = page.locator("#ws-overlay")
         assert ws_overlay.count() == 0, (
             "Satellite overlay found without #satellite hash"
+        )
+
+        # The mic-hint discoverability button should be visible
+        mic_hint = page.locator("#mic-hint")
+        assert mic_hint.count() == 1, (
+            "Mic-hint button should be present without #satellite hash"
+        )
+        assert mic_hint.is_visible(), (
+            "Mic-hint button should be visible without #satellite hash"
         )
 
 

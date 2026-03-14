@@ -41,8 +41,10 @@
   <g id="eyes-base">
     <ellipse cx="148" cy="150" rx="40" ry="46" fill="#111"/>
     <ellipse cx="157" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-left"/>
+    <circle cx="152" cy="131" r="5" fill="white" opacity="0.7" class="glint"/>
     <ellipse cx="252" cy="150" rx="40" ry="46" fill="#111"/>
     <ellipse cx="243" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-right"/>
+    <circle cx="248" cy="131" r="5" fill="white" opacity="0.7" class="glint"/>
   </g>
 
   <!-- ── Mouth shapes (visemes) ─────────────────────────────── -->

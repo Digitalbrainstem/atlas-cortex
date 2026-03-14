@@ -104,6 +104,14 @@
     <button id="joke-ctrl-btn" onclick="tellJoke()">😂 Joke!</button>
   </div>
   <div id="status">connecting…</div>
+  <button id="mic-hint" title="Enable microphone" style="
+    position: fixed; bottom: 20px; right: 20px; z-index: 50;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 2px solid #334155; background: rgba(30,41,59,0.6);
+    color: #94a3b8; font-size: 1.1rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px); transition: all 0.3s;
+  ">🎤</button>
 
   <script>
     const VISEMES = [
@@ -274,6 +282,19 @@
     // Legacy: standalone joke button for #show-joke-button without controls
     if (_hash.includes('show-joke-button') && !_hash.includes('show-controls')) {
       document.getElementById('joke-btn').style.display = 'block';
+    }
+
+    // Mic hint button — visible by default, hidden when satellite mode is active
+    const micHint = document.getElementById('mic-hint');
+    if (micHint) {
+      if (_hash.includes('satellite')) {
+        micHint.style.display = 'none';
+      }
+      micHint.addEventListener('click', () => {
+        const hash = location.hash ? location.hash + ',satellite' : '#satellite';
+        location.hash = hash;
+        location.reload();
+      });
     }
 
     let _currentSkinId = _initialSkin;
@@ -1027,12 +1048,15 @@
           p.setAttribute('cx', origCx + dx);
           p.setAttribute('cy', parseFloat(origCy) + dy);
         });
-        const shines = container.querySelectorAll('#eyes-base circle[r="6"]');
-        shines.forEach(s => {
+        // Glint moves opposite to pupil at 30% magnitude (fixed light source illusion)
+        const glintDx = -dx * 0.3;
+        const glintDy = -dy * 0.3;
+        const glints = container.querySelectorAll('.glint, #eyes-base circle[r="6"]');
+        glints.forEach(s => {
           if (!s.dataset.origCx) s.dataset.origCx = s.getAttribute('cx');
           if (!s.dataset.origCy) s.dataset.origCy = s.getAttribute('cy');
-          s.setAttribute('cx', parseFloat(s.dataset.origCx) + dx);
-          s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
+          s.setAttribute('cx', parseFloat(s.dataset.origCx) + glintDx);
+          s.setAttribute('cy', parseFloat(s.dataset.origCy) + glintDy);
         });
       }, _isSpeaking ? 800 : (2000 + Math.random() * 1500));
     }
