@@ -98,7 +98,7 @@ async def run_pipeline_events(
         → [TextToken + VisemeEvent + TTSEvent per sentence]
         → ExpressionEvent (reaction) → SpeakingEvent(False) → LayerResult
     """
-    return _pipeline_event_generator(
+    async for event in _pipeline_event_generator(
         message=message,
         provider=provider,
         user_id=user_id,
@@ -111,7 +111,8 @@ async def run_pipeline_events(
         system_prompt=system_prompt,
         memory_context=memory_context,
         db_conn=db_conn,
-    )
+    ):
+        yield event
 
 
 async def _pipeline_event_generator(

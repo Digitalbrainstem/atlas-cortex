@@ -162,22 +162,21 @@ class TestModelsEndpoint:
 
 class TestPipelineE2E:
     @pytest.mark.asyncio
-    async def test_run_pipeline_events_is_broken(self, db):
-        """PROVES BUG: run_pipeline_events() is async def that returns a generator,
-        but run_pipeline() uses 'async for event in run_pipeline_events(...)' without
-        await. This causes TypeError: async for requires __aiter__, got coroutine.
-        """
+    async def test_run_pipeline_events_works(self, db):
+        """run_pipeline_events() is a proper async generator that can be
+        iterated with 'async for'."""
         from cortex.pipeline import run_pipeline
 
         fake_provider = _FakeProvider()
-        with pytest.raises(TypeError, match="async for.*requires.*__aiter__"):
-            async for token in run_pipeline(
-                message="What is the time?",
-                provider=fake_provider,
-                user_id="test-user",
-                db_conn=db,
-            ):
-                pass
+        tokens: list[str] = []
+        async for token in run_pipeline(
+            message="What is the time?",
+            provider=fake_provider,
+            user_id="test-user",
+            db_conn=db,
+        ):
+            tokens.append(token)
+        assert len(tokens) > 0, "Expected text tokens from instant answer"
 
     @pytest.mark.asyncio
     async def test_pipeline_event_generator_works_directly(self, db):
