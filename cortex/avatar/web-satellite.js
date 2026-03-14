@@ -465,6 +465,10 @@
   });
 
   // ── Boot ──────────────────────────────────────────────────────
+  // Hide the mic-hint button since full satellite UI is now active
+  const micHint = document.getElementById('mic-hint');
+  if (micHint) micHint.style.display = 'none';
+
   updateMode();
   connectSatellite();
 
