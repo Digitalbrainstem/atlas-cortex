@@ -228,11 +228,9 @@ class TestTableExistence:
             pytest.skip(f"Extra tables found (not necessarily wrong): {extra}")
 
     def test_notification_log_table(self, conn):
-        """notification_log has been referenced in some code paths.
-        Verify whether it actually exists in the schema."""
+        """notification_log must exist — used by cortex.notifications.channels."""
         tables = _table_names(conn)
-        if "notification_log" not in tables:
-            pytest.xfail("notification_log table missing from schema — known gap")
+        assert "notification_log" in tables
 
 
 # ── Column spot-checks ────────────────────────────────────────────

@@ -584,6 +584,7 @@ CREATE TABLE IF NOT EXISTS jailbreak_patterns (
     source        TEXT DEFAULT 'learned',
     hit_count     INTEGER DEFAULT 0,
     false_positive_rate REAL DEFAULT 0.0,
+    active        BOOLEAN DEFAULT TRUE,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -729,6 +730,15 @@ CREATE TABLE IF NOT EXISTS avatar_assignments (
     assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_avatar_assign_skin ON avatar_assignments(skin_id);
+
+CREATE TABLE IF NOT EXISTS notification_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    level      TEXT NOT NULL,
+    title      TEXT,
+    message    TEXT,
+    source     TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -744,6 +754,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "satellites", "vad_enabled", "BOOLEAN DEFAULT 1")
     _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
+    _add_column_if_missing(conn, "jailbreak_patterns", "active", "BOOLEAN DEFAULT TRUE")
     _seed_default_avatar_skin(conn)
 
 

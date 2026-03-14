@@ -199,15 +199,15 @@ _SELF_HARM_RE = re.compile(
 
 # Illegal content requests (hard block)
 _ILLEGAL_RE = re.compile(
-    r"\b(?:csam|child porn(?:ography)?|synthesize (?:meth|heroin|fentanyl|drugs)|"
-    r"(?:make|build|create) (?:a )?(?:bomb|explosive|bioweapon|nerve agent)|"
+    r"\b(?:csam|child porn(?:ography)?|(?:make|cook|produce|manufacture|create|synthesize) (?:heroin|meth|cocaine|fentanyl|drugs)|"
+    r"(?:make|build|create) (?:an? )?(?:bomb|explosive|bioweapon|nerve agent)|"
     r"illegal weapons?|instructions (?:to )?(?:kill|murder|poison))\b",
     re.IGNORECASE,
 )
 
 # PII patterns (warn + redact)
 _PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("ssn", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("ssn", re.compile(r"\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b")),
     ("credit_card", re.compile(r"\b(?:\d{4}[- ]?){3}\d{4}\b")),
     ("phone", re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")),
     ("email", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
