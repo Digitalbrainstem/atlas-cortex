@@ -43,7 +43,7 @@ INJECTION_PATTERNS_SEED: list[str] = [
     r"write (?:a )?(?:story|fiction|poem).*(?:where|about).*(?:how to|instructions)",
     r"without (?:any )?(?:restrictions|filters|safety|guidelines)",
     r"forget (?:all )?(?:your )?(?:previous )?(?:instructions|training|rules)",
-    r"you have no (?:restrictions|rules|limits|guidelines)",
+    r"you have (?:no|zero|without|any) (?:restrictions|rules|limits|guidelines)",
     r"respond as (?:an? )?(?:uncensored|unfiltered|unrestricted)",
 ]
 
