@@ -4,7 +4,8 @@ Handles the real-time communication channel between Atlas server and
 satellite devices:
 
   Satellite → Server:
-    ANNOUNCE, WAKE, AUDIO_START, AUDIO_CHUNK, AUDIO_END, STATUS, HEARTBEAT
+    ANNOUNCE, WAKE, AUDIO_START, AUDIO_CHUNK, AUDIO_PHRASE_END,
+    AUDIO_END, STATUS, HEARTBEAT, BARGE_IN
 
   Server → Satellite:
     ACCEPTED, TTS_START, TTS_CHUNK, TTS_END, PLAY_FILLER,
@@ -46,6 +47,7 @@ class SatelliteConnection:
         self.audio_buffer: bytearray = bytearray()
         self.audio_format: dict = {}
         self.has_wake_word: bool = False  # True if satellite has local wake word detection
+        self.pipeline_task: asyncio.Task | None = None  # in-progress voice pipeline
 
     async def send(self, message: dict) -> None:
         """Send a JSON message to the satellite."""
@@ -142,11 +144,17 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
             elif msg_type == "AUDIO_CHUNK":
                 await _handle_audio_chunk(conn, raw_msg)
 
+            elif msg_type == "AUDIO_PHRASE_END":
+                await _handle_audio_phrase_end(conn, raw_msg)
+
             elif msg_type == "AUDIO_END":
                 await _handle_audio_end(conn, raw_msg)
 
             elif msg_type == "STATUS":
                 await _handle_status(conn, raw_msg)
+
+            elif msg_type == "BARGE_IN":
+                await _handle_barge_in(conn, raw_msg)
 
             else:
                 logger.warning(
@@ -225,6 +233,19 @@ async def _handle_audio_chunk(conn: SatelliteConnection, msg: dict) -> None:
         conn.audio_buffer.extend(base64.b64decode(audio_b64))
 
 
+async def _handle_audio_phrase_end(conn: SatelliteConnection, msg: dict) -> None:
+    """A phrase boundary (short pause) — satellite is still listening.
+
+    For now we just log it; the audio stays in the buffer and will be
+    processed when AUDIO_END arrives.  The message type is defined so
+    the protocol is ready for future streaming-STT support.
+    """
+    logger.debug(
+        "Phrase boundary from %s (%d bytes buffered so far)",
+        conn.satellite_id, len(conn.audio_buffer),
+    )
+
+
 async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
     """Audio streaming has ended — run STT → Pipeline → TTS."""
     reason = msg.get("reason", "vad_silence")
@@ -271,7 +292,37 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
 
     # Run the voice pipeline in a background task so websocket stays responsive
     from cortex.orchestrator.voice import process_voice_pipeline
-    asyncio.create_task(process_voice_pipeline(conn, audio_data))
+    task = asyncio.create_task(process_voice_pipeline(conn, audio_data))
+    conn.pipeline_task = task
+
+
+async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
+    """User interrupted during TTS playback — cancel pipeline and notify avatars."""
+    logger.info("Barge-in from %s", conn.satellite_id)
+
+    # Cancel any in-progress pipeline task
+    task = getattr(conn, "pipeline_task", None)
+    if task and not task.done():
+        task.cancel()
+        logger.info("Cancelled in-progress pipeline for %s", conn.satellite_id)
+    conn.pipeline_task = None
+
+    # Clear any buffered audio from a previous turn
+    conn.audio_buffer = bytearray()
+
+    # Broadcast PLAYBACK_STOP to avatar displays for this satellite's room
+    try:
+        from cortex.avatar.broadcast import broadcast_playback_stop
+        # Look up the satellite's room from the database
+        db = get_db()
+        row = db.execute(
+            "SELECT room FROM satellites WHERE id = ?",
+            (conn.satellite_id,),
+        ).fetchone()
+        if row and row[0]:
+            await broadcast_playback_stop(row[0])
+    except Exception:
+        logger.debug("Could not broadcast playback stop for %s", conn.satellite_id)
 
 
 async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
