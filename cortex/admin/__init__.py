@@ -15,6 +15,7 @@ from cortex.admin.system import router as system_router
 from cortex.admin.satellites import router as satellites_router
 from cortex.admin.tts import router as tts_router
 from cortex.admin.avatar import router as avatar_router
+from cortex.admin.plugins import router as plugins_router
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -27,3 +28,4 @@ router.include_router(system_router)
 router.include_router(satellites_router)
 router.include_router(tts_router)
 router.include_router(avatar_router)
+router.include_router(plugins_router)

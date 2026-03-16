@@ -42,6 +42,18 @@ class CortexPlugin(abc.ABC):
     #: Plugin type: ``"action"`` | ``"knowledge"`` | ``"list_backend"``
     plugin_type: str = "action"
 
+    #: If True, intent detection enables learn mode for this plugin
+    supports_learning: bool = False
+
+    #: Semantic version string
+    version: str = "0.0.0"
+
+    #: Author name / organisation
+    author: str = ""
+
+    #: JSON Schema describing accepted config keys (for admin UI)
+    config_schema: dict[str, Any] = {}
+
     @abc.abstractmethod
     async def setup(self, config: dict[str, Any]) -> bool:
         """Configure and activate the plugin.

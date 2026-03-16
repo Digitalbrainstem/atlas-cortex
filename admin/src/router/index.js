@@ -59,6 +59,11 @@ const routes = [
     component: () => import('../views/SatelliteDetailView.vue'),
   },
   {
+    path: '/plugins',
+    name: 'plugins',
+    component: () => import('../views/PluginsView.vue'),
+  },
+  {
     path: '/evolution',
     name: 'evolution',
     component: () => import('../views/EvolutionView.vue'),
