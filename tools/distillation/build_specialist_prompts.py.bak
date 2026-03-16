@@ -356,6 +356,107 @@ MATH_PROMPTS_STATIC = [
     {"prompt": "Convert 72°F to Celsius, then to Kelvin. Show the formulas.", "subcat": "conversion", "difficulty": "beginner"},
     {"prompt": "A recipe calls for 200g of flour. I only have a measuring cup (1 cup = 120g for flour). How many cups do I need? What about 150ml of milk if 1 cup = 240ml?", "subcat": "conversion", "difficulty": "beginner"},
     {"prompt": "Light travels at 3×10⁸ m/s. How long does it take sunlight to reach Earth (150 million km)? Express in minutes.", "subcat": "conversion", "difficulty": "beginner"},
+
+    # ─── EXPERT / RESEARCH-LEVEL MATH ────────────────────────────────────
+
+    # Real Analysis
+    {"prompt": "Prove that every bounded monotone sequence of real numbers converges. State the theorem precisely and provide a rigorous epsilon-delta proof.", "subcat": "real_analysis", "difficulty": "expert"},
+    {"prompt": "Prove that the set of real numbers is uncountable using Cantor's diagonal argument. Then explain why this means |ℝ| > |ℕ|.", "subcat": "real_analysis", "difficulty": "expert"},
+    {"prompt": "Define uniform continuity vs pointwise continuity. Prove that f(x) = 1/x is continuous but not uniformly continuous on (0,1). Why does the distinction matter?", "subcat": "real_analysis", "difficulty": "expert"},
+    {"prompt": "State and prove the Intermediate Value Theorem. Then use it to prove that every odd-degree polynomial has at least one real root.", "subcat": "real_analysis", "difficulty": "expert"},
+    {"prompt": "Explain the Lebesgue integral vs the Riemann integral. Give an example of a function that is Lebesgue integrable but not Riemann integrable. Why does this matter in probability theory?", "subcat": "real_analysis", "difficulty": "expert"},
+    {"prompt": "Define a Cauchy sequence. Prove that every convergent sequence is Cauchy. Is the converse true in ℚ? In ℝ? Explain completeness.", "subcat": "real_analysis", "difficulty": "expert"},
+
+    # Abstract Algebra
+    {"prompt": "Define a group, ring, and field. Give examples of each. Prove that the set of integers modulo p (where p is prime) forms a field.", "subcat": "abstract_algebra", "difficulty": "expert"},
+    {"prompt": "State and prove Lagrange's theorem for finite groups. Then use it to prove Fermat's little theorem.", "subcat": "abstract_algebra", "difficulty": "expert"},
+    {"prompt": "What is a homomorphism between groups? State and prove the First Isomorphism Theorem. Give a concrete example.", "subcat": "abstract_algebra", "difficulty": "expert"},
+    {"prompt": "Explain Galois theory at a high level. How does it connect field extensions to group theory? Why can't we solve the general quintic by radicals?", "subcat": "abstract_algebra", "difficulty": "expert"},
+    {"prompt": "Define an ideal in a ring. What is a principal ideal domain (PID)? Prove that every Euclidean domain is a PID.", "subcat": "abstract_algebra", "difficulty": "expert"},
+
+    # Linear Algebra (advanced)
+    {"prompt": "State and prove the Cayley-Hamilton theorem. What are its practical applications in computing matrix powers and solving differential equations?", "subcat": "linear_algebra", "difficulty": "expert"},
+    {"prompt": "Explain the Singular Value Decomposition (SVD) of a matrix. Derive it step by step. How is SVD used in data compression, PCA, and recommendation systems?", "subcat": "linear_algebra", "difficulty": "expert"},
+    {"prompt": "Define eigenvalues and eigenvectors rigorously. Prove that eigenvectors corresponding to distinct eigenvalues of a symmetric matrix are orthogonal.", "subcat": "linear_algebra", "difficulty": "expert"},
+    {"prompt": "Explain the Jordan normal form. When does a matrix fail to be diagonalizable? How does Jordan form help solve systems of ODEs with repeated eigenvalues?", "subcat": "linear_algebra", "difficulty": "expert"},
+    {"prompt": "What is a tensor? Explain the difference between tensors in physics (transformation rules) and in machine learning (multi-dimensional arrays). How does tensor contraction work?", "subcat": "linear_algebra", "difficulty": "expert"},
+
+    # Topology
+    {"prompt": "Define a topological space. What are open sets, closed sets, and continuous functions in topology? How does this generalize metric spaces?", "subcat": "topology", "difficulty": "expert"},
+    {"prompt": "What is the fundamental group of a topological space? Compute π₁(S¹) (the fundamental group of the circle). How does it relate to covering spaces?", "subcat": "topology", "difficulty": "expert"},
+    {"prompt": "Explain the Euler characteristic. Compute it for a sphere, torus, Klein bottle, and Möbius strip. State the classification theorem for compact surfaces.", "subcat": "topology", "difficulty": "expert"},
+    {"prompt": "What is compactness in topology? Prove the Heine-Borel theorem: a subset of ℝⁿ is compact if and only if it is closed and bounded.", "subcat": "topology", "difficulty": "expert"},
+
+    # Differential Equations
+    {"prompt": "Solve the PDE: ∂u/∂t = k∂²u/∂x² (heat equation) on [0,L] with boundary conditions u(0,t) = u(L,t) = 0 and initial condition u(x,0) = f(x). Use separation of variables and Fourier series.", "subcat": "diff_equations", "difficulty": "expert"},
+    {"prompt": "Explain the Navier-Stokes equations. What do they describe physically? Why is proving existence and smoothness of solutions one of the Clay Millennium Prize Problems?", "subcat": "diff_equations", "difficulty": "expert"},
+    {"prompt": "What is a Sturm-Liouville problem? How do eigenfunction expansions generalize Fourier series? Give an application in quantum mechanics.", "subcat": "diff_equations", "difficulty": "expert"},
+    {"prompt": "Explain Lyapunov stability theory for nonlinear dynamical systems. How do you determine if an equilibrium point is stable, asymptotically stable, or unstable?", "subcat": "diff_equations", "difficulty": "expert"},
+    {"prompt": "Derive the wave equation for a vibrating string from first principles (Newton's second law). Solve it using d'Alembert's formula.", "subcat": "diff_equations", "difficulty": "expert"},
+
+    # Number Theory
+    {"prompt": "State and prove the Fundamental Theorem of Arithmetic (unique prime factorization). Why does uniqueness fail in some algebraic number rings?", "subcat": "number_theory", "difficulty": "expert"},
+    {"prompt": "Explain the Riemann Hypothesis. What is the Riemann zeta function? How does it connect to prime distribution? Why is this considered the most important unsolved problem in mathematics?", "subcat": "number_theory", "difficulty": "expert"},
+    {"prompt": "What is the Chinese Remainder Theorem? Prove it. How is it used in RSA cryptography and computer algebra?", "subcat": "number_theory", "difficulty": "expert"},
+    {"prompt": "Explain modular arithmetic and Euler's totient function φ(n). Prove Euler's theorem: a^φ(n) ≡ 1 (mod n) for gcd(a,n) = 1. How does this underpin RSA?", "subcat": "number_theory", "difficulty": "expert"},
+    {"prompt": "What are p-adic numbers? How do they extend the rationals differently from the reals? What applications do they have in number theory?", "subcat": "number_theory", "difficulty": "expert"},
+
+    # Advanced Statistics & ML Math
+    {"prompt": "Derive the maximum likelihood estimator (MLE) for the parameters of a Gaussian distribution. Prove that the MLE for the variance is biased. Why does Bessel's correction fix this?", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "Explain Markov Chain Monte Carlo (MCMC) methods. Derive the Metropolis-Hastings algorithm. Why does it converge to the target distribution? What are practical diagnostics for convergence?", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "Explain the bias-variance tradeoff rigorously. Derive the bias-variance decomposition of mean squared error. How does this inform model selection and regularization?", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "What is the Expectation-Maximization (EM) algorithm? Derive it for Gaussian mixture models. Prove that the log-likelihood is non-decreasing at each iteration.", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "Explain Bayesian inference rigorously. Derive the posterior for a Beta-Binomial model. What are conjugate priors and why are they useful? Compare Bayesian vs frequentist confidence intervals.", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "Derive the backpropagation algorithm for a 3-layer neural network from the chain rule. Show the gradient computation for each weight matrix. Why do vanishing/exploding gradients occur?", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "Explain kernel methods and the kernel trick. Prove Mercer's theorem (sufficient conditions for a valid kernel). How does this relate to SVMs and Gaussian processes?", "subcat": "adv_statistics", "difficulty": "expert"},
+    {"prompt": "What is information theory? Define entropy, mutual information, and KL divergence. Prove that KL divergence is non-negative (Gibbs' inequality). How does cross-entropy loss connect to MLE?", "subcat": "adv_statistics", "difficulty": "expert"},
+
+    # Optimization
+    {"prompt": "Explain convex optimization. What makes a problem convex? Prove that any local minimum of a convex function is a global minimum. What are KKT conditions?", "subcat": "optimization", "difficulty": "expert"},
+    {"prompt": "Derive the gradient descent convergence rate for a smooth convex function. What is the significance of the Lipschitz constant? Compare with Newton's method convergence.", "subcat": "optimization", "difficulty": "expert"},
+    {"prompt": "Explain the simplex method for linear programming. Why does it work? What is its worst-case vs average-case complexity? How does interior point method compare?", "subcat": "optimization", "difficulty": "expert"},
+    {"prompt": "What is the method of Lagrange multipliers? Derive it geometrically and algebraically. Solve: minimize f(x,y) = x² + y² subject to x + y = 1.", "subcat": "optimization", "difficulty": "expert"},
+    {"prompt": "Explain stochastic gradient descent (SGD) convergence theory. What is the role of learning rate scheduling? Derive the conditions under which SGD converges to a stationary point.", "subcat": "optimization", "difficulty": "expert"},
+
+    # Combinatorics / Graph Theory
+    {"prompt": "State and prove the Handshaking Lemma for graphs. Use it to prove that the number of vertices with odd degree in any graph is even.", "subcat": "graph_theory", "difficulty": "expert"},
+    {"prompt": "Explain Ramsey theory. Prove R(3,3) = 6 (at any party of 6 people, there exist 3 mutual friends or 3 mutual strangers). Why is this significant?", "subcat": "graph_theory", "difficulty": "expert"},
+    {"prompt": "What are NP-complete problems? Explain the P vs NP question. Prove that 3-SAT is NP-complete via reduction from SAT. Why does this matter for algorithm design?", "subcat": "graph_theory", "difficulty": "expert"},
+    {"prompt": "Explain generating functions and their applications in combinatorics. Use them to derive a closed form for the Fibonacci sequence.", "subcat": "graph_theory", "difficulty": "expert"},
+
+    # Mathematical Physics
+    {"prompt": "Derive the Schrödinger equation from first principles (de Broglie hypothesis + energy conservation). Solve it for the infinite square well and interpret the quantized energy levels.", "subcat": "math_physics", "difficulty": "expert"},
+    {"prompt": "Explain Noether's theorem connecting symmetries to conservation laws. Give examples: translational symmetry → momentum, rotational symmetry → angular momentum, time symmetry → energy.", "subcat": "math_physics", "difficulty": "expert"},
+    {"prompt": "What is a Fourier transform? Derive the transform pair. Explain the uncertainty principle (Δx·Δp ≥ ℏ/2) as a consequence of Fourier analysis.", "subcat": "math_physics", "difficulty": "expert"},
+]
+
+MATH_EXPERT_PARAMETRIC = [
+    "Explain {topic} rigorously. State the key theorems, provide proofs where possible, and discuss applications in modern mathematics or science.",
+    "What is the current state of research on {topic}? Explain the key open problems and why they matter.",
+    "Derive {result} from first principles. Show every step and discuss the assumptions required.",
+    "Compare the approaches of {approach_a} and {approach_b} for solving {problem_type}. What are the strengths and limitations of each?",
+]
+
+MATH_EXPERT_TOPICS = [
+    "measure theory and its role in probability", "functional analysis and Hilbert spaces",
+    "algebraic topology and homology groups", "category theory and its unifying role",
+    "stochastic calculus and Itô's lemma", "ergodic theory and dynamical systems",
+    "representation theory of finite groups", "algebraic geometry and varieties",
+    "differential geometry and Riemannian manifolds", "complex analysis and analytic continuation",
+    "spectral theory and self-adjoint operators", "harmonic analysis on groups",
+    "computational complexity classes beyond P and NP", "information geometry",
+    "optimal transport theory", "random matrix theory",
+    "tropical geometry", "noncommutative algebra",
+]
+
+MATH_EXPERT_RESULTS = [
+    "the Central Limit Theorem", "Stokes' theorem as a generalization of Green's and divergence theorems",
+    "the spectral theorem for symmetric matrices", "the Boltzmann distribution from statistical mechanics",
+    "the Black-Scholes equation for option pricing", "Shannon's source coding theorem",
+    "the fast Fourier transform algorithm's O(n log n) complexity",
+    "the universal approximation theorem for neural networks",
+    "Bayes' theorem from conditional probability axioms",
+    "the PageRank algorithm as a Markov chain stationary distribution",
 ]
 
 MATH_TEMPLATES = [

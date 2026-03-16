@@ -108,7 +108,7 @@ def main(args: argparse.Namespace) -> None:
         logging_steps=10,
         save_strategy="epoch",
         save_total_limit=2,
-        max_seq_length=args.max_seq_length,
+        max_length=args.max_seq_length,
         dataset_text_field="text",
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},

@@ -33,16 +33,18 @@ SCRIPTS="tools/distillation"
 PROMPTS="data/distillation/prompts.jsonl"
 CHECKPOINT_DIR="${WORK}/checkpoints"
 
-# Teacher models (AWQ variants for 70B+ to fit on 94GB H100 NVL)
-GENERAL_TEACHER="Qwen/Qwen2.5-72B-Instruct-AWQ"        # ~40GB AWQ
-CODING_TEACHER="deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"  # ~9GB BF16
-REASONING_TEACHER="deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"  # ~64GB BF16
-MATH_TEACHER="Qwen/Qwen2.5-Math-7B-Instruct"            # ~14GB BF16 (72B doesn't fit)
-MEDICAL_TEACHER="BioMistral/BioMistral-7B"               # ~14GB BF16
+# Teacher models — Qwen3.5 family (released Feb 2026)
+# Using 122B-A10B MoE as primary teacher: 10B active params, AWQ ~60GB, fits on 94GB H100
+GENERAL_TEACHER="QuantTrio/Qwen3.5-122B-A10B-AWQ"       # ~60GB AWQ, best quality
+CODING_TEACHER="${GENERAL_TEACHER}"                       # same teacher, different prompts
+REASONING_TEACHER="${GENERAL_TEACHER}"                    # same teacher, different prompts
+MATH_TEACHER="${GENERAL_TEACHER}"                         # same teacher, different prompts
+MEDICAL_TEACHER="${GENERAL_TEACHER}"                      # same teacher, different prompts
+TEACHER_FALLBACK="QuantTrio/Qwen3.5-27B-AWQ"            # ~14GB AWQ fallback if 122B OOMs
 
-# Student base models (distillation target)
-ULTRA_BASE="Qwen/Qwen2.5-14B-Instruct"   # → Atlas Ultra (~8GB Q4)
-CORE_BASE="Qwen/Qwen2.5-7B-Instruct"     # → Atlas Core  (~4GB Q4)
+# Student base models — Qwen3.5 (distillation target)
+ULTRA_BASE="Qwen/Qwen3.5-9B"            # → Atlas Ultra (~5GB Q4)
+CORE_BASE="Qwen/Qwen3.5-4B"             # → Atlas Core  (~2.5GB Q4)
 
 VLLM_PORT=8000
 VLLM_PID=""
@@ -105,27 +107,26 @@ generate_teacher() {
     local name="$1"
     local model="$2"
     local output_file="$3"
-    local extra_args="${4:-}"
+    local prompts_file="$4"
+    local extra_args="${5:-}"
 
     if checkpoint_done "teacher_${name}"; then
         log "Skipping teacher_${name} (already done)"
         return
     fi
 
-    log "Phase 1: Generating ${name} teacher data"
-    start_vllm "${model}"
+    log "Phase 1: Generating ${name} teacher data from ${prompts_file}"
 
     python3 "${SCRIPTS}/generate_teacher_data.py" \
         --api-url "http://localhost:${VLLM_PORT}/v1" \
         --api-type openai \
         --model "${model}" \
-        --prompts "${PROMPTS}" \
+        --prompts "${prompts_file}" \
         --output "${output_file}" \
-        --workers 8 \
-        --batch-size 100 \
+        --workers 24 \
+        --batch-size 200 \
         ${extra_args}
 
-    stop_vllm
     mark_done "teacher_${name}"
 }
 
@@ -141,24 +142,31 @@ trap cleanup EXIT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if [ "${START_PHASE}" -le 1 ]; then
-    log "PHASE 1: Teacher Data Generation"
+    log "PHASE 1: Teacher Data Generation (Qwen3.5-122B-A10B)"
 
-    # General teacher — 15K prompts from the full corpus
-    generate_teacher "general" "${GENERAL_TEACHER}" "${DATA}/teacher_general.jsonl"
+    # Start the single teacher model — used for all domains
+    # --enforce-eager needed for qwen3_next (Mamba hybrid) CUDA graph compatibility
+    # --reasoning-parser qwen3: properly separates thinking from answer in API
+    # --language-model-only: skip vision encoder, free VRAM for more KV cache
+    start_vllm "${GENERAL_TEACHER}" "0.92" "--enforce-eager --reasoning-parser qwen3 --language-model-only"
 
-    # Domain teachers — filter prompts by category
-    generate_teacher "coding" "${CODING_TEACHER}" "${DATA}/teacher_coding.jsonl" \
-        "--category coding"
+    # General knowledge — 15K prompts (no thinking, fast)
+    generate_teacher "general" "${GENERAL_TEACHER}" "${DATA}/teacher_general.jsonl" "${PROMPTS}"
 
-    generate_teacher "reasoning" "${REASONING_TEACHER}" "${DATA}/teacher_reasoning.jsonl" \
-        "--category reasoning"
+    # Domain specialists — research-level, enable thinking for quality
+    generate_teacher "coding" "${GENERAL_TEACHER}" "${DATA}/teacher_coding.jsonl" \
+        "${DATA}/prompts_coding.jsonl" "--think"
 
-    generate_teacher "math" "${MATH_TEACHER}" "${DATA}/teacher_math.jsonl" \
-        "--category reasoning"  # Math prompts are in reasoning category
+    generate_teacher "reasoning" "${GENERAL_TEACHER}" "${DATA}/teacher_reasoning.jsonl" \
+        "${DATA}/prompts_reasoning.jsonl" "--think"
 
-    generate_teacher "medical" "${MEDICAL_TEACHER}" "${DATA}/teacher_medical.jsonl" \
-        "--category medical"
+    generate_teacher "math" "${GENERAL_TEACHER}" "${DATA}/teacher_math.jsonl" \
+        "${DATA}/prompts_math.jsonl" "--think"
 
+    generate_teacher "medical" "${GENERAL_TEACHER}" "${DATA}/teacher_medical.jsonl" \
+        "${DATA}/prompts_medical.jsonl" "--think"
+
+    stop_vllm
     log "PHASE 1 COMPLETE — All teacher data generated"
 fi
 
@@ -169,7 +177,7 @@ fi
 if [ "${START_PHASE}" -le 2 ]; then
     log "PHASE 2: Base Model Distillation"
 
-    # Stage 1: 72B teacher data → Ultra (14B base, distilled)
+    # Stage 1: 122B teacher data → Ultra (Qwen3.5-9B base, distilled)
     if ! checkpoint_done "distill_ultra"; then
         log "Distilling Atlas Ultra from ${ULTRA_BASE}"
         python3 "${SCRIPTS}/train_student.py" \
@@ -178,19 +186,16 @@ if [ "${START_PHASE}" -le 2 ]; then
             --output "${OUTPUT}/ultra" \
             --epochs 3 \
             --lr 2e-4 \
-            --batch-size 2 \
-            --grad-accum 8 \
+            --batch-size 4 \
+            --grad-accum 4 \
             --max-seq-length 2048 \
             --merge
         mark_done "distill_ultra"
     fi
 
-    # Stage 2: Use Ultra to generate data for Core, then distill
+    # Stage 2: Train Core (Qwen3.5-4B) on same teacher data
     if ! checkpoint_done "distill_core"; then
-        log "Distilling Atlas Core from ${CORE_BASE} (using Ultra as intermediate teacher)"
-        # For two-stage cascade: generate teacher data from Ultra for the Core
-        # For simplicity, we train Core on the same 72B teacher data
-        # (the cascade benefit comes from Ultra being a better starting point)
+        log "Distilling Atlas Core from ${CORE_BASE}"
         python3 "${SCRIPTS}/train_student.py" \
             --student "${CORE_BASE}" \
             --teacher-data "${DATA}/teacher_general.jsonl" \
