@@ -59,6 +59,11 @@ class SatelliteConnection:
         self.has_wake_word: bool = False  # True if satellite has local wake word detection
         self.pipeline_task: asyncio.Task | None = None  # in-progress voice pipeline
 
+        # CE-4: Pause buffer for conversational pause & pivot
+        self.paused_response: str | None = None  # Full text that was being spoken
+        self.paused_position: int = 0            # Char position where interrupted
+        self.paused_at: float = 0.0              # Timestamp of pause (for staleness)
+
     async def send(self, message: dict) -> None:
         """Send a JSON message to the satellite."""
         await self.websocket.send_json(message)
@@ -307,8 +312,22 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
 
 
 async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
-    """User interrupted during TTS playback — cancel pipeline and notify avatars."""
+    """User interrupted during TTS playback — save state and cancel pipeline."""
     logger.info("Barge-in from %s", conn.satellite_id)
+
+    # CE-4: Capture paused response before cancelling.  The response text and
+    # approximate playback position are sent by the satellite in the BARGE_IN
+    # message, or were stored on conn by the voice pipeline as it streamed.
+    barge_text = msg.get("response_text") or getattr(conn, "_current_response", None)
+    barge_pos = msg.get("char_position", 0) or getattr(conn, "_spoken_chars", 0)
+    if barge_text:
+        conn.paused_response = barge_text
+        conn.paused_position = barge_pos
+        conn.paused_at = time.monotonic()
+        logger.info(
+            "Saved paused response for %s (pos=%d, len=%d)",
+            conn.satellite_id, barge_pos, len(barge_text),
+        )
 
     # Cancel any in-progress pipeline task
     task = getattr(conn, "pipeline_task", None)

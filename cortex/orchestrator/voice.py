@@ -21,11 +21,15 @@ from cortex.speech import (
     transcribe,
 )
 from cortex.speech.stt import _STT_BACKEND
-from cortex.orchestrator.text import _STREAM_SENT_RE, should_auto_listen
+from cortex.orchestrator.text import _STREAM_SENT_RE, should_auto_listen, split_sentences
+from cortex.orchestrator.interrupt import classify_interrupt
 
 logger = logging.getLogger(__name__)
 
 _ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
+
+# CE-4: Stale paused-response threshold (seconds)
+_PAUSE_STALE_SECONDS = 30.0
 
 
 # ── Satellite audio streaming (protocol-specific) ────────────────
@@ -165,6 +169,58 @@ async def _stream_orpheus_to_satellite(
     return total_bytes, elapsed
 
 
+# ── CE-4 helpers ─────────────────────────────────────────────────
+
+
+def _clear_paused_response(conn: Any) -> None:
+    """Clear the paused response state on a connection."""
+    conn.paused_response = None
+    conn.paused_position = 0
+    conn.paused_at = 0.0
+    # Also clear the tracking attribute used during streaming
+    conn._current_response = None
+
+
+def _get_remaining_text(paused_response: str, paused_position: int) -> str:
+    """Extract the remaining text from a paused response.
+
+    Splits by sentence-ending punctuation and returns everything after
+    the sentence that was being spoken at *paused_position*.
+    """
+    # Use a raw regex split (not split_sentences) to avoid the 20-char
+    # merging logic that TTS streaming uses.
+    from cortex.orchestrator.text import _SENTENCE_RE
+
+    raw = _SENTENCE_RE.split(paused_response.strip())
+    if not raw:
+        return ""
+
+    # Walk through raw sentence chunks to find which contains paused_position
+    char_offset = 0
+    remaining: list[str] = []
+    found = False
+    for sent in raw:
+        sent = sent.strip()
+        if not sent:
+            continue
+        sent_start = paused_response.find(sent, char_offset)
+        if sent_start == -1:
+            sent_start = char_offset
+        sent_end = sent_start + len(sent)
+
+        if found:
+            remaining.append(sent)
+        elif paused_position <= sent_end:
+            # This sentence was being spoken — skip it, keep the rest
+            found = True
+        char_offset = sent_end
+
+    if not found:
+        return ""
+
+    return " ".join(remaining).strip()
+
+
 # ── Main voice pipeline ──────────────────────────────────────────
 
 async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
@@ -265,6 +321,68 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
                     pass
                 return
             logger.info("After wake word filter from %s: %r", satellite_id, transcript)
+
+        # ── CE-4: Interrupt classification (pause & pivot) ───────────
+        paused = getattr(conn, "paused_response", None)
+        paused_at = getattr(conn, "paused_at", 0.0)
+
+        # Expire stale paused responses (> 30s old)
+        if paused and paused_at and (time.monotonic() - paused_at) > _PAUSE_STALE_SECONDS:
+            logger.info("Paused response expired for %s (%.0fs old), clearing",
+                        satellite_id, time.monotonic() - paused_at)
+            _clear_paused_response(conn)
+            paused = None
+
+        if paused:
+            intent = classify_interrupt(transcript)
+            logger.info("CE-4 interrupt classification for %s: %r → %s",
+                        satellite_id, transcript, intent)
+
+            if intent == "stop":
+                _clear_paused_response(conn)
+                logger.info("CE-4 stop: cleared paused response for %s", satellite_id)
+                return
+
+            if intent == "resume":
+                remaining = _get_remaining_text(
+                    conn.paused_response, conn.paused_position,
+                )
+                _clear_paused_response(conn)
+
+                if not remaining:
+                    logger.info("CE-4 resume: nothing left to say for %s", satellite_id)
+                    return
+
+                logger.info("CE-4 resume for %s: %d chars remaining", satellite_id, len(remaining))
+
+                # Stream the remaining text through TTS sentence-by-sentence
+                tts_voice = resolve_voice(satellite_id=satellite_id)
+                resume_sentences = split_sentences(remaining)
+                for i, sent in enumerate(resume_sentences):
+                    is_last = (i == len(resume_sentences) - 1)
+                    auto_listen = is_last and should_auto_listen(remaining)
+
+                    sent_bytes, sent_elapsed = await _stream_orpheus_to_satellite(
+                        conn, sent, tts_voice,
+                        is_filler=False, auto_listen=auto_listen,
+                    )
+                    if sent_bytes > 0:
+                        logger.info("CE-4 resume TTS [orpheus-stream] %.0fms (%d bytes): %r",
+                                    sent_elapsed * 1000, sent_bytes, sent[:60])
+                    else:
+                        audio, rate, prov = await synthesize_speech(sent, tts_voice)
+                        if audio:
+                            logger.info("CE-4 resume TTS [%s] %.0fms (%d bytes): %r",
+                                        prov, 0, len(audio), sent[:60])
+                            await _stream_audio_to_satellite(
+                                conn, audio, rate, sent,
+                                is_filler=False, auto_listen=auto_listen,
+                            )
+                return
+
+            # intent == "pivot": fall through to normal pipeline
+            _clear_paused_response(conn)
+            logger.info("CE-4 pivot for %s: processing new query", satellite_id)
 
         # ── Step 2: Pipeline (filler-first streaming) ─────────────
         t_llm_start = time.monotonic()
@@ -381,6 +499,7 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
             return
 
         # ── LLM streaming path ──
+        _spoken_chars = 0  # CE-4: track approximate position for pause/resume
         for i, token in enumerate(tokens):
             if i == 0:
                 filler_text = token.strip()
@@ -420,6 +539,7 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
                     sentences_sent += 1
                     total_tts_bytes += sent_bytes
                     tts_used = "orpheus"
+                    _spoken_chars += len(sentence)
                 else:
                     audio, rate, prov = await synthesize_speech(sentence, tts_voice)
                     if audio:
@@ -430,8 +550,15 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
                         sentences_sent += 1
                         total_tts_bytes += len(audio)
                         tts_used = prov
+                        _spoken_chars += len(sentence)
+
+                # CE-4: update current response on conn so barge-in can capture it
+                conn._current_response = "".join(response_parts).strip()
+                conn._spoken_chars = _spoken_chars
 
         full_response = "".join(response_parts).strip()
+        # CE-4: Store full response on conn so barge-in can capture it
+        conn._current_response = full_response
         t_llm_end = time.monotonic()
         llm_ms = (t_llm_end - t_llm_start) * 1000
 
@@ -494,6 +621,9 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
             "Pipeline complete for %s: total=%.1fs (STT=%.0fms LLM=%.0fms %d sentences [%s] %d bytes)",
             satellite_id, t_total, stt_ms, llm_ms, sentences_sent, tts_used, total_tts_bytes,
         )
+
+        # CE-4: clear tracking state after successful completion
+        _clear_paused_response(conn)
 
         # COLD path: remember this interaction for future recall
         try:
