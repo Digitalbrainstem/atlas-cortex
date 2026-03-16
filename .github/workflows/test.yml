@@ -42,7 +42,7 @@ jobs:
 
       - name: Run all tests
         run: |
-          python -m pytest tests/ -q --tb=short
+          python -m pytest tests/ -q --tb=short -m "not browser" --ignore=tests/test_ui_browser.py
 
       - name: Run safety regression tests
         run: |

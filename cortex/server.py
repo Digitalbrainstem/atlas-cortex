@@ -129,6 +129,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug("Knowledge sync not available: %s", e)
 
+    # ── Plugin loader ────────────────────────────────────────────
+    from cortex.plugins.loader import load_plugins
+    try:
+        loaded = await load_plugins()
+        logger.info("Loaded %d plugins: %s", len(loaded), loaded)
+    except Exception as exc:
+        logger.warning("Plugin loading failed (non-fatal): %s", exc)
+
     # Register nightly evolution as background startup task
     async def _run_nightly_evolution() -> None:
         try:
