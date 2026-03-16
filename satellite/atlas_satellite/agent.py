@@ -26,11 +26,18 @@ from .config import SatelliteConfig
 from .filler_cache import FillerCache
 from .led import LEDController, create_led
 from .mdns import SatelliteAnnouncer, ServerDiscovery
-from .vad import VoiceActivityDetector
+from .vad import VoiceActivityDetector, _rms
 from .wake_word import WakeWordDetector
 from .ws_client import SatelliteWSClient
 
 logger = logging.getLogger(__name__)
+
+# Barge-in keywords — if we had an STT running during playback we'd check
+# these.  For now the list is used only to document intent; actual detection
+# relies on energy thresholds and wake-word confidence.
+_BARGE_IN_KEYWORDS = frozenset({
+    "stop", "nevermind", "shut up", "atlas stop", "hey atlas",
+})
 
 
 class State(enum.Enum):
@@ -76,6 +83,13 @@ class SatelliteAgent:
         self._server_url_discovered = asyncio.Event()
         self._echo_suppress_until = 0.0  # timestamp: ignore VAD until this time
         self._auto_listen_deadline = 0.0  # auto-listen timeout
+
+        # Barge-in detection: higher energy ratio during SPEAKING to reject
+        # speaker echo picked up by the mic.  We require several consecutive
+        # speech frames before triggering to avoid transient noise.
+        self._bargein_energy_ratio = 3.5
+        self._bargein_speech_frames = 0
+        self._bargein_threshold_frames = 4  # ~120ms at 30ms/frame
 
     async def start(self) -> None:
         """Initialize components and run the main loop."""
@@ -305,7 +319,9 @@ class SatelliteAgent:
                 await self._process_idle(audio)
             elif self.state == State.LISTENING:
                 await self._process_listening(audio)
-            # PROCESSING and SPEAKING are driven by server messages
+            elif self.state == State.SPEAKING:
+                await self._process_speaking(audio)
+            # PROCESSING is driven by server messages
 
     async def _process_idle(self, audio: bytes) -> None:
         """In IDLE state: check for wake word or VAD speech start."""
@@ -362,6 +378,17 @@ class SatelliteAgent:
                     await self.ws.send_status("idle")
                 return
 
+        # Total listening timeout — prevent infinite listening
+        listen_start = getattr(self, '_listening_start', 0)
+        if listen_start and time.monotonic() - listen_start > self.config.max_listening_seconds:
+            logger.info(
+                "Total listening timeout (%.0fs) — finalising",
+                self.config.max_listening_seconds,
+            )
+            self._auto_listen_deadline = 0
+            await self._transition_to_processing()
+            return
+
         if self.ws.connected:
             await self.ws.send_audio_chunk(audio)
 
@@ -369,15 +396,88 @@ class SatelliteAgent:
         if result == "speech_start" and deadline:
             # Real speech detected — clear auto-listen deadline
             self._auto_listen_deadline = 0
-        if result == "speech_end":
+        if result == "phrase_end":
+            logger.info("Phrase boundary detected — signalling server, continuing to listen")
+            if self.ws.connected:
+                await self.ws.send_audio_phrase_end()
+        elif result == "speech_end":
             logger.info("Speech ended (VAD silence)")
             self._auto_listen_deadline = 0
             await self._transition_to_processing()
+
+    async def _process_speaking(self, audio: bytes) -> None:
+        """In SPEAKING state: detect user speaking over TTS (barge-in).
+
+        Uses a higher energy ratio than normal VAD to avoid triggering on
+        the speaker's own output picked up by the mic.  Also checks for
+        wake-word as a reliable barge-in signal.
+        """
+        rms = _rms(audio)
+        ambient = self.vad._ambient_rms if self.vad._calibrated else 0.0
+
+        # Maintain VAD ambient calibration even during speaking
+        if self.vad and self.vad.active:
+            # Feed VAD to keep calibration fresh but ignore its speech detection
+            self.vad.process(audio)
+
+        # Wake word is a strong barge-in signal
+        wake_triggered = False
+        if self.wake_word:
+            confidence = self.wake_word.process(audio)
+            if confidence >= self.config.wake_word_threshold:
+                wake_triggered = True
+                logger.info("Barge-in: wake word detected during playback (%.2f)", confidence)
+
+        # Energy-based barge-in: user voice must be significantly louder
+        # than ambient to overcome speaker echo
+        energy_triggered = False
+        if ambient > 0:
+            if rms > ambient * self._bargein_energy_ratio:
+                self._bargein_speech_frames += 1
+            else:
+                self._bargein_speech_frames = 0
+
+            if self._bargein_speech_frames >= self._bargein_threshold_frames:
+                energy_triggered = True
+                logger.info(
+                    "Barge-in: energy threshold exceeded "
+                    "(rms=%.0f, ambient=%.0f, ratio=%.1f, frames=%d)",
+                    rms, ambient, rms / max(ambient, 1),
+                    self._bargein_speech_frames,
+                )
+
+        if wake_triggered or energy_triggered:
+            await self._handle_barge_in()
+
+    async def _handle_barge_in(self) -> None:
+        """Execute barge-in: stop playback, notify server, start listening."""
+        logger.info("Barge-in triggered — interrupting playback")
+
+        # 1. Stop audio playback immediately
+        self.audio_out.stop()
+
+        # 2. Reset barge-in counters
+        self._bargein_speech_frames = 0
+
+        # 3. Notify server
+        if self.ws.connected:
+            await self.ws.send_barge_in()
+
+        # 4. Skip echo suppression — user is actively talking
+        self._echo_suppress_until = 0.0
+
+        # 5. Reset wake word buffers
+        if self.wake_word:
+            self.wake_word.reset()
+
+        # 6. Transition to listening — user's new speech will be captured
+        await self._transition_to_listening(1.0)
 
     async def _transition_to_listening(self, confidence: float) -> None:
         self.state = State.LISTENING
         self.led.set_pattern("listening")
         self.vad.reset()
+        self._listening_start = time.monotonic()
 
         if self.ws.connected:
             await self.ws.send_wake(confidence)
@@ -423,12 +523,18 @@ class SatelliteAgent:
                      len(self._tts_buffer), self._tts_sample_rate, is_filler)
         self.state = State.SPEAKING
         self.led.set_pattern("speaking")
+        self._bargein_speech_frames = 0  # reset for this playback
 
         if self._tts_buffer:
             await self.audio_out.play_pcm(
                 bytes(self._tts_buffer), self._tts_sample_rate
             )
             self._tts_buffer.clear()
+
+        # If barge-in occurred during playback the state is already LISTENING
+        if self.state != State.SPEAKING:
+            logger.info("Barge-in occurred during TTS playback — skipping post-playback logic")
+            return
 
         # Suppress echo: ignore VAD/wake for a longer window after playback.
         # The ReSpeaker mic picks up speaker audio which triggers openwakeword
@@ -454,7 +560,7 @@ class SatelliteAgent:
             # Wait for echo to fully dissipate before listening
             await asyncio.sleep(1.5)
             if self.state == State.IDLE:  # not interrupted by something else
-                self._auto_listen_deadline = time.monotonic() + 4.0
+                self._auto_listen_deadline = time.monotonic() + 6.0
                 await self._transition_to_listening(1.0)
             return
 

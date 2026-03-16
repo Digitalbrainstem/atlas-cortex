@@ -60,6 +60,7 @@ class VoiceActivityDetector:
         silence_ratio: float = 0.70,
         speech_energy_ratio: float = 2.2,
         ambient_alpha: float = 0.03,
+        utterance_silence_threshold: int = 0,
     ):
         self.sample_rate = sample_rate
         self.frame_ms = frame_ms
@@ -73,6 +74,12 @@ class VoiceActivityDetector:
         self.speech_energy_ratio = speech_energy_ratio
         self.ambient_alpha = ambient_alpha
 
+        # Extended listening: utterance_silence_threshold > silence_threshold
+        # enables phrase_end detection at the short threshold and speech_end
+        # at the long threshold.  When 0 (default), phrase detection is off
+        # and the original silence_threshold drives speech_end directly.
+        self.utterance_silence_threshold = utterance_silence_threshold
+
         self._vad = None
         if webrtcvad is not None:
             self._vad = webrtcvad.Vad(aggressiveness)
@@ -81,6 +88,7 @@ class VoiceActivityDetector:
         self._silence_count = 0
         self._in_speech = False
         self._speech_frame_total = 0
+        self._phrase_fired = False  # True once phrase_end emitted for current pause
         self._window: collections.deque[bool] = collections.deque(maxlen=window_size)
 
         # Adaptive energy baseline
@@ -138,7 +146,14 @@ class VoiceActivityDetector:
     def process(self, audio_data: bytes) -> str:
         """Process a frame and return state.
 
-        Returns: 'speech_start', 'speech', 'speech_end', or 'silence'.
+        Returns: 'speech_start', 'speech', 'phrase_end', 'speech_end',
+        or 'silence'.
+
+        When ``utterance_silence_threshold`` is set (> 0), a short pause
+        (``silence_threshold`` frames) emits ``phrase_end`` and a long pause
+        (``utterance_silence_threshold`` frames) emits ``speech_end``.
+        When not set, behaviour is identical to the original: only
+        ``speech_end`` fires at ``silence_threshold``.
         """
         rms = _rms(audio_data)
         frame_is_speech = self.is_speech(audio_data)
@@ -154,6 +169,7 @@ class VoiceActivityDetector:
         if frame_is_speech:
             self._speech_count += 1
             self._silence_count = 0
+            self._phrase_fired = False  # speech resumed — reset phrase flag
 
             if not self._in_speech and self._speech_count >= self.speech_threshold:
                 self._in_speech = True
@@ -178,15 +194,35 @@ class VoiceActivityDetector:
             self._speech_count = 0
 
             if self._in_speech:
-                # Consecutive silence
-                if self._silence_count >= self.silence_threshold:
+                use_phrase = self.utterance_silence_threshold > 0
+
+                # ── Long pause → speech_end ──
+                long_thresh = (
+                    self.utterance_silence_threshold if use_phrase
+                    else self.silence_threshold
+                )
+                if self._silence_count >= long_thresh:
                     logger.debug(
                         "Speech end (consecutive silence, %d frames)",
                         self._silence_count,
                     )
                     self._reset_state()
                     return "speech_end"
-                # Sliding window
+
+                # ── Short pause → phrase_end (only in extended mode) ──
+                if (
+                    use_phrase
+                    and not self._phrase_fired
+                    and self._silence_count >= self.silence_threshold
+                ):
+                    self._phrase_fired = True
+                    logger.debug(
+                        "Phrase end (silence %d frames, threshold %d)",
+                        self._silence_count, self.silence_threshold,
+                    )
+                    return "phrase_end"
+
+                # Sliding window (uses long threshold for speech_end)
                 if len(self._window) >= self.window_size:
                     n_silence = sum(1 for v in self._window if not v)
                     ratio = n_silence / len(self._window)
@@ -205,6 +241,7 @@ class VoiceActivityDetector:
         self._speech_frame_total = 0
         self._speech_count = 0
         self._silence_count = 0
+        self._phrase_fired = False
 
     def reset(self) -> None:
         """Reset speech/silence counters and window (keeps calibration)."""
