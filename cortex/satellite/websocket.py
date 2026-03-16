@@ -30,6 +30,16 @@ from cortex.db import get_db, init_db
 logger = logging.getLogger(__name__)
 
 
+# ── Event callbacks (registered by server.py to avoid import cycles) ──
+
+_barge_in_callbacks: list = []
+
+
+def on_barge_in(callback) -> None:
+    """Register a callback for barge-in events: async fn(satellite_id, room)."""
+    _barge_in_callbacks.append(callback)
+
+
 # ── Connection registry ───────────────────────────────────────────
 
 _connected_satellites: dict[str, SatelliteConnection] = {}
@@ -310,19 +320,21 @@ async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
     # Clear any buffered audio from a previous turn
     conn.audio_buffer = bytearray()
 
-    # Broadcast PLAYBACK_STOP to avatar displays for this satellite's room
+    # Notify registered callbacks (avatar broadcast, etc.)
     try:
-        from cortex.avatar.broadcast import broadcast_playback_stop
-        # Look up the satellite's room from the database
         db = get_db()
         row = db.execute(
             "SELECT room FROM satellites WHERE id = ?",
             (conn.satellite_id,),
         ).fetchone()
-        if row and row[0]:
-            await broadcast_playback_stop(row[0])
+        room = row[0] if row else None
+        for cb in _barge_in_callbacks:
+            try:
+                await cb(conn.satellite_id, room)
+            except Exception:
+                logger.debug("Barge-in callback failed", exc_info=True)
     except Exception:
-        logger.debug("Could not broadcast playback stop for %s", conn.satellite_id)
+        logger.debug("Could not process barge-in callbacks for %s", conn.satellite_id)
 
 
 async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:

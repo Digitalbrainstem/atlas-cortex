@@ -115,6 +115,11 @@ async def broadcast_speaking_end(room: str) -> None:
     await broadcast_to_room(room, {"type": "SPEAKING_END"})
 
 
+async def broadcast_playback_stop(room: str) -> None:
+    """Abort all audio playback and reset avatar to idle immediately."""
+    await broadcast_to_room(room, {"type": "PLAYBACK_STOP"})
+
+
 async def broadcast_listening(room: str, active: bool) -> None:
     """Notify avatar displays of mic/listening state change."""
     await broadcast_to_room(room, {"type": "LISTENING", "active": active})
