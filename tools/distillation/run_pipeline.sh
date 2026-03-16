@@ -74,7 +74,7 @@ start_vllm() {
         --max-model-len 4096 \
         --trust-remote-code \
         --dtype auto \
-        --disable-log-requests \
+        --no-enable-log-requests \
         ${extra_args} \
         > "${WORK}/vllm.log" 2>&1 &
     VLLM_PID=$!
