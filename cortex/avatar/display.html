@@ -340,6 +340,7 @@
     let audioQueue = [];       // Queued PCM chunks as Float32Arrays
     let audioPlaying = false;
     let audioSampleRate = 24000;
+    let _scheduledSources = []; // Track AudioBufferSourceNodes for barge-in cancellation
     let currentSessionId = null;
     let _isSpeaking = false;   // True from SPEAKING_START to SPEAKING_END
     let _neutralResetTimer = null;
@@ -361,6 +362,11 @@
       return audioCtx;
     }
 
+    function _stopAllScheduledAudio() {
+      _scheduledSources.forEach(s => { try { s.stop(); } catch (_) {} });
+      _scheduledSources = [];
+    }
+
     function scheduleAudioPlayback() {
       const ctx = ensureAudioContext();
       while (audioQueue.length > 0) {
@@ -373,6 +379,11 @@
         const now = ctx.currentTime;
         const startAt = Math.max(now, nextPlayTime);
         source.start(startAt);
+        source.onended = () => {
+          const idx = _scheduledSources.indexOf(source);
+          if (idx !== -1) _scheduledSources.splice(idx, 1);
+        };
+        _scheduledSources.push(source);
         nextPlayTime = startAt + buffer.duration;
       }
     }
@@ -612,7 +623,10 @@
           _isSpeaking = true;
           _hasReceivedAudio = false;
           _clearVisemeTimers();
+          if (visemeTimeout) { clearTimeout(visemeTimeout); visemeTimeout = null; }
+          showViseme('IDLE');
           // Flush stale audio from previous speech (barge-in support)
+          _stopAllScheduledAudio();
           audioQueue = [];
           nextPlayTime = 0;
           if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
@@ -658,6 +672,22 @@
           }
           break;
         case 'PONG':
+          break;
+        case 'PLAYBACK_STOP':
+          // Server-initiated abort: stop all audio and reset to idle immediately
+          _stopAllScheduledAudio();
+          audioQueue = [];
+          nextPlayTime = 0;
+          _clearVisemeTimers();
+          if (visemeTimeout) { clearTimeout(visemeTimeout); visemeTimeout = null; }
+          if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
+          _isSpeaking = false;
+          _hasReceivedAudio = false;
+          showViseme('IDLE');
+          setExpression('neutral', 1.0);
+          statusEl.textContent = 'idle';
+          statusEl.className = '';
+          checkPupilSpeed();
           break;
         case 'TTS_START':
           if (!_suppressAvatarWsAudio) handleTtsStart(msg);

@@ -4,6 +4,12 @@ Supports multiple backends:
   - none: No LEDs (default)
   - respeaker: ReSpeaker HAT APA102 LEDs via SPI
   - gpio: Standard GPIO LEDs
+
+Dual-state model: LEDs show TWO independent states simultaneously:
+  - Primary state: listening/speaking/idle (what Atlas is doing)
+  - Activity state: processing/thinking overlay (background work)
+  For 3-LED devices: LED 0 = activity indicator, LEDs 1-2 = primary
+  For 12-LED devices: inner 4 = activity, outer 8 = primary
 """
 
 from __future__ import annotations
@@ -21,6 +27,8 @@ class LEDController(ABC):
 
     def __init__(self):
         self._master_brightness: float = 1.0
+        self._primary_state: str = "idle"
+        self._activity_state: str | None = None
 
     def set_master_brightness(self, brightness: float) -> None:
         """Set master brightness (0.0-1.0) that scales all patterns."""
@@ -32,7 +40,19 @@ class LEDController(ABC):
 
     @abstractmethod
     def set_pattern(self, pattern: str) -> None:
-        """Set a named pattern: idle, listening, thinking, speaking, error, muted."""
+        """Set the primary LED pattern."""
+
+    def set_activity(self, activity: str | None) -> None:
+        """Set secondary activity indicator (processing/thinking overlay)."""
+        self._activity_state = activity
+        self._render_dual_state()
+
+    def _render_dual_state(self) -> None:
+        """Render combined primary + activity state. Override in subclasses."""
+        if self._activity_state:
+            self.set_pattern(self._activity_state)
+        else:
+            self.set_pattern(self._primary_state)
 
     @abstractmethod
     def off(self) -> None:
@@ -50,7 +70,7 @@ class NullLED(LEDController):
         pass
 
     def set_pattern(self, pattern: str) -> None:
-        pass
+        self._primary_state = pattern
 
     def off(self) -> None:
         pass
@@ -59,14 +79,15 @@ class NullLED(LEDController):
 class ReSpeakerLED(LEDController):
     """ReSpeaker HAT APA102 RGB LEDs via SPI.
 
-    ReSpeaker 2-Mic HAT: 3 LEDs
-    ReSpeaker 4-Mic Array: 12 LEDs
+    ReSpeaker 2-Mic HAT: 3 LEDs (LED 0 = activity, LEDs 1-2 = primary)
+    ReSpeaker 4-Mic Array: 12 LEDs (inner 4 = activity, outer 8 = primary)
     """
 
     DEFAULT_PATTERNS = {
         "idle": (0, 0, 0, 0.0),
         "listening": (0, 100, 255, 0.4),
         "thinking": (255, 165, 0, 0.3),
+        "processing": (255, 165, 0, 0.3),
         "speaking": (0, 200, 100, 0.4),
         "error": (255, 0, 0, 0.5),
         "muted": (255, 0, 0, 0.1),
@@ -84,30 +105,58 @@ class ReSpeakerLED(LEDController):
         if patterns:
             self.update_patterns(patterns)
 
+        # Determine LED zones for dual-state rendering
+        if num_leds <= 3:
+            self._activity_leds = [0]
+            self._primary_leds = list(range(1, num_leds))
+        elif num_leds <= 6:
+            self._activity_leds = [0, 1]
+            self._primary_leds = list(range(2, num_leds))
+        else:
+            # 12-LED ring: inner 4 = activity, outer 8 = primary
+            self._activity_leds = [0, 3, 6, 9]
+            self._primary_leds = [i for i in range(num_leds) if i not in [0, 3, 6, 9]]
+
         try:
             import spidev
 
             self._spi = spidev.SpiDev()
             self._spi.open(0, 0)
             self._spi.max_speed_hz = 8_000_000
-            logger.info("ReSpeaker LED initialized (%d LEDs)", num_leds)
+            logger.info("ReSpeaker LED initialized (%d LEDs, %d activity + %d primary)",
+                        num_leds, len(self._activity_leds), len(self._primary_leds))
         except (ImportError, OSError) as e:
             logger.warning("SPI not available for LEDs: %s", e)
 
     def set_color(self, r: int, g: int, b: int, brightness: float = 1.0) -> None:
         self._stop_pulse()
-        self._write_leds(r, g, b, brightness)
+        self._write_leds_uniform(r, g, b, brightness)
 
-    def _write_leds(self, r: int, g: int, b: int, brightness: float) -> None:
+    def _write_leds_uniform(self, r: int, g: int, b: int, brightness: float) -> None:
         if not self._spi:
             return
-        # Scale by master brightness
         brightness = brightness * self._master_brightness
         with self._lock:
             bright_byte = 0xE0 | int(max(0.0, min(1.0, brightness)) * 31)
-            # APA102 protocol: start frame + LED frames + end frame
             data = [0x00, 0x00, 0x00, 0x00]  # start frame
             for _ in range(self.num_leds):
+                data.extend([bright_byte, b & 0xFF, g & 0xFF, r & 0xFF])
+            end_bytes = (self.num_leds + 15) // 16
+            data.extend([0xFF] * end_bytes)
+            try:
+                self._spi.xfer2(data)
+            except Exception:
+                logger.exception("SPI write error")
+
+    def _write_leds_per_pixel(self, pixels: list[tuple[int, int, int, float]]) -> None:
+        """Write individual color per LED for dual-state rendering."""
+        if not self._spi:
+            return
+        with self._lock:
+            data = [0x00, 0x00, 0x00, 0x00]  # start frame
+            for r, g, b, brightness in pixels:
+                brightness = brightness * self._master_brightness
+                bright_byte = 0xE0 | int(max(0.0, min(1.0, brightness)) * 31)
                 data.extend([bright_byte, b & 0xFF, g & 0xFF, r & 0xFF])
             end_bytes = (self.num_leds + 15) // 16
             data.extend([0xFF] * end_bytes)
@@ -136,13 +185,37 @@ class ReSpeakerLED(LEDController):
                 self.patterns[name] = tuple(val[:4])
 
     def set_pattern(self, pattern: str) -> None:
-        color = self.patterns.get(pattern, (0, 0, 0, 0.0))
-        if pattern == "thinking":
-            self._start_pulse(*color)
+        self._primary_state = pattern
+        if self._activity_state:
+            self._render_dual_state()
         else:
-            self.set_color(*color)
+            color = self.patterns.get(pattern, (0, 0, 0, 0.0))
+            if pattern == "thinking":
+                self._start_pulse(*color)
+            else:
+                self.set_color(*color)
+
+    def _render_dual_state(self) -> None:
+        """Render primary state on primary LEDs + activity on activity LEDs."""
+        self._stop_pulse()
+        primary = self.patterns.get(self._primary_state, (0, 0, 0, 0.0))
+        activity = self.patterns.get(self._activity_state or "idle", (0, 0, 0, 0.0))
+
+        pixels = [(0, 0, 0, 0.0)] * self.num_leds
+        for i in self._primary_leds:
+            if i < self.num_leds:
+                pixels[i] = primary
+        for i in self._activity_leds:
+            if i < self.num_leds:
+                pixels[i] = activity
+        self._write_leds_per_pixel(pixels)
+
+        # Pulse activity LEDs if activity is thinking/processing
+        if self._activity_state in ("thinking", "processing"):
+            self._start_pulse_activity(activity)
 
     def _start_pulse(self, r: int, g: int, b: int, brightness: float) -> None:
+        """Pulse ALL LEDs (used when no dual-state active)."""
         self._stop_pulse()
         self._pulsing = True
 
@@ -152,7 +225,33 @@ class ReSpeakerLED(LEDController):
                 import math
 
                 b_mod = brightness * (0.3 + 0.7 * abs(math.sin(phase)))
-                self._write_leds(r, g, b, b_mod)
+                self._write_leds_uniform(r, g, b, b_mod)
+                phase += 0.15
+                time.sleep(0.05)
+
+        self._pulse_thread = threading.Thread(target=_pulse, daemon=True)
+        self._pulse_thread.start()
+
+    def _start_pulse_activity(self, color: tuple[int, int, int, float]) -> None:
+        """Pulse only activity LEDs while primary LEDs stay solid."""
+        self._stop_pulse()
+        self._pulsing = True
+        primary = self.patterns.get(self._primary_state, (0, 0, 0, 0.0))
+
+        def _pulse():
+            phase = 0.0
+            while self._pulsing:
+                import math
+
+                mod = 0.3 + 0.7 * abs(math.sin(phase))
+                pixels = [(0, 0, 0, 0.0)] * self.num_leds
+                for i in self._primary_leds:
+                    if i < self.num_leds:
+                        pixels[i] = primary
+                for i in self._activity_leds:
+                    if i < self.num_leds:
+                        pixels[i] = (color[0], color[1], color[2], color[3] * mod)
+                self._write_leds_per_pixel(pixels)
                 phase += 0.15
                 time.sleep(0.05)
 

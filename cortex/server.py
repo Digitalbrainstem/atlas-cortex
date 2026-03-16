@@ -35,8 +35,9 @@ from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
-from cortex.satellite.websocket import satellite_ws_handler
+from cortex.satellite.websocket import satellite_ws_handler, on_barge_in
 from cortex.avatar.websocket import avatar_ws_handler
+from cortex.avatar.broadcast import broadcast_playback_stop
 from cortex.voice.providers import get_tts_provider
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,13 @@ app.add_api_websocket_route("/ws/satellite", satellite_ws_handler)
 
 # Mount avatar display WebSocket endpoint
 app.add_api_websocket_route("/ws/avatar", avatar_ws_handler)
+
+# Wire barge-in: satellite → avatar PLAYBACK_STOP
+async def _on_barge_in(satellite_id: str, room: str | None) -> None:
+    if room:
+        await broadcast_playback_stop(room)
+
+on_barge_in(_on_barge_in)
 
 _provider = None
 _db_conn = None
