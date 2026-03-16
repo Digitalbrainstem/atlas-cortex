@@ -57,20 +57,32 @@ async def generate_one_openai(
             messages.append({"role": "assistant", "content": prompt.get("context_response", "I understand.")})
         messages.append({"role": "user", "content": prompt["prompt"]})
 
+        # Thinking budget: disabled for general (fast), enabled for specialist (quality)
+        # When thinking is enabled, allow 4096 thinking + 4096 answer = 8192 total
+        if think:
+            max_tokens = 8192
+            enable_thinking = True
+        else:
+            max_tokens = 2048
+            enable_thinking = False
+
         payload = {
             "model": model,
             "messages": messages,
             "temperature": 0.7,
             "top_p": 0.9,
-            "max_tokens": 2048,
+            "max_tokens": max_tokens,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
         }
+        if not think:
+            payload["presence_penalty"] = 1.5
 
         for attempt in range(max_retries):
             try:
                 async with session.post(
                     f"{url}/chat/completions",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=300),
+                    timeout=aiohttp.ClientTimeout(total=600 if think else 300),
                 ) as resp:
                     if resp.status != 200:
                         body = await resp.text()
@@ -96,6 +108,7 @@ async def generate_one_openai(
                         "model": model,
                         "prompt_tokens": usage.get("prompt_tokens", 0),
                         "completion_tokens": usage.get("completion_tokens", 0),
+                        "thinking_tokens": usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
                         "timestamp": time.time(),
                     }
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -204,13 +217,14 @@ async def main(args: argparse.Namespace) -> None:
     completed = 0
     failed = 0
     start_time = time.time()
+    think = getattr(args, "think", False)
 
     async with aiohttp.ClientSession() as session:
         batch_size = args.batch_size
         for i in range(0, len(remaining), batch_size):
             batch = remaining[i : i + batch_size]
             tasks = [
-                generate_fn(session, args.api_url, args.model, p, semaphore)
+                generate_fn(session, args.api_url, args.model, p, semaphore, think=think)
                 for p in batch
             ]
             results = await asyncio.gather(*tasks)
@@ -254,5 +268,7 @@ if __name__ == "__main__":
                         help="Comma-separated category filter (e.g., 'coding,reasoning')")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=100)
+    parser.add_argument("--think", action="store_true",
+                        help="Enable thinking mode (4096 budget) for research-level prompts")
     args = parser.parse_args()
     asyncio.run(main(args))
