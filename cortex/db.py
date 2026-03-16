@@ -739,6 +739,17 @@ CREATE TABLE IF NOT EXISTS notification_log (
     source     TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ── Plugin Configuration ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS plugin_config (
+    plugin_id         TEXT PRIMARY KEY,
+    enabled           INTEGER DEFAULT 1,
+    config            TEXT DEFAULT '{}',
+    source            TEXT DEFAULT 'official',
+    installed_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_health_check TEXT,
+    health_ok         INTEGER DEFAULT 1
+);
 """
 
 

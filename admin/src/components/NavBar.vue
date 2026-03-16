@@ -18,6 +18,7 @@ const navItems = [
   { name: 'Voice', route: 'voice', icon: '🎙️' },
   { name: 'Avatar', route: 'avatar', icon: '🎭' },
   { name: 'Devices', route: 'devices', icon: '📱' },
+  { name: 'Plugins', route: 'plugins', icon: '🧩' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },
 ];
