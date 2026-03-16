@@ -62,6 +62,9 @@ async def _stream_audio_to_satellite(
     }
     if auto_listen:
         msg["auto_listen"] = True
+    # CE-2: Signal whether more queued phrases are pending
+    if getattr(conn, "_more_phrases_pending", False):
+        msg["more_pending"] = True
     await conn.send(msg)
 
 
@@ -160,6 +163,9 @@ async def _stream_orpheus_to_satellite(
                 msg["auto_listen"] = True
             if expression:
                 msg["expression"] = expression
+            # CE-2: Signal whether more queued phrases are pending
+            if getattr(conn, "_more_phrases_pending", False):
+                msg["more_pending"] = True
             await conn.send(msg)
 
     except Exception as e:
@@ -487,11 +493,14 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
                     tts_used = prov
                     sentences_sent = 1
                 else:
-                    await conn.send({
+                    msg_end: dict[str, Any] = {
                         "type": "TTS_END",
                         "session_id": conn.session_id,
                         "is_filler": False,
-                    })
+                    }
+                    if getattr(conn, "_more_phrases_pending", False):
+                        msg_end["more_pending"] = True
+                    await conn.send(msg_end)
 
             t_total = time.monotonic() - t_stt_start
             logger.info("Pipeline complete for %s: total=%.1fs (STT=%.0fms instant [%s] %d bytes)",
@@ -608,6 +617,8 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
             }
             if is_question:
                 msg["auto_listen"] = True
+            if getattr(conn, "_more_phrases_pending", False):
+                msg["more_pending"] = True
             await conn.send(msg)
         else:
             logger.warning("No sentences synthesized for %s", satellite_id)
