@@ -26,6 +26,7 @@ const form = ref({
   tts_voice: '',
   led_brightness: 1.0,
   audio_device_out: '',
+  button_mode: 'press',
 })
 
 // Provision form
@@ -229,6 +230,7 @@ async function fetchSatellite() {
       tts_voice: data.tts_voice || '',
       led_brightness: data.led_brightness ?? 1.0,
       audio_device_out: data.audio_device_out || '',
+      button_mode: data.button_mode || 'press',
     }
   } catch (e) {
     error.value = e.message
@@ -396,6 +398,14 @@ async function removeSatellite() {
             <option v-for="d in capabilities.playback_devices" :key="d.alsa_id" :value="d.alsa_id">{{ d.name }} ({{ d.alsa_id }})</option>
           </select>
           <p class="hint">Requires satellite restart to take effect</p>
+        </div>
+        <div class="form-row">
+          <label>Button Mode</label>
+          <select v-model="form.button_mode">
+            <option value="press">Press (tap to start, auto-stop on silence)</option>
+            <option value="toggle">Toggle (tap to start, tap to stop)</option>
+            <option value="hold">Hold (hold to talk, release to stop)</option>
+          </select>
         </div>
         <div class="form-row toggle-row">
           <label><input type="checkbox" v-model="form.vad_enabled" @change="onVadToggle" /> Enable VAD (Voice Activity Detection)</label>
