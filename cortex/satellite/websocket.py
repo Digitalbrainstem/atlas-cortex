@@ -45,6 +45,9 @@ def on_barge_in(callback) -> None:
 _connected_satellites: dict[str, SatelliteConnection] = {}
 
 
+_MAX_PHRASE_QUEUE_SIZE = 5  # prevent memory issues from run-away queuing
+
+
 class SatelliteConnection:
     """Tracks a connected satellite's WebSocket and metadata."""
 
@@ -58,6 +61,9 @@ class SatelliteConnection:
         self.audio_format: dict = {}
         self.has_wake_word: bool = False  # True if satellite has local wake word detection
         self.pipeline_task: asyncio.Task | None = None  # in-progress voice pipeline
+        # CE-2: per-connection phrase queue for multi-question support
+        self.phrase_queue: asyncio.Queue = asyncio.Queue(maxsize=_MAX_PHRASE_QUEUE_SIZE)
+        self._queue_worker_task: asyncio.Task | None = None
 
         # CE-4: Pause buffer for conversational pause & pivot
         self.paused_response: str | None = None  # Full text that was being spoken
@@ -183,6 +189,8 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
     except Exception:
         logger.exception("Error in satellite WebSocket for %s", satellite_id)
     finally:
+        # CE-2: Stop the queue worker on disconnect
+        _stop_queue_worker(conn)
         if satellite_id:
             _connected_satellites.pop(satellite_id, None)
             _update_satellite_status(satellite_id, "offline")
@@ -249,20 +257,39 @@ async def _handle_audio_chunk(conn: SatelliteConnection, msg: dict) -> None:
 
 
 async def _handle_audio_phrase_end(conn: SatelliteConnection, msg: dict) -> None:
-    """A phrase boundary (short pause) — satellite is still listening.
+    """A phrase boundary (short pause) — snapshot buffer and queue for processing.
 
-    For now we just log it; the audio stays in the buffer and will be
-    processed when AUDIO_END arrives.  The message type is defined so
-    the protocol is ready for future streaming-STT support.
+    CE-2: Each phrase is queued independently so multiple questions
+    spoken in sequence are processed one by one.
     """
-    logger.debug(
-        "Phrase boundary from %s (%d bytes buffered so far)",
-        conn.satellite_id, len(conn.audio_buffer),
+    audio_data = bytes(conn.audio_buffer)
+    conn.audio_buffer = bytearray()
+
+    if len(audio_data) < 1600:
+        logger.debug("Phrase too short (%d bytes), discarding", len(audio_data))
+        return
+
+    logger.info(
+        "Phrase boundary from %s — queuing %d bytes (%d already queued)",
+        conn.satellite_id, len(audio_data), conn.phrase_queue.qsize(),
     )
+
+    try:
+        conn.phrase_queue.put_nowait(audio_data)
+    except asyncio.QueueFull:
+        logger.warning("Phrase queue full for %s, dropping oldest phrase", conn.satellite_id)
+        try:
+            conn.phrase_queue.get_nowait()
+            conn.phrase_queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+        conn.phrase_queue.put_nowait(audio_data)
+
+    _ensure_queue_worker(conn)
 
 
 async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
-    """Audio streaming has ended — run STT → Pipeline → TTS."""
+    """Audio streaming has ended — queue final phrase for processing."""
     reason = msg.get("reason", "vad_silence")
     audio_data = bytes(conn.audio_buffer)
     conn.audio_buffer = bytearray()
@@ -291,7 +318,12 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
 
     if len(audio_data) < 1600:
         # Too short to be meaningful speech (~50ms)
-        logger.debug("Audio too short (%d bytes), ignoring", len(audio_data))
+        # If no phrases were queued either, nothing to do
+        if conn.phrase_queue.empty():
+            logger.debug("Audio too short (%d bytes) and queue empty, ignoring", len(audio_data))
+            return
+        # Phrases already queued — just ensure the worker is running
+        _ensure_queue_worker(conn)
         return
 
     # Cap audio at ~15 seconds (480000 bytes at 16kHz 16-bit mono) to prevent
@@ -305,10 +337,19 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
         )
         audio_data = audio_data[-MAX_AUDIO_BYTES:]
 
-    # Run the voice pipeline in a background task so websocket stays responsive
-    from cortex.orchestrator.voice import process_voice_pipeline
-    task = asyncio.create_task(process_voice_pipeline(conn, audio_data))
-    conn.pipeline_task = task
+    # CE-2: Enqueue the final phrase for processing
+    try:
+        conn.phrase_queue.put_nowait(audio_data)
+    except asyncio.QueueFull:
+        logger.warning("Phrase queue full for %s on AUDIO_END, dropping oldest", conn.satellite_id)
+        try:
+            conn.phrase_queue.get_nowait()
+            conn.phrase_queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+        conn.phrase_queue.put_nowait(audio_data)
+
+    _ensure_queue_worker(conn)
 
 
 async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
@@ -336,6 +377,9 @@ async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
         logger.info("Cancelled in-progress pipeline for %s", conn.satellite_id)
     conn.pipeline_task = None
 
+    # CE-2: Drain the phrase queue — discard pending phrases on barge-in
+    _drain_phrase_queue(conn)
+
     # Clear any buffered audio from a previous turn
     conn.audio_buffer = bytearray()
 
@@ -360,6 +404,83 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
     """Update satellite status (idle, listening, speaking)."""
     status = msg.get("status", "idle")
     logger.debug("Satellite %s status: %s", conn.satellite_id, status)
+
+
+# ── CE-2: Phrase queue worker ─────────────────────────────────────
+
+
+def _ensure_queue_worker(conn: SatelliteConnection) -> None:
+    """Start the phrase queue worker if not already running."""
+    task = conn._queue_worker_task
+    if task is not None and not task.done():
+        return
+    conn._queue_worker_task = asyncio.create_task(
+        _phrase_queue_worker(conn),
+        name=f"phrase-worker-{conn.satellite_id}",
+    )
+
+
+def _stop_queue_worker(conn: SatelliteConnection) -> None:
+    """Cancel the queue worker and drain remaining phrases."""
+    task = conn._queue_worker_task
+    if task and not task.done():
+        task.cancel()
+    conn._queue_worker_task = None
+    _drain_phrase_queue(conn)
+
+
+def _drain_phrase_queue(conn: SatelliteConnection) -> None:
+    """Discard all pending phrases from the queue."""
+    drained = 0
+    while True:
+        try:
+            conn.phrase_queue.get_nowait()
+            conn.phrase_queue.task_done()
+            drained += 1
+        except asyncio.QueueEmpty:
+            break
+    if drained:
+        logger.info("Drained %d pending phrases from %s queue", drained, conn.satellite_id)
+
+
+async def _phrase_queue_worker(conn: SatelliteConnection) -> None:
+    """Process queued phrase audio one at a time: STT → Pipeline → TTS.
+
+    Runs as a background task per connection.  Each phrase is handed off
+    to ``process_voice_pipeline``.  The ``more_pending`` flag is set on
+    the connection so the voice pipeline can include it in TTS_END messages.
+    """
+    from cortex.orchestrator.voice import process_voice_pipeline
+
+    satellite_id = conn.satellite_id
+    logger.info("Phrase queue worker started for %s", satellite_id)
+
+    try:
+        while True:
+            phrase_audio = await conn.phrase_queue.get()
+            try:
+                # Signal whether more phrases follow this one
+                conn._more_phrases_pending = not conn.phrase_queue.empty()
+                task = asyncio.create_task(process_voice_pipeline(conn, phrase_audio))
+                conn.pipeline_task = task
+                await task
+            except asyncio.CancelledError:
+                logger.info("Phrase queue worker cancelled for %s", satellite_id)
+                raise
+            except Exception:
+                logger.exception(
+                    "Error processing queued phrase for %s — continuing to next",
+                    satellite_id,
+                )
+            finally:
+                conn._more_phrases_pending = False
+                conn.pipeline_task = None
+                conn.phrase_queue.task_done()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        logger.info("Phrase queue worker stopped for %s", satellite_id)
+
 
 # ── Helpers ───────────────────────────────────────────────────────
 
