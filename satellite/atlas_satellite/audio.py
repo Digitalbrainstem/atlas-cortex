@@ -147,16 +147,29 @@ class AudioPlayback:
         self.channels = channels
         self.volume = volume
         self._lock = threading.Lock()
+        self._interrupted = threading.Event()
+        self._playing = threading.Event()
+
+    def stop(self) -> None:
+        """Interrupt any in-progress playback."""
+        self._interrupted.set()
+
+    @property
+    def playing(self) -> bool:
+        """True while audio is actively being written to the device."""
+        return self._playing.is_set()
 
     async def play_pcm(
         self, audio_data: bytes, sample_rate: int = 22050
     ) -> None:
         """Play raw PCM audio asynchronously."""
+        self._interrupted.clear()
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self._play_pcm_sync, audio_data, sample_rate)
 
     def _play_pcm_sync(self, audio_data: bytes, sample_rate: int) -> None:
         with self._lock:
+            self._playing.set()
             try:
                 logger.info("Playing %d bytes at %dHz on %s", len(audio_data), sample_rate, self.device)
                 # Try stereo first — many codecs (WM8960) only support stereo
@@ -177,17 +190,25 @@ class AudioPlayback:
                 if hw_channels == 2 and self.channels == 1:
                     audio_data = self._mono_to_stereo(audio_data)
 
-                # Write in chunks
+                # Write in chunks, checking for interruption between each
                 period = 1024
                 chunk_bytes = period * 2 * hw_channels
+                interrupted = False
                 for i in range(0, len(audio_data), chunk_bytes):
+                    if self._interrupted.is_set():
+                        interrupted = True
+                        logger.info("Playback interrupted at byte %d/%d", i, len(audio_data))
+                        break
                     chunk = audio_data[i : i + chunk_bytes]
                     pcm.write(chunk)
 
                 pcm.close()
-                logger.info("Playback complete (%d bytes)", len(audio_data))
+                if not interrupted:
+                    logger.info("Playback complete (%d bytes)", len(audio_data))
             except Exception:
                 logger.exception("Audio playback error")
+            finally:
+                self._playing.clear()
 
     def _open_playback(self, channels: int, sample_rate: int):
         """Try to open ALSA playback device. Returns PCM or None."""
@@ -221,6 +242,7 @@ class AudioPlayback:
 
     def _play_wav_sync(self, path: str) -> None:
         with self._lock:
+            self._playing.set()
             try:
                 with wave.open(path, "rb") as wf:
                     wav_ch = wf.getnchannels()
@@ -238,6 +260,9 @@ class AudioPlayback:
                     period = 1024
                     data = wf.readframes(period)
                     while data:
+                        if self._interrupted.is_set():
+                            logger.info("WAV playback interrupted: %s", path)
+                            break
                         if self.volume != 1.0:
                             data = AudioCapture._apply_gain(data, self.volume)
                         if need_upmix:
@@ -248,3 +273,5 @@ class AudioPlayback:
                     pcm.close()
             except Exception:
                 logger.exception("WAV playback error: %s", path)
+            finally:
+                self._playing.clear()
