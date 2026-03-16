@@ -519,8 +519,9 @@ class SatelliteAgent:
         """TTS stream complete — play the buffered audio."""
         is_filler = msg.get("is_filler", False)
         auto_listen = msg.get("auto_listen", False)
-        logger.info("TTS_END received (%d bytes buffered, rate=%d, filler=%s)",
-                     len(self._tts_buffer), self._tts_sample_rate, is_filler)
+        more_pending = msg.get("more_pending", False)
+        logger.info("TTS_END received (%d bytes buffered, rate=%d, filler=%s, more=%s)",
+                     len(self._tts_buffer), self._tts_sample_rate, is_filler, more_pending)
         self.state = State.SPEAKING
         self.led.set_pattern("speaking")
         self._bargein_speech_frames = 0  # reset for this playback
@@ -548,6 +549,13 @@ class SatelliteAgent:
 
         # Fillers: stay in PROCESSING — more audio coming
         if is_filler:
+            self.state = State.PROCESSING
+            self.led.set_pattern("processing")
+            return
+
+        # CE-2: More phrases queued on server — stay in PROCESSING
+        if more_pending:
+            logger.info("More phrases pending — staying in PROCESSING")
             self.state = State.PROCESSING
             self.led.set_pattern("processing")
             return
