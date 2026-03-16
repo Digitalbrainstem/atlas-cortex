@@ -1,7 +1,7 @@
 """WebSocket client for connecting to Atlas server.
 
 Handles the satellite side of the protocol:
-  Satellite → Server: ANNOUNCE, WAKE, AUDIO_START/CHUNK/END, STATUS, HEARTBEAT
+  Satellite → Server: ANNOUNCE, WAKE, AUDIO_START/CHUNK/END, STATUS, HEARTBEAT, BARGE_IN
   Server → Satellite: ACCEPTED, TTS_START/CHUNK/END, PLAY_FILLER, COMMAND, CONFIG, SYNC_FILLERS
 """
 
@@ -124,6 +124,13 @@ class SatelliteWSClient:
             "reason": reason,
         })
 
+    async def send_audio_phrase_end(self) -> None:
+        """Signal a phrase boundary (short pause) — more audio may follow."""
+        await self._send({
+            "type": "AUDIO_PHRASE_END",
+            "satellite_id": self.satellite_id,
+        })
+
     async def send_heartbeat(
         self, uptime: float = 0, cpu_temp: float = 0, wifi_rssi: int = 0
     ) -> None:
@@ -140,6 +147,13 @@ class SatelliteWSClient:
             "type": "STATUS",
             "satellite_id": self.satellite_id,
             "status": status,
+        })
+
+    async def send_barge_in(self) -> None:
+        """Notify server that user interrupted during playback."""
+        await self._send({
+            "type": "BARGE_IN",
+            "satellite_id": self.satellite_id,
         })
 
     async def listen(self) -> None:

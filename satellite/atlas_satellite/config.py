@@ -56,6 +56,11 @@ class SatelliteConfig:
     speech_threshold_frames: int = 3  # ~90ms to confirm speech start
     max_speech_frames: int = 333  # ~10s max recording
 
+    # Extended listening (phrase-aware)
+    phrase_silence_threshold: int = 15  # frames (~450ms) — short pause between phrases
+    utterance_silence_threshold: int = 45  # frames (~1.35s) — long pause = speaker done
+    max_listening_seconds: float = 15.0  # total listening timeout after wake
+
     # Energy-based VAD gating (RMS threshold for 16-bit PCM)
     vad_energy_threshold: float = 80.0
     vad_window_size: int = 40  # sliding window frames
