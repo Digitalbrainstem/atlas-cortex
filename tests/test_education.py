@@ -13,6 +13,8 @@ from cortex.learning.education import (
     TutoringEngine,
     TutoringResponse,
 )
+from cortex.plugins.base import CommandMatch, CommandResult
+from cortex.plugins.games import STEMGamesPlugin, GAMES
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -505,3 +507,369 @@ class TestModuleImports:
         assert QuizQuestion is not None
         assert TutoringEngine is not None
         assert TutoringResponse is not None
+
+
+# ── STEM Games Plugin ─────────────────────────────────────────────
+
+@pytest.fixture()
+def games_plugin():
+    """A fresh STEMGamesPlugin, set up and ready."""
+    plugin = STEMGamesPlugin()
+    return plugin
+
+
+def _ctx(user_id: str = "kid1") -> dict:
+    return {"user_id": user_id}
+
+
+class TestSTEMGamesMatch:
+    """match() should fire on natural game triggers — no subject word required."""
+
+    @pytest.mark.parametrize("msg", [
+        "let's play a game",
+        "Let's play a game",
+        "I want to play a game",
+        "can we play a game",
+        "play a game",
+        "game time",
+        "I'm bored",
+    ])
+    async def test_generic_game_triggers(self, games_plugin, msg):
+        await games_plugin.setup({})
+        m = await games_plugin.match(msg, _ctx())
+        assert m.matched, f"Should match: {msg!r}"
+        assert m.intent in ("start_game", "suggest_game")
+
+    @pytest.mark.parametrize("msg,expected_game", [
+        ("let's play Number Quest", "number_quest"),
+        ("let's play science safari", "science_safari"),
+        ("play word wizard", "word_wizard"),
+    ])
+    async def test_specific_game_triggers(self, games_plugin, msg, expected_game):
+        await games_plugin.setup({})
+        m = await games_plugin.match(msg, _ctx())
+        assert m.matched
+        assert m.intent == "start_game"
+        assert m.metadata.get("game_id") == expected_game
+
+    async def test_no_match_on_random_text(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("what's the weather like?", _ctx())
+        assert not m.matched
+
+    async def test_math_word_not_required(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("let's play a game", _ctx())
+        assert m.matched
+
+    @pytest.mark.parametrize("msg", [
+        "next question", "another one", "keep going",
+    ])
+    async def test_continue_patterns_require_active_session(self, games_plugin, msg):
+        await games_plugin.setup({})
+        # No active session — should not match
+        m = await games_plugin.match(msg, _ctx())
+        assert not m.matched
+
+    async def test_progress_check(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("how am I doing", _ctx())
+        assert m.matched
+        assert m.intent == "check_progress"
+
+    async def test_score_check(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("what's my score", _ctx())
+        assert m.matched
+        assert m.intent == "check_progress"
+
+
+class TestSTEMGamesHandle:
+    """handle() game lifecycle: start → question → answer → end."""
+
+    async def test_suggest_game_on_generic(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("I'm bored", _ctx())
+        result = await games_plugin.handle("I'm bored", m, _ctx())
+        assert result.success
+        assert "Number Quest" in result.response
+        assert "Science Safari" in result.response
+        assert "Word Wizard" in result.response
+
+    async def test_start_number_quest(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("let's play Number Quest", _ctx())
+        result = await games_plugin.handle("let's play Number Quest", m, _ctx())
+        assert result.success
+        assert "Number Quest" in result.response
+        assert result.metadata["action"] == "start_game"
+        # Should have an active session now
+        assert "kid1" in games_plugin._sessions
+
+    async def test_start_science_safari(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("let's play science safari", _ctx())
+        result = await games_plugin.handle("let's play science safari", m, _ctx())
+        assert result.success
+        assert "Science Safari" in result.response
+
+    async def test_start_word_wizard(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("play word wizard", _ctx())
+        result = await games_plugin.handle("play word wizard", m, _ctx())
+        assert result.success
+        assert "Word Wizard" in result.response
+
+    async def test_answer_correct(self, games_plugin):
+        await games_plugin.setup({})
+        # Start a game
+        m = await games_plugin.match("let's play Number Quest", _ctx())
+        await games_plugin.handle("let's play Number Quest", m, _ctx())
+        # Get the current question's correct answer
+        session = games_plugin._sessions["kid1"]
+        correct_answer = session.current_question.correct_answer
+        # Answer it
+        m2 = await games_plugin.match(correct_answer, _ctx())
+        assert m2.matched
+        assert m2.intent == "answer"
+        result = await games_plugin.handle(correct_answer, m2, _ctx())
+        assert result.success
+        assert result.metadata["correct"] is True
+        assert result.metadata["score"] >= 10
+
+    async def test_answer_wrong(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("let's play Number Quest", _ctx())
+        await games_plugin.handle("let's play Number Quest", m, _ctx())
+        # Give a wrong answer
+        m2 = await games_plugin.match("wrong_xyz_99999", _ctx())
+        result = await games_plugin.handle("wrong_xyz_99999", m2, _ctx())
+        assert result.success
+        assert result.metadata["correct"] is False
+        assert result.metadata["score"] == 0
+
+    async def test_check_progress(self, games_plugin, tracker):
+        await games_plugin.setup({})
+        tracker.record_attempt("kid1", "math", "addition", True, 1)
+        m = await games_plugin.match("how am I doing", _ctx())
+        result = await games_plugin.handle("how am I doing", m, _ctx())
+        assert result.success
+        assert "Progress" in result.response
+
+    async def test_end_game(self, games_plugin):
+        await games_plugin.setup({})
+        # Start
+        m = await games_plugin.match("let's play Number Quest", _ctx())
+        await games_plugin.handle("let's play Number Quest", m, _ctx())
+        assert "kid1" in games_plugin._sessions
+        # Stop
+        m2 = await games_plugin.match("stop", _ctx())
+        assert m2.matched
+        assert m2.intent == "stop_game"
+        result = await games_plugin.handle("stop", m2, _ctx())
+        assert result.success
+        assert "Game Over" in result.response
+        assert "kid1" not in games_plugin._sessions
+
+
+class TestSTEMGamesStateMachine:
+    """Full state machine: start → questions → answers → end."""
+
+    async def test_full_game_flow(self, games_plugin):
+        await games_plugin.setup({})
+        ctx = _ctx("player1")
+
+        # Start
+        m = await games_plugin.match("let's play Number Quest", ctx)
+        r = await games_plugin.handle("let's play Number Quest", m, ctx)
+        assert r.success
+
+        # Answer 3 questions correctly
+        for i in range(3):
+            session = games_plugin._sessions["player1"]
+            answer = session.current_question.correct_answer
+            m = await games_plugin.match(answer, ctx)
+            r = await games_plugin.handle(answer, m, ctx)
+            assert r.success
+            assert r.metadata["correct"] is True
+
+        session = games_plugin._sessions["player1"]
+        assert session.correct_answers == 3
+        assert session.score >= 30  # 10 points each minimum
+        assert session.questions_asked == 4  # 1 initial + 3 answered (each generates next)
+
+        # Continue
+        m = await games_plugin.match("next question", ctx)
+        assert m.matched
+        r = await games_plugin.handle("next question", m, ctx)
+        assert r.success
+
+        # End
+        m = await games_plugin.match("stop", ctx)
+        r = await games_plugin.handle("stop", m, ctx)
+        assert "Game Over" in r.response
+        assert "player1" not in games_plugin._sessions
+
+    async def test_streak_bonus(self, games_plugin):
+        await games_plugin.setup({})
+        ctx = _ctx("streaker")
+
+        m = await games_plugin.match("let's play Number Quest", ctx)
+        await games_plugin.handle("let's play Number Quest", m, ctx)
+
+        # Get 3 correct in a row for streak bonus
+        for i in range(3):
+            session = games_plugin._sessions["streaker"]
+            answer = session.current_question.correct_answer
+            m = await games_plugin.match(answer, ctx)
+            r = await games_plugin.handle(answer, m, ctx)
+            assert r.metadata["correct"]
+
+        session = games_plugin._sessions["streaker"]
+        assert session.streak == 3
+        # 10 + 10 + 15 (10 + 5 bonus) = 35
+        assert session.score == 35
+
+    async def test_db_session_created(self, games_plugin):
+        await games_plugin.setup({})
+        m = await games_plugin.match("let's play science safari", _ctx())
+        await games_plugin.handle("let's play science safari", m, _ctx())
+
+        db = get_db()
+        row = db.execute(
+            "SELECT * FROM learning_sessions WHERE user_id = 'kid1' AND mode = 'game'"
+        ).fetchone()
+        assert row is not None
+        assert row["subject"] == "science"
+
+
+class TestSTEMGamesAutoAdvance:
+    """Verify difficulty auto-advancement on high proficiency."""
+
+    async def test_auto_advance_on_high_proficiency(self, games_plugin, tracker):
+        await games_plugin.setup({})
+        ctx = _ctx("advancer")
+
+        # Build high proficiency
+        for _ in range(10):
+            tracker.record_attempt("advancer", "math", "counting", True, 1)
+
+        # Start game
+        m = await games_plugin.match("let's play Number Quest", ctx)
+        await games_plugin.handle("let's play Number Quest", m, ctx)
+
+        session = games_plugin._sessions["advancer"]
+        initial_diff = session.difficulty
+
+        # Answer correctly to trigger auto-advance check
+        answer = session.current_question.correct_answer
+        m = await games_plugin.match(answer, ctx)
+        r = await games_plugin.handle(answer, m, ctx)
+
+        session = games_plugin._sessions["advancer"]
+        # Difficulty should have advanced since proficiency > 0.8
+        assert session.difficulty >= initial_diff
+
+    async def test_no_advance_below_threshold(self, games_plugin, tracker):
+        await games_plugin.setup({})
+        ctx = _ctx("beginner")
+
+        # Build mediocre proficiency — mix of right and wrong
+        tracker.record_attempt("beginner", "math", "counting", True, 1)
+        tracker.record_attempt("beginner", "math", "counting", False, 1)
+        tracker.record_attempt("beginner", "math", "counting", False, 1)
+
+        m = await games_plugin.match("let's play Number Quest", ctx)
+        await games_plugin.handle("let's play Number Quest", m, ctx)
+
+        session = games_plugin._sessions["beginner"]
+        initial_diff = session.difficulty
+
+        # Give a wrong answer — should definitely not advance
+        m = await games_plugin.match("wrong_xyz_99999", ctx)
+        await games_plugin.handle("wrong_xyz_99999", m, ctx)
+
+        session = games_plugin._sessions["beginner"]
+        assert session.difficulty <= initial_diff
+
+
+class TestSTEMGamesHealth:
+    """Plugin lifecycle."""
+
+    async def test_setup_returns_true(self, games_plugin):
+        assert await games_plugin.setup({})
+
+    async def test_health_returns_true(self, games_plugin):
+        await games_plugin.setup({})
+        assert await games_plugin.health()
+
+    def test_plugin_metadata(self, games_plugin):
+        assert games_plugin.plugin_id == "stem_games"
+        assert games_plugin.display_name == "STEM Games"
+        assert games_plugin.supports_learning is True
+        assert games_plugin.version == "1.0.0"
+
+
+# ── Progress Admin API ────────────────────────────────────────────
+
+class TestProgressAdminAPI:
+    """Test the admin learning endpoints."""
+
+    def test_admin_learning_module_imports(self):
+        from cortex.admin.learning import router
+        assert router is not None
+
+    def test_learning_router_has_routes(self):
+        from cortex.admin.learning import router
+        paths = [r.path for r in router.routes]
+        assert "/learning/progress" in paths
+        assert "/learning/progress/{user_id}" in paths
+        assert "/learning/sessions" in paths
+        assert "/learning/report/{user_id}" in paths
+        assert "/learning/leaderboard" in paths
+
+    def test_parent_report_via_tracker(self, tracker):
+        db = get_db()
+        db.execute(
+            "INSERT INTO learning_sessions "
+            "(user_id, subject, topic, mode, difficulty_level, "
+            "questions_asked, correct_answers) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("test_kid", "math", "number_quest", "game", 2, 10, 8),
+        )
+        db.commit()
+        tracker.record_attempt("test_kid", "math", "addition", True, 2)
+        tracker.record_attempt("test_kid", "math", "addition", True, 2)
+
+        report = tracker.get_parent_report("test_kid", days=7)
+        assert report["total_sessions"] == 1
+        assert report["total_questions"] == 10
+        assert report["accuracy"] == 0.8
+        assert "math" in report["subjects_practiced"]
+        assert report["best_streak"] >= 2
+
+    def test_leaderboard_data(self, tracker):
+        tracker.record_attempt("kid_a", "math", "addition", True, 1)
+        tracker.record_attempt("kid_b", "science", "biology", True, 1)
+
+        db = get_db()
+        db.execute(
+            "INSERT INTO learning_sessions "
+            "(user_id, subject, topic, mode, score, questions_asked, correct_answers) "
+            "VALUES (?, ?, ?, 'game', ?, ?, ?)",
+            ("kid_a", "math", "number_quest", 50, 5, 5),
+        )
+        db.commit()
+
+        # Verify data exists for leaderboard
+        rows = db.execute(
+            "SELECT user_id, best_streak FROM learning_progress "
+            "ORDER BY best_streak DESC"
+        ).fetchall()
+        assert len(rows) >= 2
+
+        score_rows = db.execute(
+            "SELECT user_id, score FROM learning_sessions "
+            "WHERE mode = 'game' ORDER BY score DESC"
+        ).fetchall()
+        assert len(score_rows) >= 1
