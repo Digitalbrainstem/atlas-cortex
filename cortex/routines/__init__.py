@@ -14,9 +14,11 @@ from cortex.routines.actions import (
     SetVariableAction,
 )
 from cortex.routines.templates import TEMPLATES, instantiate_template
+from cortex.routines.triggers import TriggerManager
 
 __all__ = [
     "RoutineEngine",
+    "TriggerManager",
     "ActionExecutor",
     "ActionResult",
     "TEMPLATES",
