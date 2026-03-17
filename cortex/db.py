@@ -750,6 +750,134 @@ CREATE TABLE IF NOT EXISTS plugin_config (
     last_health_check TEXT,
     health_ok         INTEGER DEFAULT 1
 );
+
+-- ── Scheduling: Alarms, Timers & Reminders ──────────────────────
+CREATE TABLE IF NOT EXISTS alarms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL DEFAULT '',
+    cron_expression TEXT NOT NULL,
+    sound TEXT DEFAULT 'default',
+    tts_message TEXT DEFAULT '',
+    user_id TEXT DEFAULT '',
+    room TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    last_fired TEXT,
+    next_fire TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS timers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL DEFAULT '',
+    duration_seconds INTEGER NOT NULL,
+    remaining_seconds REAL,
+    state TEXT DEFAULT 'running',  -- running, paused, finished, cancelled
+    user_id TEXT DEFAULT '',
+    room TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    trigger_type TEXT DEFAULT 'time',  -- time, recurring, event
+    trigger_at TEXT,
+    cron_expression TEXT,
+    event_condition TEXT,
+    user_id TEXT DEFAULT '',
+    room TEXT DEFAULT '',
+    fired INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Learning & Education ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS learning_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    topic TEXT DEFAULT '',
+    mode TEXT DEFAULT 'tutoring',
+    difficulty_level INTEGER DEFAULT 1,
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    ended_at TEXT,
+    score REAL DEFAULT 0,
+    questions_asked INTEGER DEFAULT 0,
+    correct_answers INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS learning_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    proficiency REAL DEFAULT 0.0,
+    total_attempts INTEGER DEFAULT 0,
+    correct_attempts INTEGER DEFAULT 0,
+    streak INTEGER DEFAULT 0,
+    best_streak INTEGER DEFAULT 0,
+    last_practiced TEXT,
+    next_review TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, subject, topic)
+);
+
+CREATE TABLE IF NOT EXISTS quiz_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER REFERENCES learning_sessions(id),
+    user_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    correct_answer TEXT NOT NULL,
+    user_answer TEXT DEFAULT '',
+    is_correct INTEGER DEFAULT 0,
+    difficulty INTEGER DEFAULT 1,
+    time_taken_seconds REAL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ── Routines & Automations ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS routines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    enabled INTEGER DEFAULT 1,
+    user_id TEXT DEFAULT '',
+    template_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_run TEXT,
+    run_count INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS routine_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL,
+    action_type TEXT NOT NULL,
+    action_config TEXT DEFAULT '{}',
+    condition TEXT DEFAULT '',
+    on_error TEXT DEFAULT 'continue',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS routine_triggers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    trigger_type TEXT NOT NULL,
+    trigger_config TEXT DEFAULT '{}',
+    enabled INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS routine_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    routine_id INTEGER NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    status TEXT DEFAULT 'running',
+    steps_completed INTEGER DEFAULT 0,
+    error_message TEXT DEFAULT ''
+);
 """
 
 
