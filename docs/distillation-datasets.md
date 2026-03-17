@@ -168,3 +168,50 @@ These were evaluated and found unsuitable for text instruction tuning (image/tab
 | Teacher-generated | ~5,900 |
 | Free datasets | ~700K+ |
 | **Combined** | **~706K+** |
+
+## Additional Datasets Found (Round 2)
+
+### Pet Health (Agriculture/Animals LoRA)
+
+| Dataset | Source | Rows | License | Link |
+|---------|--------|------|---------|------|
+| Pet Health Symptoms | HuggingFace | 2,000 | Open | `karenwky/pet-health-symptoms-dataset` |
+
+Covers: skin irritations, digestive issues, parasites, ear infections, mobility problems.
+Includes both owner observations ("My dog has bald patches") and clinical notes.
+Species covered: dogs, cats, ferrets, rabbits, guinea pigs, cockatiels.
+
+### Medical (Additional)
+
+| Dataset | Source | Rows | License | Link |
+|---------|--------|------|---------|------|
+| MedQuAD | HuggingFace | 16,405 | CC-BY 4.0 | `keivalya/MedQuad-MedicalQnADataset` |
+
+NIH-sourced medical Q&A from 12 official sources (cancer.gov, GARD, MedlinePlus, etc.).
+Original: 47,457 total (some answers removed for copyright).
+
+### Resources Evaluated But Not Usable
+
+| Resource | Type | Why Not Used |
+|----------|------|-------------|
+| Stanford AIMI shared datasets | Medical imaging (X-rays, CT, MRI) | Image data, not text Q&A |
+| awesome-healthcare-datasets (GitHub) | EHR, imaging, genomics | Clinical records/images, not instruction Q&A |
+| MSKCC AI datasets guide | Links to imaging/clinical databases | All image/EHR data |
+| Kaggle biomedical-ai | Tabular biomedical data | Not text Q&A format |
+| UF IC3 datasets | Clinical research datasets | Registration required, EHR format |
+| NEJM AI article | Research paper | Not a dataset |
+| PMC synthetic clinical notes | Research paper about synthetic data | Describes method, not downloadable Q&A |
+| Oxford VGG Pets | Pet breed image classification | Image data |
+| dog-cat-full-dataset | Image classification | Image data |
+| TensorFlow cats_vs_dogs | Image classification | Image data |
+| fish-datasets | Fish detection images | Image data |
+| aquarium.sea-lion.ai | Aquatic species detection | Image data |
+| awesome-ocean-ai-data | Ocean imagery datasets | Image data |
+| VetHeal-app | Mobile app source code | Not a dataset |
+| Roboflow lawn mower | Object detection images | Image data |
+| awesome-forests | Forest remote sensing imagery | Image data |
+| BioASQ participants area | Biomedical Q&A | Requires registration for full data |
+| TELUS biology text | Commercial dataset | Paid, not open source |
+| Kenhub anatomy | Learning platform | Not a dataset |
+| macgence chatbot training | Blog article | Not a dataset |
+| PetCare hackathon | Hackathon project | Not a dataset |
