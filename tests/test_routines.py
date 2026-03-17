@@ -635,3 +635,561 @@ class TestEdgeCases:
             {"message": "Hello {{name}}"}, {}
         )
         assert result["message"] == "Hello {{name}}"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Wave 2 — TriggerManager, RoutinePlugin, Admin API
+# ══════════════════════════════════════════════════════════════════
+
+from cortex.routines.triggers import TriggerManager, _normalise
+from cortex.plugins.routines import RoutinePlugin, _parse_action
+
+
+# ── TriggerManager ───────────────────────────────────────────────
+
+class TestTriggerManagerVoice:
+    """Voice trigger matching via TriggerManager."""
+
+    async def test_exact_match(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "good morning"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("good morning")
+        assert result == rid
+
+    async def test_partial_match_contains(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "good morning"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("good morning atlas")
+        assert result == rid
+
+    async def test_partial_match_reverse(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "good morning"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("hey good morning")
+        assert result == rid
+
+    async def test_no_match(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "good morning"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("play some music")
+        assert result is None
+
+    async def test_disabled_routine_not_matched(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "good morning"})
+        await engine.disable_routine(rid)
+        tm = TriggerManager()
+
+        result = await tm.check_voice("good morning")
+        assert result is None
+
+    async def test_punctuation_stripped(self, engine, db_conn):
+        rid = await engine.create_routine("Greet")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "hello!"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("Hello")
+        assert result == rid
+
+    async def test_case_insensitive(self, engine, db_conn):
+        rid = await engine.create_routine("Greet")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "Good Night"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("good night")
+        assert result == rid
+
+    async def test_empty_phrase_returns_none(self, engine, db_conn):
+        rid = await engine.create_routine("Empty")
+        await engine.add_trigger(rid, "voice_phrase", {"phrase": "hello"})
+        tm = TriggerManager()
+
+        result = await tm.check_voice("")
+        assert result is None
+
+
+class TestTriggerManagerHAEvent:
+    """HA event trigger matching."""
+
+    async def test_matching_event(self, engine, db_conn):
+        rid = await engine.create_routine("Door Alert")
+        await engine.add_trigger(rid, "ha_event", {
+            "entity_id": "binary_sensor.front_door",
+            "to_state": "on",
+            "from_state": "off",
+        })
+        tm = TriggerManager()
+
+        result = await tm.check_ha_event("binary_sensor.front_door", "on", "off")
+        assert result == [rid]
+
+    async def test_wrong_entity(self, engine, db_conn):
+        rid = await engine.create_routine("Door Alert")
+        await engine.add_trigger(rid, "ha_event", {
+            "entity_id": "binary_sensor.front_door",
+            "to_state": "on",
+        })
+        tm = TriggerManager()
+
+        result = await tm.check_ha_event("binary_sensor.back_door", "on", "off")
+        assert result == []
+
+    async def test_wrong_state(self, engine, db_conn):
+        rid = await engine.create_routine("Door Alert")
+        await engine.add_trigger(rid, "ha_event", {
+            "entity_id": "binary_sensor.front_door",
+            "to_state": "on",
+            "from_state": "off",
+        })
+        tm = TriggerManager()
+
+        result = await tm.check_ha_event("binary_sensor.front_door", "off", "on")
+        assert result == []
+
+    async def test_partial_state_match(self, engine, db_conn):
+        """Only to_state specified, from_state is any."""
+        rid = await engine.create_routine("Motion")
+        await engine.add_trigger(rid, "ha_event", {
+            "entity_id": "binary_sensor.motion",
+            "to_state": "on",
+        })
+        tm = TriggerManager()
+
+        result = await tm.check_ha_event("binary_sensor.motion", "on", "unavailable")
+        assert result == [rid]
+
+    async def test_multiple_routines_match(self, engine, db_conn):
+        rid1 = await engine.create_routine("Alert1")
+        rid2 = await engine.create_routine("Alert2")
+        await engine.add_trigger(rid1, "ha_event", {
+            "entity_id": "binary_sensor.door", "to_state": "on",
+        })
+        await engine.add_trigger(rid2, "ha_event", {
+            "entity_id": "binary_sensor.door", "to_state": "on",
+        })
+        tm = TriggerManager()
+
+        result = await tm.check_ha_event("binary_sensor.door", "on", "off")
+        assert rid1 in result
+        assert rid2 in result
+
+
+class TestTriggerManagerSchedule:
+    """Schedule (cron) trigger matching."""
+
+    async def test_matching_cron(self, engine, db_conn):
+        rid = await engine.create_routine("Hourly")
+        await engine.add_trigger(rid, "schedule", {"cron": "* * * * *"})
+        tm = TriggerManager()
+
+        result = await tm.check_schedule()
+        assert rid in result
+
+    async def test_non_matching_cron(self, engine, db_conn):
+        """Cron that only matches Feb 30 — never fires."""
+        rid = await engine.create_routine("Never")
+        await engine.add_trigger(rid, "schedule", {"cron": "0 0 30 2 *"})
+        tm = TriggerManager()
+
+        result = await tm.check_schedule()
+        assert rid not in result
+
+    async def test_double_fire_prevention(self, engine, db_conn):
+        rid = await engine.create_routine("Once")
+        await engine.add_trigger(rid, "schedule", {"cron": "* * * * *"})
+        tm = TriggerManager()
+
+        result1 = await tm.check_schedule()
+        assert rid in result1
+
+        result2 = await tm.check_schedule()
+        assert rid not in result2
+
+    async def test_start_stop(self, db_conn):
+        tm = TriggerManager()
+        await tm.start()
+        assert tm._running is True
+        await tm.stop()
+        assert tm._running is False
+
+
+# ── RoutinePlugin ────────────────────────────────────────────────
+
+class TestRoutinePluginMatch:
+    """RoutinePlugin.match() — intent detection for all patterns."""
+
+    async def test_match_run(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("run morning routine", {})
+        assert match.matched
+        assert match.intent == "run"
+        assert match.metadata["routine_name"] == "morning"
+
+    async def test_match_start(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("start bedtime routine", {})
+        assert match.matched
+        assert match.intent == "run"
+
+    async def test_match_do(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("do movie time routine", {})
+        assert match.matched
+        assert match.intent == "run"
+
+    async def test_match_create(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("create a routine", {})
+        assert match.matched
+        assert match.intent == "create"
+
+    async def test_match_make_new(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("make a new routine", {})
+        assert match.matched
+        assert match.intent == "create"
+
+    async def test_match_when_say(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("when I say good night, turn off the lights", {})
+        assert match.matched
+        assert match.intent == "create_when"
+
+    async def test_match_list(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("list routines", {})
+        assert match.matched
+        assert match.intent == "list"
+
+    async def test_match_show(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("show my routines", {})
+        assert match.matched
+        assert match.intent == "list"
+
+    async def test_match_what_routines(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("what routines do I have", {})
+        assert match.matched
+        assert match.intent == "list"
+
+    async def test_match_delete(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("delete morning routine", {})
+        assert match.matched
+        assert match.intent == "delete"
+
+    async def test_match_enable(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("enable bedtime routine", {})
+        assert match.matched
+        assert match.intent == "enable"
+
+    async def test_match_disable(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("disable morning routine", {})
+        assert match.matched
+        assert match.intent == "disable"
+
+    async def test_match_template(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("set up good morning routine", {})
+        assert match.matched
+        assert match.intent == "template"
+
+    async def test_no_match(self):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("what is the weather today", {})
+        assert not match.matched
+
+
+class TestRoutinePluginHandle:
+    """RoutinePlugin.handle() — command execution."""
+
+    async def test_handle_list_empty(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("list routines", {})
+        result = await plugin.handle("list routines", match, {})
+        assert result.success
+        assert "don't have any" in result.response.lower() or "0" in result.response
+
+    async def test_handle_list_with_routines(self, engine, db_conn):
+        await engine.create_routine("Alpha")
+        await engine.create_routine("Beta")
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("list routines", {})
+        result = await plugin.handle("list routines", match, {})
+        assert result.success
+        assert "2 routine(s)" in result.response
+
+    async def test_handle_run_not_found(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="run", metadata={"routine_name": "nonexistent"})
+        result = await plugin.handle("run nonexistent routine", match, {})
+        assert not result.success
+        assert "couldn't find" in result.response.lower()
+
+    async def test_handle_run_existing(self, engine, db_conn):
+        rid = await engine.create_routine("Morning")
+        await engine.add_step(rid, "delay", {"seconds": 0})
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="run", metadata={"routine_name": "Morning"})
+        result = await plugin.handle("run morning routine", match, {})
+        assert result.success
+        assert "running" in result.response.lower()
+
+    async def test_handle_create_when(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("when I say good night, turn off the lights", {})
+        result = await plugin.handle("when I say good night, turn off the lights", match, {})
+        assert result.success
+        assert "good night" in result.response.lower()
+        assert result.metadata.get("routine_id")
+
+    async def test_handle_create_when_tts(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("when I say welcome home, say hello there", {})
+        result = await plugin.handle("when I say welcome home, say hello there", match, {})
+        assert result.success
+
+    async def test_handle_create_when_unparseable_action(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        match = await plugin.match("when I say hello, do something complex", {})
+        result = await plugin.handle("when I say hello, do something complex", match, {})
+        assert not result.success
+        assert "couldn't parse" in result.response.lower()
+
+    async def test_handle_delete(self, engine, db_conn):
+        await engine.create_routine("Doomed")
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="delete", metadata={"routine_name": "Doomed"})
+        result = await plugin.handle("delete doomed routine", match, {})
+        assert result.success
+        assert "deleted" in result.response.lower()
+
+    async def test_handle_enable_disable(self, engine, db_conn):
+        rid = await engine.create_routine("Toggle")
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        from cortex.plugins.base import CommandMatch
+
+        match = CommandMatch(matched=True, intent="disable", metadata={"routine_name": "Toggle"})
+        result = await plugin.handle("disable toggle routine", match, {})
+        assert result.success
+        assert "disabled" in result.response.lower()
+
+        match = CommandMatch(matched=True, intent="enable", metadata={"routine_name": "Toggle"})
+        result = await plugin.handle("enable toggle routine", match, {})
+        assert result.success
+        assert "enabled" in result.response.lower()
+
+    async def test_handle_template(self, db_conn):
+        plugin = RoutinePlugin()
+        await plugin.setup({})
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="template", metadata={"template_id": "good_morning"})
+        result = await plugin.handle("set up good morning routine", match, {})
+        assert result.success
+        assert "good morning" in result.response.lower()
+
+
+# ── Conversational builder parser ────────────────────────────────
+
+class TestParseAction:
+    """Test _parse_action helper for conversational builder."""
+
+    def test_turn_on(self):
+        action = _parse_action("turn on the bedroom lights")
+        assert action is not None
+        assert action["action_type"] == "ha_service"
+        assert action["action_config"]["service"] == "turn_on"
+        assert action["action_config"]["entity_id"] == "light.bedroom_lights"
+
+    def test_turn_off(self):
+        action = _parse_action("turn off the living room")
+        assert action is not None
+        assert action["action_config"]["service"] == "turn_off"
+        assert action["action_config"]["entity_id"] == "light.living_room"
+
+    def test_say_action(self):
+        action = _parse_action("say hello everyone")
+        assert action is not None
+        assert action["action_type"] == "tts_announce"
+        assert action["action_config"]["message"] == "hello everyone"
+
+    def test_announce_action(self):
+        action = _parse_action("announce dinner is ready")
+        assert action is not None
+        assert action["action_type"] == "tts_announce"
+
+    def test_dim_action(self):
+        action = _parse_action("dim the living room to 50%")
+        assert action is not None
+        assert action["action_type"] == "ha_service"
+        assert action["action_config"]["service"] == "turn_on"
+        assert "brightness" in action["action_config"].get("data", {})
+
+    def test_unparseable(self):
+        action = _parse_action("do something complex and magical")
+        assert action is None
+
+
+class TestNormalise:
+    """Test _normalise helper."""
+
+    def test_lowercase(self):
+        assert _normalise("Hello World") == "hello world"
+
+    def test_strip_punctuation(self):
+        assert _normalise("hello!") == "hello"
+
+    def test_strip_whitespace(self):
+        assert _normalise("  hello  ") == "hello"
+
+
+# ── Admin API ────────────────────────────────────────────────────
+
+class TestAdminRoutineAPI:
+    """Test admin API endpoints for routines."""
+
+    @pytest.fixture()
+    def client(self, db_conn):
+        """Create a test client with admin auth."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from cortex.admin.routines import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/admin")
+
+        # Override require_admin dependency
+        from cortex.admin.helpers import require_admin
+        app.dependency_overrides[require_admin] = lambda: {"user": "test"}
+
+        return TestClient(app)
+
+    def test_list_routines_empty(self, client):
+        resp = client.get("/admin/routines")
+        assert resp.status_code == 200
+        assert resp.json()["routines"] == []
+
+    def test_create_routine(self, client):
+        resp = client.post("/admin/routines", json={"name": "Test Routine"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "Test Routine"
+        assert "id" in data
+
+    def test_get_routine(self, client):
+        create_resp = client.post("/admin/routines", json={"name": "Detail Test"})
+        rid = create_resp.json()["id"]
+        resp = client.get(f"/admin/routines/{rid}")
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Detail Test"
+
+    def test_get_routine_not_found(self, client):
+        resp = client.get("/admin/routines/99999")
+        assert resp.status_code == 404
+
+    def test_delete_routine(self, client):
+        create_resp = client.post("/admin/routines", json={"name": "Delete Me"})
+        rid = create_resp.json()["id"]
+        resp = client.delete(f"/admin/routines/{rid}")
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
+
+        resp = client.get(f"/admin/routines/{rid}")
+        assert resp.status_code == 404
+
+    def test_enable_disable(self, client):
+        create_resp = client.post("/admin/routines", json={"name": "Toggle"})
+        rid = create_resp.json()["id"]
+
+        resp = client.post(f"/admin/routines/{rid}/disable")
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is False
+
+        resp = client.post(f"/admin/routines/{rid}/enable")
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is True
+
+    def test_run_routine(self, client, engine, db_conn):
+        async def _setup():
+            rid = await engine.create_routine("Runnable")
+            await engine.add_step(rid, "delay", {"seconds": 0})
+            return rid
+
+        rid = asyncio.get_event_loop().run_until_complete(_setup())
+        resp = client.post(f"/admin/routines/{rid}/run")
+        assert resp.status_code == 200
+        assert "run_id" in resp.json()
+
+    def test_list_templates(self, client):
+        resp = client.get("/admin/routines/templates")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["templates"]) == len(TEMPLATES)
+        names = [t["id"] for t in data["templates"]]
+        assert "good_morning" in names
+
+    def test_instantiate_template(self, client):
+        resp = client.post("/admin/routines/templates/good_morning/instantiate", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["template_id"] == "good_morning"
+        assert "id" in data
+
+    def test_instantiate_template_not_found(self, client):
+        resp = client.post("/admin/routines/templates/nonexistent/instantiate", json={})
+        assert resp.status_code == 404
+
+    def test_add_step(self, client):
+        create_resp = client.post("/admin/routines", json={"name": "Steps"})
+        rid = create_resp.json()["id"]
+        resp = client.post(f"/admin/routines/{rid}/steps", json={
+            "action_type": "delay", "action_config": {"seconds": 5},
+        })
+        assert resp.status_code == 200
+        assert "id" in resp.json()
+
+    def test_add_trigger(self, client):
+        create_resp = client.post("/admin/routines", json={"name": "Triggered"})
+        rid = create_resp.json()["id"]
+        resp = client.post(f"/admin/routines/{rid}/triggers", json={
+            "trigger_type": "voice_phrase", "trigger_config": {"phrase": "hello"},
+        })
+        assert resp.status_code == 200
+        assert "id" in resp.json()
