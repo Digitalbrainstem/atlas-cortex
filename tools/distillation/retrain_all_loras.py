@@ -20,9 +20,9 @@ ATLAS_SYSTEM = (
 )
 
 LORA_CONFIGS = {
-    "expert":    {"r": 64, "alpha": 128, "epochs": 2},
-    "advanced":  {"r": 32, "alpha": 64,  "epochs": 2},
-    "competent": {"r": 16, "alpha": 32,  "epochs": 2},
+    "expert":    {"r": 64, "alpha": 128, "epochs": 1},
+    "advanced":  {"r": 32, "alpha": 64,  "epochs": 1},
+    "competent": {"r": 16, "alpha": 32,  "epochs": 1},
 }
 
 # Map domain -> (tier, list of data file glob patterns)
@@ -128,9 +128,9 @@ def load_domain_data(file_patterns):
     return rows
 
 def train_lora_on_model(model_dir, lora_out_base, model_name):
-    print(f"\n{=*60}")
+    print('=' * 60)
     print(f"RETRAINING ALL LoRAs ON {model_name}")
-    print(f"{=*60}")
+    print('=' * 60)
     
     tokenizer = AutoTokenizer.from_pretrained(str(model_dir), trust_remote_code=True)
     if tokenizer.pad_token is None:
@@ -165,12 +165,12 @@ def train_lora_on_model(model_dir, lora_out_base, model_name):
         random.seed(42)
         random.shuffle(rows)
         # Cap at 50K for training speed (diminishing returns past this)
-        if len(rows) > 50000:
-            rows = rows[:50000]
+        if len(rows) > 30000:
+            rows = rows[:30000]
 
         ds = Dataset.from_list(rows)
         split = ds.train_test_split(test_size=min(500, int(len(rows)*0.05)), seed=42)
-        print(f"  Data: {len(split[train])} train, {len(split[test])} eval")
+        print(f"  Data: {len(split["train"])} train, {len(split["test"])} eval")
 
         cfg = LORA_CONFIGS[tier]
         lora_config = LoraConfig(
@@ -210,7 +210,7 @@ def train_lora_on_model(model_dir, lora_out_base, model_name):
         tokenizer.save_pretrained(str(out_dir))
 
         # Mark as done
-        marker.write_text(f"{domain} retrained at {time.ctime()}, loss={result.training_loss:.4f}, data={len(split[train])}")
+        marker.write_text(f"{domain} retrained at {time.ctime()}, loss={result.training_loss:.4f}, data={len(split["train"])}")
         print(f"  Saved + marked done")
 
         del trainer
