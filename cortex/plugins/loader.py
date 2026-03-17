@@ -34,6 +34,9 @@ BUILTIN_PLUGINS: dict[str, str] = {
     "ha_commands": "cortex.integrations.ha:HAPlugin",
     "lists": "cortex.integrations.lists:ListPlugin",
     "knowledge": "cortex.integrations.knowledge.index:KnowledgePlugin",
+    "scheduling": "cortex.plugins.timers:SchedulingPlugin",
+    "stem_games": "cortex.plugins.games:STEMGamesPlugin",
+    "routines": "cortex.plugins.routines:RoutinePlugin",
 }
 
 
