@@ -19,6 +19,9 @@ const navItems = [
   { name: 'Avatar', route: 'avatar', icon: '🎭' },
   { name: 'Devices', route: 'devices', icon: '📱' },
   { name: 'Plugins', route: 'plugins', icon: '🧩' },
+  { name: 'Scheduling', route: 'scheduling', icon: '⏰' },
+  { name: 'Routines', route: 'routines', icon: '🔄' },
+  { name: 'Learning', route: 'learning', icon: '📚' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },
 ];

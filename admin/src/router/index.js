@@ -64,6 +64,16 @@ const routes = [
     component: () => import('../views/PluginsView.vue'),
   },
   {
+    path: '/scheduling',
+    name: 'scheduling',
+    component: () => import('../views/SchedulingView.vue'),
+  },
+  {
+    path: '/routines',
+    name: 'routines',
+    component: () => import('../views/RoutinesView.vue'),
+  },
+  {
     path: '/evolution',
     name: 'evolution',
     component: () => import('../views/EvolutionView.vue'),
@@ -72,6 +82,11 @@ const routes = [
     path: '/system',
     name: 'system',
     component: () => import('../views/SystemView.vue'),
+  },
+  {
+    path: '/learning',
+    name: 'learning',
+    component: () => import('../views/LearningView.vue'),
   },
 ];
 
