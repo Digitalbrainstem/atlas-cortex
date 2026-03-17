@@ -5,6 +5,7 @@ system alerts, and operational notifications.
 
 Sub-modules:
   channels — NotificationChannel ABC + concrete implementations
+  satellite — Satellite TTS delivery channel
 """
 
 # Module ownership: Notification channels and alerting
@@ -15,5 +16,23 @@ from cortex.notifications.channels import (
     LogChannel,
     send_notification,
 )
+from cortex.notifications.satellite import (
+    SatelliteChannel,
+    notify_timer_expired,
+    notify_alarm_triggered,
+    notify_reminder_fired,
+    register_satellite_channel,
+    wire_scheduling_callbacks,
+)
 
-__all__ = ["NotificationChannel", "LogChannel", "send_notification"]
+__all__ = [
+    "NotificationChannel",
+    "LogChannel",
+    "send_notification",
+    "SatelliteChannel",
+    "notify_timer_expired",
+    "notify_alarm_triggered",
+    "notify_reminder_fired",
+    "register_satellite_channel",
+    "wire_scheduling_callbacks",
+]
