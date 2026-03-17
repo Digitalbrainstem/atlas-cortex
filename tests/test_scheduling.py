@@ -578,3 +578,426 @@ class TestIntegration:
         )
         rems = await engine.list_reminders()
         assert len(rems) == 1
+
+
+# ── Wave 2: Plugin Tests ─────────────────────────────────────────
+
+class TestSchedulingPluginMatch:
+    """Test match() detects the correct intents."""
+
+    @pytest.fixture
+    async def plugin(self):
+        from cortex.plugins.timers import SchedulingPlugin
+        p = SchedulingPlugin()
+        await p.setup({})
+        yield p
+        # Cleanup background tasks
+        if p.alarm_engine:
+            await p.alarm_engine.stop()
+        if p.reminder_engine:
+            await p.reminder_engine.stop()
+
+    async def test_set_timer(self, plugin):
+        m = await plugin.match("set a timer for 5 minutes", {})
+        assert m.matched
+        assert m.intent == "set_timer"
+
+    async def test_timer_for(self, plugin):
+        m = await plugin.match("timer for 10 minutes", {})
+        assert m.matched
+        assert m.intent == "set_timer"
+
+    async def test_cancel_timer(self, plugin):
+        m = await plugin.match("cancel the timer", {})
+        assert m.matched
+        assert m.intent == "cancel_timer"
+
+    async def test_pause_timer(self, plugin):
+        m = await plugin.match("pause the timer", {})
+        assert m.matched
+        assert m.intent == "pause_timer"
+
+    async def test_resume_timer(self, plugin):
+        m = await plugin.match("resume my timer", {})
+        assert m.matched
+        assert m.intent == "resume_timer"
+
+    async def test_list_timers(self, plugin):
+        m = await plugin.match("list my timers", {})
+        assert m.matched
+        assert m.intent == "list_timers"
+
+    async def test_how_much_time(self, plugin):
+        m = await plugin.match("how much time is left", {})
+        assert m.matched
+        assert m.intent == "list_timers"
+
+    async def test_set_alarm(self, plugin):
+        m = await plugin.match("set an alarm for 7am", {})
+        assert m.matched
+        assert m.intent == "set_alarm"
+
+    async def test_wake_me_up(self, plugin):
+        m = await plugin.match("wake me up at 6:30", {})
+        assert m.matched
+        assert m.intent == "set_alarm"
+
+    async def test_cancel_alarm(self, plugin):
+        m = await plugin.match("cancel my alarm", {})
+        assert m.matched
+        assert m.intent == "cancel_alarm"
+
+    async def test_snooze(self, plugin):
+        m = await plugin.match("snooze", {})
+        assert m.matched
+        assert m.intent == "snooze_alarm"
+
+    async def test_list_alarms(self, plugin):
+        m = await plugin.match("list alarms", {})
+        assert m.matched
+        assert m.intent == "list_alarms"
+
+    async def test_remind_me(self, plugin):
+        m = await plugin.match("remind me to take meds at 9am", {})
+        assert m.matched
+        assert m.intent == "set_reminder"
+
+    async def test_set_reminder(self, plugin):
+        m = await plugin.match("set a reminder to call the dentist", {})
+        assert m.matched
+        assert m.intent == "set_reminder"
+
+    async def test_cancel_reminder(self, plugin):
+        m = await plugin.match("cancel reminder", {})
+        assert m.matched
+        assert m.intent == "cancel_reminder"
+
+    async def test_list_reminders(self, plugin):
+        m = await plugin.match("what are my reminders", {})
+        assert m.matched
+        assert m.intent == "list_reminders"
+
+    async def test_no_match(self, plugin):
+        m = await plugin.match("what's the weather like", {})
+        assert not m.matched
+
+    async def test_no_match_random(self, plugin):
+        m = await plugin.match("tell me a joke", {})
+        assert not m.matched
+
+
+class TestSchedulingPluginHandle:
+    """Test handle() for set/cancel/list operations."""
+
+    @pytest.fixture
+    async def plugin(self):
+        from cortex.plugins.timers import SchedulingPlugin
+        p = SchedulingPlugin()
+        await p.setup({})
+        yield p
+        if p.alarm_engine:
+            await p.alarm_engine.stop()
+        if p.reminder_engine:
+            await p.reminder_engine.stop()
+
+    async def test_set_timer(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="set_timer")
+        result = await plugin.handle("set a timer for 5 minutes", match, {"user_id": "u1", "room": "kitchen"})
+        assert result.success
+        assert "5 minutes" in result.response
+        assert result.metadata.get("timer_id") is not None
+
+    async def test_set_timer_bad_time(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="set_timer")
+        result = await plugin.handle("set a timer for blah", match, {})
+        assert not result.success
+
+    async def test_list_timers_empty(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="list_timers")
+        result = await plugin.handle("list timers", match, {"user_id": "u1"})
+        assert result.success
+        assert "no active timers" in result.response.lower()
+
+    async def test_cancel_timer_none(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="cancel_timer")
+        result = await plugin.handle("cancel timer", match, {"user_id": "u1"})
+        assert result.success
+        assert "don't have" in result.response.lower()
+
+    async def test_set_and_cancel_timer(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        # Set
+        m = CommandMatch(matched=True, intent="set_timer")
+        r = await plugin.handle("set a timer for 10 minutes", m, {"user_id": "u1"})
+        assert r.success
+        # Cancel
+        m2 = CommandMatch(matched=True, intent="cancel_timer")
+        r2 = await plugin.handle("cancel timer", m2, {"user_id": "u1"})
+        assert r2.success
+        assert "cancelled" in r2.response.lower()
+
+    async def test_set_and_list_timer(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        m = CommandMatch(matched=True, intent="set_timer")
+        await plugin.handle("set a timer for 3 minutes", m, {"user_id": "u1"})
+        m2 = CommandMatch(matched=True, intent="list_timers")
+        r = await plugin.handle("list timers", m2, {"user_id": "u1"})
+        assert r.success
+        assert "remaining" in r.response.lower()
+
+    async def test_pause_resume_timer(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        # Set a timer
+        m = CommandMatch(matched=True, intent="set_timer")
+        await plugin.handle("set a timer for 10 minutes", m, {"user_id": "u1"})
+        await asyncio.sleep(0.05)
+        # Pause
+        m2 = CommandMatch(matched=True, intent="pause_timer")
+        r = await plugin.handle("pause timer", m2, {"user_id": "u1"})
+        assert r.success
+        assert "paused" in r.response.lower()
+        # Resume
+        m3 = CommandMatch(matched=True, intent="resume_timer")
+        r2 = await plugin.handle("resume timer", m3, {"user_id": "u1"})
+        assert r2.success
+        assert "resumed" in r2.response.lower()
+        # Cleanup
+        m4 = CommandMatch(matched=True, intent="cancel_timer")
+        await plugin.handle("cancel timer", m4, {"user_id": "u1"})
+
+    async def test_set_alarm(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="set_alarm")
+        result = await plugin.handle("set an alarm for 7am", match, {"user_id": "u1"})
+        assert result.success
+        assert "alarm set" in result.response.lower()
+
+    async def test_list_alarms_empty(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="list_alarms")
+        result = await plugin.handle("list alarms", match, {"user_id": "u1"})
+        assert result.success
+        assert "no alarms" in result.response.lower()
+
+    async def test_set_and_cancel_alarm(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        m = CommandMatch(matched=True, intent="set_alarm")
+        await plugin.handle("set an alarm for 7am", m, {"user_id": "u1"})
+        m2 = CommandMatch(matched=True, intent="cancel_alarm")
+        r = await plugin.handle("cancel alarm", m2, {"user_id": "u1"})
+        assert r.success
+        assert "cancelled" in r.response.lower()
+
+    async def test_snooze_alarm(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        # Create an alarm first
+        m = CommandMatch(matched=True, intent="set_alarm")
+        await plugin.handle("set an alarm for 7am", m, {"user_id": "u1"})
+        m2 = CommandMatch(matched=True, intent="snooze_alarm")
+        r = await plugin.handle("snooze for 10 minutes", m2, {"user_id": "u1"})
+        assert r.success
+        assert "snoozed" in r.response.lower()
+
+    async def test_set_reminder(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="set_reminder")
+        result = await plugin.handle("remind me to take meds at 9am", match, {"user_id": "u1"})
+        assert result.success
+        assert "remind" in result.response.lower()
+
+    async def test_list_reminders_empty(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="list_reminders")
+        result = await plugin.handle("what are my reminders", match, {"user_id": "u1"})
+        assert result.success
+        assert "no active reminders" in result.response.lower()
+
+    async def test_set_and_cancel_reminder(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        m = CommandMatch(matched=True, intent="set_reminder")
+        await plugin.handle("remind me to take meds in 30 minutes", m, {"user_id": "u1"})
+        m2 = CommandMatch(matched=True, intent="cancel_reminder")
+        r = await plugin.handle("cancel reminder", m2, {"user_id": "u1"})
+        assert r.success
+        assert "cancelled" in r.response.lower()
+
+    async def test_set_reminder_with_duration(self, plugin):
+        from cortex.plugins.base import CommandMatch
+        match = CommandMatch(matched=True, intent="set_reminder")
+        result = await plugin.handle("remind me to check the oven in 15 minutes", match, {"user_id": "u1"})
+        assert result.success
+        # Response should mention "remind" and the action
+        assert "remind" in result.response.lower() or "oven" in result.response.lower()
+
+    async def test_health(self, plugin):
+        assert await plugin.health() is True
+
+
+# ── Wave 2: Notification Routing Tests ───────────────────────────
+
+class TestNotificationRouting:
+    """Test notification routing through channels."""
+
+    async def test_satellite_channel_no_satellites(self):
+        """SatelliteChannel returns False when no satellites are connected."""
+        from cortex.notifications.satellite import SatelliteChannel
+        from cortex.notifications.channels import Notification
+        channel = SatelliteChannel()
+        notif = Notification(
+            level="info",
+            title="Timer done",
+            message="Your timer finished!",
+            source="scheduling.timer",
+            metadata={"room": "kitchen", "user_id": "u1"},
+        )
+        result = await channel.send(notif)
+        assert result is False
+
+    async def test_notify_timer_expired(self):
+        """notify_timer_expired sends a notification."""
+        from cortex.notifications.satellite import notify_timer_expired
+        # Should not raise; will log to LogChannel
+        await notify_timer_expired("eggs", room="kitchen", user_id="u1")
+
+    async def test_notify_alarm_triggered(self):
+        from cortex.notifications.satellite import notify_alarm_triggered
+        await notify_alarm_triggered("morning", tts_message="Good morning!", room="bedroom")
+
+    async def test_notify_reminder_fired(self):
+        from cortex.notifications.satellite import notify_reminder_fired
+        await notify_reminder_fired("take meds", room="living_room", user_id="u1")
+
+    async def test_wire_scheduling_callbacks(self):
+        """Wiring connects callbacks to engines."""
+        from cortex.notifications.satellite import wire_scheduling_callbacks
+        timer_eng = TimerEngine()
+        alarm_eng = AlarmEngine()
+        reminder_eng = ReminderEngine()
+        wire_scheduling_callbacks(timer_eng, alarm_eng, reminder_eng)
+        assert len(timer_eng._callbacks) == 1
+        assert len(alarm_eng._callbacks) == 1
+        assert len(reminder_eng._callbacks) == 1
+
+    async def test_timer_expire_triggers_notification(self):
+        """When a timer expires, the wired callback fires."""
+        from cortex.notifications.satellite import wire_scheduling_callbacks
+        timer_eng = TimerEngine()
+        wire_scheduling_callbacks(timer_eng, AlarmEngine(), ReminderEngine())
+        # Fire a 0-second timer
+        tid = await timer_eng.start_timer(0, label="test-notify", user_id="u1", room="office")
+        await asyncio.sleep(0.2)
+        # Timer should be finished (callback ran without error)
+        t = await timer_eng.get_timer(tid)
+        assert t["state"] == "finished"
+
+
+# ── Wave 2: Admin API Tests ──────────────────────────────────────
+
+class TestAdminSchedulingAPI:
+    """Test admin scheduling endpoints via FastAPI TestClient."""
+
+    @pytest.fixture
+    def client(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from cortex.admin.scheduling import router
+        from cortex.admin.helpers import require_admin
+
+        app = FastAPI()
+        app.include_router(router)
+        # Bypass admin auth for testing
+        app.dependency_overrides[require_admin] = lambda: {"user": "test"}
+        return TestClient(app)
+
+    def test_list_alarms(self, client):
+        resp = client.get("/scheduling/alarms")
+        assert resp.status_code == 200
+        assert "alarms" in resp.json()
+
+    def test_create_and_delete_alarm(self, client):
+        resp = client.post("/scheduling/alarms", json={
+            "label": "test alarm",
+            "cron_expression": "0 7 * * *",
+        })
+        assert resp.status_code == 200
+        alarm_id = resp.json()["id"]
+        assert alarm_id is not None
+
+        # Verify it appears in list
+        resp = client.get("/scheduling/alarms")
+        assert any(a["id"] == alarm_id for a in resp.json()["alarms"])
+
+        # Delete
+        resp = client.delete(f"/scheduling/alarms/{alarm_id}")
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
+
+    def test_delete_nonexistent_alarm(self, client):
+        resp = client.delete("/scheduling/alarms/99999")
+        assert resp.status_code == 404
+
+    def test_enable_disable_alarm(self, client):
+        resp = client.post("/scheduling/alarms", json={
+            "label": "toggle",
+            "cron_expression": "0 8 * * *",
+        })
+        alarm_id = resp.json()["id"]
+
+        # Disable
+        resp = client.post(f"/scheduling/alarms/{alarm_id}/disable")
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is False
+
+        # Enable
+        resp = client.post(f"/scheduling/alarms/{alarm_id}/enable")
+        assert resp.status_code == 200
+        assert resp.json()["enabled"] is True
+
+    def test_list_timers(self, client):
+        resp = client.get("/scheduling/timers")
+        assert resp.status_code == 200
+        assert "timers" in resp.json()
+
+    def test_cancel_nonexistent_timer(self, client):
+        resp = client.delete("/scheduling/timers/99999")
+        assert resp.status_code == 404
+
+    def test_cancel_timer(self, client):
+        # Manually insert a timer
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO timers (label, duration_seconds, remaining_seconds, state) "
+            "VALUES ('test', 600, 600, 'running')"
+        )
+        conn.commit()
+        timer_id = cur.lastrowid
+
+        resp = client.delete(f"/scheduling/timers/{timer_id}")
+        assert resp.status_code == 200
+        assert resp.json()["cancelled"] is True
+
+    def test_list_reminders(self, client):
+        resp = client.get("/scheduling/reminders")
+        assert resp.status_code == 200
+        assert "reminders" in resp.json()
+
+    def test_delete_nonexistent_reminder(self, client):
+        resp = client.delete("/scheduling/reminders/99999")
+        assert resp.status_code == 404
+
+    def test_create_and_delete_reminder(self, client):
+        # Manually insert a reminder
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO reminders (message, trigger_type) VALUES ('test reminder', 'time')"
+        )
+        conn.commit()
+        reminder_id = cur.lastrowid
+
+        resp = client.delete(f"/scheduling/reminders/{reminder_id}")
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
