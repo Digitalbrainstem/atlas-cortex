@@ -74,7 +74,10 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
 
     # ── [2/6] Hardware detection ───────────────────────────────
     _print("\n[2/6] Detecting hardware...")
-    from cortex.install.hardware import detect_hardware, recommend_models
+    from cortex.install.hardware import (
+        detect_hardware, recommend_models, resolve_fast_model,
+        ATLAS_MODELS, ATLAS_LORAS,
+    )
     hw = detect_hardware()
     cpu = hw.get("cpu", {})
     ram = hw.get("ram_mb", 0)
@@ -101,41 +104,47 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
     # Show deployment recommendation
     tier = deployment.get("tier", "cpu-only")
     rec = recommend_models(hw)
-    _print(f"\n  Recommended model tier: {rec['class']}")
+    fast_model = resolve_fast_model(rec)
+    loras = rec.get("loras", [])
+
+    _print(f"\n── Deployment Recommendation ──\n")
 
     if tier == "dual-gpu":
         llm_dev = deployment.get("llm_device", {})
         tts_dev = deployment.get("tts_device", {})
-        _print("\n── Deployment Recommendation ──\n")
-        _print("  ✨ Dual-GPU Setup Detected — Best Configuration:\n")
-        _print("  ┌─────────────────────────────────────────────────┐")
-        _print(f"  │ {llm_dev.get('name', '?')} ({llm_dev.get('vram_mb', 0) // 1024}GB, {llm_dev.get('compute_api', '?').upper()})")
-        _print(f"  │   → LLM inference ({rec['fast']})")
-        _print("  │   → LoRA training (overnight)")
-        _print("  │")
-        _print(f"  │ {tts_dev.get('name', '?')} ({tts_dev.get('vram_mb', 0) // 1024}GB, {tts_dev.get('compute_api', '?').upper()})")
-        _print("  │   → TTS (Orpheus / Kokoro)")
-        _print("  │   → Specialist models (vision, embeddings)")
-        _print("  └─────────────────────────────────────────────────┘")
-        for note in deployment.get("notes", []):
-            _print(f"  ℹ  {note}")
+        _print(f"  Deployment: Dual-GPU\n")
+        _print("  ★ Recommended:")
+        _print(f"    • LLM:  {llm_dev.get('name', '?')} ({llm_dev.get('vram_mb', 0) // 1024}GB, {llm_dev.get('compute_api', '?').upper()}) → {fast_model}")
+        _print(f"    • TTS:  {tts_dev.get('name', '?')} ({tts_dev.get('vram_mb', 0) // 1024}GB, {tts_dev.get('compute_api', '?').upper()}) → Orpheus / Kokoro")
+        _print(f"    • LoRA training: {llm_dev.get('name', '?')} (overnight)")
+        if loras:
+            _print(f"    • LoRA adapters: {', '.join(loras)}")
+        if llm_dev.get("vendor") != tts_dev.get("vendor"):
+            _print(f"\n  ℹ  Mixed vendor: LLM uses {llm_dev.get('compute_api', '?').upper()}, TTS uses {tts_dev.get('compute_api', '?').upper()}")
+        _print("\n  Other options:")
+        _print("    • Single-GPU mode (everything on one GPU)")
+        _print("    • CPU-only mode (slower, no GPU required)")
     elif tier == "single-gpu":
-        _print("\n── Deployment Recommendation ──\n")
         gpu_dev = deployment.get("llm_device", {})
-        _print(f"  Single GPU: {gpu_dev.get('name', '?')} ({gpu_dev.get('vram_mb', 0) // 1024}GB)")
-        _print("  All models share this GPU (LLM + TTS take turns)")
+        _print(f"  Deployment: Single-GPU\n")
+        _print("  ★ Recommended:")
+        _print(f"    • LLM + TTS: {gpu_dev.get('name', '?')} ({gpu_dev.get('vram_mb', 0) // 1024}GB) → {fast_model}")
+        _print("    • LLM and TTS take turns on the same GPU")
+        if loras:
+            _print(f"    • LoRA adapters: {', '.join(loras)}")
+        _print("\n  Other options:")
+        _print("    • CPU-only mode (slower, no GPU required)")
     elif tier == "cpu-only":
-        _print("\n── Deployment Recommendation ──\n")
-        _print("  ⚠  CPU-only mode — expect slower responses")
-        _print("  Recommended: smallest models (qwen2.5:1.5b / qwen2.5:3b)")
-        _print("  TTS: Piper (CPU, fast) recommended over GPU-based TTS")
+        _print("  Deployment: CPU-only\n")
+        _print("  ★ Recommended:")
+        _print(f"    • Model: {fast_model} (smallest available)")
+        _print("    • TTS: Piper (CPU, fast)")
+        _print("    • Expect slower responses (5-15 seconds)")
 
     if not non_interactive and gpus:
-        accept = _yes_no("\n  Accept this configuration?")
+        accept = _yes_no("\n  Accept recommended?")
         if not accept:
             _print("  (Adjust model choices in step 4)")
-    elif not gpus:
-        pass  # nothing to confirm for CPU-only
 
     # ── [3/6] LLM backend discovery ───────────────────────────
     _print("\n[3/6] Scanning for existing LLM backends...")
@@ -172,18 +181,63 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
 
     # ── [4/6] Model selection ──────────────────────────────────
     _print("\n[4/6] Selecting models for your hardware...")
-    _print(f"  Fast:      {rec['fast']}")
-    _print(f"  Thinking:  {rec['thinking']}")
-    _print(f"  Embedding: {rec['embedding']}")
 
-    model_fast = rec["fast"]
+    best_vram = 0
+    for g in gpus:
+        if not g.get("is_igpu", False):
+            best_vram = max(best_vram, g.get("vram_mb", 0))
+    if best_vram == 0:
+        for g in gpus:
+            best_vram = max(best_vram, g.get("vram_mb", 0))
+
+    # Check if Atlas models are available
+    atlas_ultra_ok = fast_model == "atlas-ultra:9b"
+    atlas_core_ok = fast_model == "atlas-core:2b"
+    fallback = rec.get("fast_fallback", "qwen2.5:7b")
+
+    if not non_interactive:
+        _print(f"\n  ★ Recommended for your hardware ({best_vram // 1024}GB VRAM):")
+        if best_vram >= 8000:
+            rec_label = "atlas-ultra:9b" if atlas_ultra_ok else f"atlas-ultra:9b (will try) or {fallback}"
+            if loras:
+                rec_label += f" + {', '.join(loras[:3])}"
+            _print(f"    {rec_label}")
+        else:
+            rec_label = "atlas-core:2b" if atlas_core_ok else f"atlas-core:2b (will try) or {fallback}"
+            _print(f"    {rec_label}")
+
+        _print("\n  Other options:")
+        _print("    1. atlas-ultra:9b  (9B params, 8GB+ VRAM)  — best quality")
+        _print("    2. atlas-core:2b   (2B params, 4GB+ VRAM)  — faster, lighter")
+        _print(f"    3. {fallback:<17s}({rec['class']})           — generic Qwen (no Atlas training)")
+        _print("    4. Custom          (enter model name)")
+
+        raw = _input("\n  Selection [recommended]: ")
+        if raw == "1":
+            model_fast = "atlas-ultra:9b"
+        elif raw == "2":
+            model_fast = "atlas-core:2b"
+        elif raw == "3":
+            model_fast = fallback
+        elif raw == "4":
+            model_fast = _input("  Model name: ") or fast_model
+        else:
+            model_fast = fast_model
+    else:
+        model_fast = fast_model
+
     model_thinking = rec["thinking"]
     model_embedding = rec["embedding"]
 
+    _print(f"\n  Fast:      {model_fast}")
+    _print(f"  Thinking:  {model_thinking}")
+    _print(f"  Embedding: {model_embedding}")
+    if loras:
+        _print(f"  LoRAs:     {', '.join(loras)}")
+
     if not non_interactive:
-        accept = _yes_no("\n  Accept recommendations?")
-        if not accept:
-            model_fast = _input(f"  Fast model [{rec['fast']}]: ") or rec["fast"]
+        if not _yes_no("\n  Accept model selection?"):
+            model_fast = _input(f"  Fast model [{model_fast}]: ") or model_fast
             model_thinking = _input(f"  Thinking model [{rec['thinking']}]: ") or rec["thinking"]
             model_embedding = _input(f"  Embedding model [{rec['embedding']}]: ") or rec["embedding"]
 
