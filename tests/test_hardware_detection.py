@@ -320,6 +320,15 @@ class TestRecommendDeployment:
         dep = recommend_deployment(hw)
         assert dep["tier"] == "cpu-only"
 
+    def test_cpu_only_uses_atlas_core(self):
+        """CPU-only tier should default to atlas-core:2b."""
+        from cortex.install.hardware import recommend_deployment
+
+        hw = {"gpus": []}
+        dep = recommend_deployment(hw)
+        assert dep["models"]["fast"] == "atlas-core:2b"
+        assert dep["models"]["fast_fallback"] == "qwen2.5:1.5b"
+
 
 # ═══════════════════════════════════════════════════════════════════
 # _docker_variant
@@ -347,6 +356,102 @@ class TestDockerVariant:
         from cortex.install.hardware import _docker_variant
 
         assert _docker_variant({"vendor": "intel"}) == "gpu-intel"
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Atlas model recommendations
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestAtlasModels:
+    def test_high_vram_recommends_atlas_ultra(self):
+        from cortex.install.hardware import recommend_models
+
+        hw = {"gpus": [{"vendor": "nvidia", "name": "RTX 4090", "vram_mb": 24564, "is_igpu": False}]}
+        rec = recommend_models(hw)
+        assert rec["fast"] == "atlas-ultra:9b"
+        assert rec["fast_fallback"] == "qwen2.5:14b"
+        assert "coding.lora" in rec["loras"]
+
+    def test_mid_vram_recommends_atlas_ultra(self):
+        from cortex.install.hardware import recommend_models
+
+        hw = {"gpus": [{"vendor": "nvidia", "name": "RTX 4060", "vram_mb": 8192, "is_igpu": False}]}
+        rec = recommend_models(hw)
+        assert rec["fast"] == "atlas-ultra:9b"
+        assert rec["fast_fallback"] == "qwen2.5:7b"
+
+    def test_low_vram_recommends_atlas_core(self):
+        from cortex.install.hardware import recommend_models
+
+        hw = {"gpus": [{"vendor": "nvidia", "name": "GTX 1650", "vram_mb": 4096, "is_igpu": False}]}
+        rec = recommend_models(hw)
+        assert rec["fast"] == "atlas-core:2b"
+        assert rec["fast_fallback"] == "qwen2.5:3b"
+
+    def test_cpu_only_recommends_atlas_core(self):
+        from cortex.install.hardware import recommend_models
+
+        hw = {"gpus": []}
+        rec = recommend_models(hw)
+        assert rec["fast"] == "atlas-core:2b"
+        assert rec["fast_fallback"] == "qwen2.5:1.5b"
+        assert rec["loras"] == []
+
+    def test_all_tiers_have_fallback(self):
+        from cortex.install.hardware import _VRAM_TIERS
+
+        for min_vram, tier in _VRAM_TIERS:
+            assert "fast_fallback" in tier, f"Tier {min_vram}MB missing fast_fallback"
+            assert "loras" in tier, f"Tier {min_vram}MB missing loras"
+
+    def test_recommend_models_returns_copy(self):
+        """Modifying returned dict must not corrupt the tier table."""
+        from cortex.install.hardware import recommend_models
+
+        hw = {"gpus": []}
+        rec1 = recommend_models(hw)
+        rec1["fast"] = "MODIFIED"
+        rec2 = recommend_models(hw)
+        assert rec2["fast"] != "MODIFIED"
+
+
+class TestResolveModel:
+    def test_atlas_available(self):
+        from cortex.install.hardware import resolve_fast_model
+
+        rec = {"fast": "atlas-ultra:9b", "fast_fallback": "qwen2.5:14b"}
+        with patch("cortex.install.hardware.check_atlas_model", return_value=True):
+            assert resolve_fast_model(rec) == "atlas-ultra:9b"
+
+    def test_atlas_not_available_falls_back(self):
+        from cortex.install.hardware import resolve_fast_model
+
+        rec = {"fast": "atlas-ultra:9b", "fast_fallback": "qwen2.5:14b"}
+        with patch("cortex.install.hardware.check_atlas_model", return_value=False):
+            assert resolve_fast_model(rec) == "qwen2.5:14b"
+
+    def test_non_atlas_model_passes_through(self):
+        """If fast model is not atlas-*, return it directly."""
+        from cortex.install.hardware import resolve_fast_model
+
+        rec = {"fast": "qwen2.5:7b", "fast_fallback": "qwen2.5:3b"}
+        result = resolve_fast_model(rec)
+        assert result == "qwen2.5:3b"
+
+
+class TestCheckAtlasModel:
+    def test_available(self):
+        from cortex.install.hardware import check_atlas_model
+
+        with patch("cortex.install.hardware._run", return_value="Model: atlas-ultra:9b\nParameters: 9B"):
+            assert check_atlas_model("atlas-ultra:9b") is True
+
+    def test_not_available(self):
+        from cortex.install.hardware import check_atlas_model
+
+        with patch("cortex.install.hardware._run", return_value=""):
+            assert check_atlas_model("atlas-ultra:9b") is False
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -297,51 +297,82 @@ def detect_disk(path: str | None = None) -> dict[str, Any]:
 # Model recommendations
 # ──────────────────────────────────────────────────────────────────
 
+# Atlas distilled models — preferred when available
+ATLAS_MODELS = {
+    "ultra": {
+        "name": "atlas-ultra:9b",
+        "params": "9B",
+        "min_vram": 8000,
+        "description": "Atlas Ultra 9B — best quality",
+    },
+    "core": {
+        "name": "atlas-core:2b",
+        "params": "2B",
+        "min_vram": 4000,
+        "description": "Atlas Core 2B — faster, lighter",
+    },
+}
+
+ATLAS_LORAS = ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"]
+
+# VRAM tiers: (min_vram_mb, {atlas models, fallback models, ...})
 _VRAM_TIERS = [
     (48000, {
-        "fast": "qwen2.5:32b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:32b",
         "thinking": "qwen3:30b-a3b",
         "embedding": "nomic-embed-text",
+        "loras": ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"],
         "class": "30B-70B",
         "default_context": 65536,
         "thinking_context": 131072,
     }),
     (24000, {
-        "fast": "qwen2.5:14b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:14b",
         "thinking": "qwen3:30b-a3b",
         "embedding": "nomic-embed-text",
+        "loras": ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"],
         "class": "30B-70B",
         "default_context": 32768,
         "thinking_context": 65536,
     }),
     (16000, {
-        "fast": "qwen2.5:14b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:14b",
         "thinking": "qwen3:30b-a3b",
         "embedding": "nomic-embed-text",
+        "loras": ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"],
         "class": "14B-30B",
         "default_context": 16384,
         "thinking_context": 32768,
     }),
     (8000, {
-        "fast": "qwen2.5:7b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:7b",
         "thinking": "qwen2.5:14b",
         "embedding": "nomic-embed-text",
+        "loras": ["coding.lora", "reasoning.lora"],
         "class": "7B-14B",
         "default_context": 8192,
         "thinking_context": 16384,
     }),
     (4000, {
-        "fast": "qwen2.5:3b",
+        "fast": "atlas-core:2b",
+        "fast_fallback": "qwen2.5:3b",
         "thinking": "qwen2.5:7b",
         "embedding": "nomic-embed-text",
+        "loras": ["atlas.lora"],
         "class": "1B-7B",
         "default_context": 4096,
         "thinking_context": 8192,
     }),
     (0, {
-        "fast": "qwen2.5:1.5b",
+        "fast": "atlas-core:2b",
+        "fast_fallback": "qwen2.5:1.5b",
         "thinking": "qwen2.5:3b",
         "embedding": "nomic-embed-text",
+        "loras": [],
         "class": "1B-3B (Q4)",
         "default_context": 2048,
         "thinking_context": 4096,
@@ -349,8 +380,19 @@ _VRAM_TIERS = [
 ]
 
 
+def check_atlas_model(model: str) -> bool:
+    """Check whether an Atlas model is available via Ollama."""
+    out = _run(["ollama", "show", model])
+    return bool(out)
+
+
 def recommend_models(hardware: dict[str, Any]) -> dict[str, Any]:
-    """Return recommended model names based on available VRAM."""
+    """Return recommended model names based on available VRAM.
+
+    Prefers Atlas distilled models (atlas-ultra:9b, atlas-core:2b) when
+    the VRAM tier supports them.  The ``fast_fallback`` key contains the
+    generic Qwen model to use when the Atlas model is not yet available.
+    """
     gpus = hardware.get("gpus", [])
     best_vram = max((g["vram_mb"] for g in gpus if not g.get("is_igpu", False)), default=0)
     if best_vram == 0 and gpus:
@@ -358,8 +400,20 @@ def recommend_models(hardware: dict[str, Any]) -> dict[str, Any]:
 
     for min_vram, rec in _VRAM_TIERS:
         if best_vram >= min_vram:
-            return rec
-    return _VRAM_TIERS[-1][1]
+            return dict(rec)
+    return dict(_VRAM_TIERS[-1][1])
+
+
+def resolve_fast_model(rec: dict[str, Any]) -> str:
+    """Return the best available fast model.
+
+    Checks whether the Atlas model is already pulled; falls back to the
+    generic Qwen model if not.
+    """
+    atlas = rec.get("fast", "")
+    if atlas.startswith("atlas-") and check_atlas_model(atlas):
+        return atlas
+    return rec.get("fast_fallback", atlas)
 
 
 # ──────────────────────────────────────────────────────────────────
