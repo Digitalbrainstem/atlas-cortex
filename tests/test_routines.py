@@ -1146,13 +1146,17 @@ class TestAdminRoutineAPI:
         assert resp.status_code == 200
         assert resp.json()["enabled"] is True
 
-    def test_run_routine(self, client, engine, db_conn):
-        async def _setup():
-            rid = await engine.create_routine("Runnable")
-            await engine.add_step(rid, "delay", {"seconds": 0})
-            return rid
-
-        rid = asyncio.get_event_loop().run_until_complete(_setup())
+    def test_run_routine(self, client, db_conn):
+        db_conn.execute(
+            "INSERT INTO routines (name) VALUES (?)", ("Runnable",)
+        )
+        db_conn.commit()
+        rid = db_conn.execute("SELECT id FROM routines WHERE name='Runnable'").fetchone()[0]
+        db_conn.execute(
+            "INSERT INTO routine_steps (routine_id, step_order, action_type, action_config) VALUES (?, 1, 'delay', '{\"seconds\": 0}')",
+            (rid,),
+        )
+        db_conn.commit()
         resp = client.post(f"/admin/routines/{rid}/run")
         assert resp.status_code == 200
         assert "run_id" in resp.json()
