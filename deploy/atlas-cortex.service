@@ -1,0 +1,26 @@
+[Unit]
+Description=Atlas Cortex — Personal AI Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=atlas
+Group=atlas
+WorkingDirectory=/opt/atlas-cortex
+ExecStart=/opt/atlas-cortex/venv/bin/atlas-server
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment="CORTEX_DATA_DIR=/opt/atlas-cortex/data"
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/atlas-cortex/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

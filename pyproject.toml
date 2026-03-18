@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "atlas-cortex"
+version = "0.1.0"
+description = "Self-evolving personal AI with voice, memory, and home integration"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [{name = "Betanu701"}]
+
+dependencies = [
+    # Core
+    "fastapi>=0.100",
+    "uvicorn>=0.22",
+    "httpx>=0.24",
+    "pydantic>=2.0",
+    # Auth
+    "PyJWT>=2.8",
+    "bcrypt>=4.0",
+    # Sentiment
+    "vaderSentiment>=3.3",
+    # Safety / Embeddings
+    "numpy>=1.24",
+    # Voice / TTS
+    "aiohttp>=3.9",
+    # Service discovery
+    "zeroconf>=0.131",
+    # Satellite
+    "asyncssh>=2.14",
+    # WebSocket support
+    "websockets>=12.0",
+    # Multipart form parsing
+    "python-multipart",
+    # CLI
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+]
+
+[project.optional-dependencies]
+vector = ["chromadb>=0.4"]
+media = [
+    "pychromecast>=14.0",
+    "ytmusicapi>=1.0",
+    "yt-dlp>=2024.0",
+    "mutagen>=1.47",
+    "plexapi>=4.15",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=1.0.0",
+    "playwright>=1.40",
+]
+all = ["atlas-cortex[vector,media,dev]"]
+
+[project.scripts]
+atlas = "cortex.cli.__main__:main"
+atlas-server = "cortex.server:main"
+atlas-install = "cortex.install.__main__:main"
+atlas-discover = "cortex.discover.__main__:main"
+
+[project.entry-points."cortex.plugins"]
+# Community plugins register here via their own pyproject.toml
+
+[tool.setuptools.packages.find]
+include = ["cortex*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["browser: Playwright-based browser UI tests"]
