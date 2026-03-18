@@ -359,6 +359,12 @@ class TestDefaultRegistry:
             "shell_exec", "grep", "glob", "git",
             "web_search", "web_fetch", "api_call", "ssh_exec",
             "test_run", "build", "lint", "docker", "db_query", "package_manage",
+            # Atlas integration tools
+            "ha_control", "timer", "reminder", "routine",
+            "notify", "memory_search", "memory_store",
+            # Multi-modal tools
+            "vision_analyze", "image_generate", "embed_text",
+            "ocr", "speech_to_text", "text_to_speech",
         }
         actual = {t.tool_id for t in reg.list_tools()}
         assert expected == actual
