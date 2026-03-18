@@ -357,6 +357,8 @@ class TestDefaultRegistry:
         expected = {
             "file_read", "file_write", "file_edit", "file_list",
             "shell_exec", "grep", "glob", "git",
+            "web_search", "web_fetch", "api_call", "ssh_exec",
+            "test_run", "build", "lint", "docker", "db_query", "package_manage",
         }
         actual = {t.tool_id for t in reg.list_tools()}
         assert expected == actual
