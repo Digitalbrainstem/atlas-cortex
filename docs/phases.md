@@ -1098,13 +1098,15 @@ hardware with mics and speakers, so Atlas IS the intercom.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) + I2 (HA) |
+| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) |
 
-## Hybrid Design Principle
+## Design Principle
 
-> Atlas talks DIRECTLY to media services with stable APIs.
-> Atlas uses HA ONLY for physical device control (speakers, Chromecasts).
-> Atlas never depends on a third-party HA integration for critical media UX.
+> Atlas owns the audio pipeline end-to-end.
+> Satellites ARE the speaker network — every room already has one.
+> Chromecast via `pychromecast` directly (skip HA, more reliable).
+> HA `media_player` only as last resort for devices Atlas can't reach.
+> Atlas talks DIRECTLY to media services (YouTube Music, Plex, Audiobookshelf).
 
 ```
 User: "Play jazz in the kitchen"
@@ -1112,13 +1114,15 @@ User: "Play jazz in the kitchen"
   Atlas (brain):
   ├── Understands intent: play music
   ├── Knows user prefers YouTube Music
-  ├── Knows kitchen has a Chromecast speaker
+  ├── Knows kitchen has a satellite speaker
   ├── Remembers "Dad likes jazz in the evening"
   │
   ├── Direct → YouTube Music API: search "jazz", get stream URL
   │
-  └── HA → media_player.kitchen: cast stream URL
-      (OR satellite → stream audio directly)
+  └── Playback priority:
+      1. Kitchen satellite → stream PCM via WebSocket (we control both ends)
+      2. Kitchen Chromecast → cast via pychromecast (reliable, no HA)
+      3. HA media_player → last resort for unknown devices
 ```
 
 ### P8.1 — Media Provider Interface
@@ -1171,19 +1175,24 @@ User: "Play jazz in the kitchen"
 
 ### P8.7 — Playback Router
 - `cortex/media/router.py` — PlaybackRouter
-- Decides WHERE to play based on context:
-  - Satellite speaker (direct PCM stream via WebSocket)
-  - HA media_player entity (Chromecast, Sonos, etc.)
-  - Web browser (via chat WebSocket)
-- Room resolution: "kitchen" → finds kitchen satellite or HA speaker
-- Transfer: "move this to the bedroom" → stop kitchen, start bedroom
+- Decides WHERE to play based on context, with clear priority:
+  1. **Atlas Satellite** (primary) — Direct PCM stream via WebSocket
+     We control both ends. Rock solid. Every room has one.
+  2. **Chromecast** — `pychromecast` library directly (NOT through HA)
+     Mature, stable, well-maintained. Cast stream URL to device.
+  3. **HA media_player** — Last resort for devices Atlas can't reach
+     Sonos or other smart speakers that HA happens to expose.
+- Room resolution: "kitchen" → finds kitchen satellite first, then Chromecast, then HA entity
+- Transfer: "move this to the bedroom" → stop kitchen, start bedroom (same stream URL)
 - Volume control routed to appropriate target
+- `pychromecast` for Chromecast discovery + control (skip HA entirely)
 
 ### P8.8 — Multi-Room Sync
-- Synchronized playback across multiple satellites/speakers
-- Start same stream on multiple targets with timing sync
-- "Play everywhere" → all satellites + HA speakers
-- Group management: "play in common areas"
+- Synchronized playback across multiple satellites
+- Start same stream on multiple satellites with timing sync via WebSocket
+- "Play everywhere" → all satellites get the stream
+- Chromecast groups for grouped casting (pychromecast supports this natively)
+- Group management: "play in common areas" → resolve zone to satellites
 
 ### P8.9 — Preference Engine
 - `cortex/media/preferences.py`
