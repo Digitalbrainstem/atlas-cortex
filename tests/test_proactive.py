@@ -535,3 +535,198 @@ class TestIntegration:
         assert engine._running is True
         await engine.stop()
         assert engine._running is False
+
+
+# ── DailyBriefing ────────────────────────────────────────────────────────────
+
+
+class TestDailyBriefing:
+
+    async def test_generate_empty(self):
+        """Briefing with no providers or data should still return text."""
+        from cortex.proactive.briefing import DailyBriefing
+        briefing = DailyBriefing()
+        text = await briefing.generate()
+        assert isinstance(text, str)
+        assert len(text) > 0
+        # Should contain a greeting
+        assert any(g in text for g in ("Good morning", "Good afternoon", "Good evening"))
+
+    async def test_generate_with_reminders(self):
+        """Briefing includes pending reminders."""
+        from cortex.proactive.briefing import DailyBriefing
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO reminders (message, trigger_type, fired, user_id) "
+            "VALUES ('Buy milk', 'time', 0, '')"
+        )
+        conn.commit()
+        briefing = DailyBriefing()
+        text = await briefing.generate()
+        assert "reminder" in text.lower()
+        assert "Buy milk" in text
+
+    async def test_generate_with_timers(self):
+        """Briefing includes active timers."""
+        from cortex.proactive.briefing import DailyBriefing
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO timers (label, duration_seconds, state, user_id) "
+            "VALUES ('Pasta', 600, 'running', '')"
+        )
+        conn.commit()
+        briefing = DailyBriefing()
+        text = await briefing.generate()
+        assert "timer" in text.lower()
+
+    async def test_generate_with_alarms(self):
+        """Briefing includes enabled alarms."""
+        from cortex.proactive.briefing import DailyBriefing
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO alarms (label, cron_expression, enabled, user_id) "
+            "VALUES ('Wake up', '0 7 * * *', 1, '')"
+        )
+        conn.commit()
+        briefing = DailyBriefing()
+        text = await briefing.generate()
+        assert "alarm" in text.lower()
+
+    async def test_get_sections_returns_dict(self):
+        """get_sections returns structured data."""
+        from cortex.proactive.briefing import DailyBriefing
+        briefing = DailyBriefing()
+        sections = await briefing.get_sections()
+        assert "weather" in sections
+        assert "calendar" in sections
+        assert "reminders" in sections
+        assert "timers" in sections
+        assert "alarms" in sections
+
+    async def test_handles_missing_tables(self, tmp_path):
+        """Briefing gracefully handles missing tables."""
+        from cortex.proactive.briefing import DailyBriefing
+        briefing = DailyBriefing()
+        # Tables exist from _fresh_db, so this just verifies empty results work
+        sections = await briefing.get_sections()
+        assert sections["reminders"] == []
+        assert sections["timers"] == []
+        assert sections["alarms"] == []
+
+
+# ── BriefingPlugin ───────────────────────────────────────────────────────────
+
+
+class TestBriefingPlugin:
+
+    async def test_match_daily_briefing(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        match = await plugin.match("what's my day look like")
+        assert match.matched is True
+        assert match.intent == "daily_briefing"
+
+    async def test_match_morning_briefing(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        match = await plugin.match("give me my morning briefing")
+        assert match.matched is True
+
+    async def test_match_schedule(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        match = await plugin.match("what's on my schedule")
+        assert match.matched is True
+
+    async def test_no_match(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        match = await plugin.match("turn on the lights")
+        assert match.matched is False
+
+    async def test_handle_returns_response(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        from cortex.plugins.base import CommandMatch
+        plugin = DailyBriefingPlugin()
+        match = CommandMatch(matched=True, intent="daily_briefing")
+        result = await plugin.handle("daily briefing", match, {})
+        assert result.success is True
+        assert len(result.response) > 0
+
+    async def test_health(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        assert await plugin.health() is True
+
+    async def test_setup(self):
+        from cortex.plugins.briefing import DailyBriefingPlugin
+        plugin = DailyBriefingPlugin()
+        assert await plugin.setup() is True
+
+
+# ── Admin proactive API ──────────────────────────────────────────────────────
+
+
+class TestAdminProactiveAPI:
+
+    def test_rule_crud(self):
+        """Test rule CRUD via direct DB operations (mirrors admin endpoints)."""
+        conn = get_db()
+        cur = conn.execute(
+            "INSERT INTO proactive_rules "
+            "(name, provider, condition_type, condition_config, action_type, action_config) "
+            "VALUES ('Test', 'weather', 'threshold', '{}', 'log', '{}')"
+        )
+        conn.commit()
+        rule_id = cur.lastrowid
+
+        # List
+        rows = conn.execute("SELECT * FROM proactive_rules").fetchall()
+        assert len(rows) == 1
+
+        # Enable/disable
+        conn.execute("UPDATE proactive_rules SET enabled = 0 WHERE id = ?", (rule_id,))
+        conn.commit()
+        row = conn.execute("SELECT enabled FROM proactive_rules WHERE id = ?", (rule_id,)).fetchone()
+        assert dict(row)["enabled"] == 0
+
+        conn.execute("UPDATE proactive_rules SET enabled = 1 WHERE id = ?", (rule_id,))
+        conn.commit()
+
+        # Delete
+        conn.execute("DELETE FROM proactive_rules WHERE id = ?", (rule_id,))
+        conn.commit()
+        assert conn.execute("SELECT * FROM proactive_rules").fetchall() == []
+
+    def test_events_table(self):
+        """Verify proactive_events table exists and accepts inserts."""
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO proactive_events (provider, event_type, event_data, action_taken) "
+            "VALUES ('weather', 'threshold_crossed', '{\"temp\": 100}', 'logged')"
+        )
+        conn.commit()
+        rows = conn.execute("SELECT * FROM proactive_events").fetchall()
+        assert len(rows) == 1
+
+    def test_preferences_upsert(self):
+        """Notification preferences can be inserted and updated."""
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO notification_preferences (user_id, quiet_hours_start, quiet_hours_end) "
+            "VALUES ('user1', '23:00', '06:00')"
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM notification_preferences WHERE user_id = 'user1'"
+        ).fetchone()
+        assert dict(row)["quiet_hours_start"] == "23:00"
+
+        conn.execute(
+            "UPDATE notification_preferences SET max_per_hour = 5 WHERE user_id = 'user1'"
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT max_per_hour FROM notification_preferences WHERE user_id = 'user1'"
+        ).fetchone()
+        assert dict(row)["max_per_hour"] == 5

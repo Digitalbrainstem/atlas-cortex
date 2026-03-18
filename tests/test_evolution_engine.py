@@ -394,3 +394,308 @@ class TestEdgeCases:
         gaps = analyzer.analyze_quality_gaps(days=1)
         # The old interaction should not be in the 1-day window
         assert gaps == {}
+
+
+# ── LoRATrainer ──────────────────────────────────────────────────────────────
+
+class TestLoRATrainer:
+
+    def test_get_training_config(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer(output_dir="/tmp/test-lora")
+        config = trainer.get_training_config("home")
+        assert config["domain"] == "home"
+        assert config["rank"] == 16
+        assert config["lora_alpha"] == 32
+        assert config["batch_size"] == 2
+        assert config["gradient_checkpointing"] is True
+        assert config["epochs"] == 3
+        assert config["learning_rate"] == 2e-4
+        assert "output_dir" in config
+
+    def test_estimate_training_time_short(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer()
+        result = trainer.estimate_training_time(5)
+        assert "seconds" in result
+
+    def test_estimate_training_time_medium(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer()
+        result = trainer.estimate_training_time(500)
+        assert "minutes" in result
+
+    def test_estimate_training_time_long(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer()
+        result = trainer.estimate_training_time(50000)
+        assert "hours" in result
+
+    async def test_prepare_training_data_empty(self, tmp_path):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer(output_dir=str(tmp_path / "lora"))
+        path = await trainer.prepare_training_data("home", limit=10)
+        assert path.endswith("home.jsonl")
+        # File should exist but be empty (no interactions)
+        import os
+        assert os.path.exists(path)
+
+    async def test_prepare_training_data_with_interactions(self, tmp_path):
+        from cortex.evolution.training import LoRATrainer
+        _insert_interaction(
+            message="turn on lights", response="Done!",
+            sentiment="positive", resolved_area="home",
+        )
+        _insert_interaction(
+            message="kitchen status", response="All clear",
+            sentiment="neutral", resolved_area="home",
+        )
+        trainer = LoRATrainer(output_dir=str(tmp_path / "lora"))
+        path = await trainer.prepare_training_data("home", limit=10)
+        import json as json_mod
+        with open(path) as f:
+            lines = f.readlines()
+        assert len(lines) == 2
+        entry = json_mod.loads(lines[0])
+        assert "instruction" in entry
+        assert "output" in entry
+        assert entry["domain"] == "home"
+
+    async def test_validate_adapter_missing_dir(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer()
+        result = await trainer.validate_adapter("/nonexistent/path")
+        assert result["eval_score"] == 0.0
+        assert "error" in result
+
+    async def test_validate_adapter_missing_files(self, tmp_path):
+        from cortex.evolution.training import LoRATrainer
+        adapter_dir = str(tmp_path / "adapter")
+        import os
+        os.makedirs(adapter_dir)
+        trainer = LoRATrainer()
+        result = await trainer.validate_adapter(adapter_dir)
+        assert result["eval_score"] == 0.0
+        assert "Missing files" in result.get("error", "")
+
+    def test_generate_training_script(self):
+        from cortex.evolution.training import LoRATrainer
+        trainer = LoRATrainer()
+        config = trainer.get_training_config("home")
+        script = trainer._generate_training_script("/data/train.jsonl", "/output", config)
+        assert "QLoRA" in script
+        assert "ROCm" in script
+        assert "HSA_OVERRIDE_GFX_VERSION" in script
+        assert "LoraConfig" in script
+
+
+# ── ModelScout ───────────────────────────────────────────────────────────────
+
+class TestModelScout:
+
+    async def test_scan_ollama_no_server(self):
+        """Scan should return empty list when Ollama is not available."""
+        from cortex.evolution.scout import ModelScout
+        scout = ModelScout()
+        scout._ollama_base = "http://localhost:1"  # Unreachable
+        result = await scout.scan_ollama_library()
+        assert result == []
+
+    async def test_scan_registry_empty(self):
+        from cortex.evolution.scout import ModelScout
+        scout = ModelScout()
+        result = await scout.scan_registry()
+        assert result == []
+
+    async def test_scan_registry_with_candidates(self):
+        from cortex.evolution.scout import ModelScout
+        reg = ModelRegistry()
+        reg.register_model("candidate-model", model_type="candidate")
+        # Mark status as candidate (register defaults to available)
+        conn = get_db()
+        conn.execute(
+            "UPDATE model_registry SET status = 'candidate' WHERE model_name = 'candidate-model'"
+        )
+        conn.commit()
+
+        scout = ModelScout()
+        result = await scout.scan_registry()
+        assert len(result) == 1
+        assert result[0]["model_name"] == "candidate-model"
+
+    async def test_recommend_promotion_empty(self):
+        from cortex.evolution.scout import ModelScout
+        scout = ModelScout()
+        result = await scout.recommend_promotion()
+        assert result == []
+
+    async def test_recommend_promotion_eligible(self):
+        from cortex.evolution.scout import ModelScout
+        reg = ModelRegistry()
+        mid = reg.register_model("good-model", model_type="candidate")
+        conn = get_db()
+        conn.execute(
+            "UPDATE model_registry SET status = 'candidate', "
+            "eval_score = 0.9, safety_score = 1.0, personality_score = 0.8 "
+            "WHERE id = ?",
+            (mid,),
+        )
+        conn.commit()
+
+        scout = ModelScout()
+        result = await scout.recommend_promotion()
+        assert len(result) == 1
+        assert result[0]["model_name"] == "good-model"
+
+    async def test_recommend_promotion_fails_safety(self):
+        """Model with low safety score should not be recommended."""
+        from cortex.evolution.scout import ModelScout
+        reg = ModelRegistry()
+        mid = reg.register_model("unsafe-model", model_type="candidate")
+        conn = get_db()
+        conn.execute(
+            "UPDATE model_registry SET status = 'candidate', "
+            "eval_score = 0.9, safety_score = 0.5, personality_score = 0.8 "
+            "WHERE id = ?",
+            (mid,),
+        )
+        conn.commit()
+
+        scout = ModelScout()
+        result = await scout.recommend_promotion()
+        assert result == []
+
+
+# ── DriftMonitor ─────────────────────────────────────────────────────────────
+
+class TestDriftMonitor:
+
+    def test_record_response_metrics(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        monitor.record_response_metrics("Hello, how can I help you today?", "general")
+        conn = get_db()
+        run_id = monitor._ensure_drift_run()
+        rows = conn.execute(
+            "SELECT * FROM evolution_metrics WHERE run_id = ?", (run_id,)
+        ).fetchall()
+        assert len(rows) == 2  # response_length and word_count
+        names = {dict(r)["metric_name"] for r in rows}
+        assert "response_length" in names
+        assert "word_count" in names
+
+    def test_check_drift_no_data(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        result = monitor.check_drift()
+        assert result["drift_score"] == 0.0
+        assert result["alert"] is False
+
+    def test_check_drift_stable(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        # Record baseline and recent data that are similar
+        conn = get_db()
+        run_id = monitor._ensure_drift_run()
+        now = datetime.now(timezone.utc)
+        for i in range(20):
+            ts_old = (now - timedelta(days=10, hours=i)).isoformat()
+            ts_new = (now - timedelta(hours=i)).isoformat()
+            conn.execute(
+                "INSERT INTO evolution_metrics (run_id, metric_name, metric_value, domain, created_at) "
+                "VALUES (?, 'response_length', ?, 'general', ?)",
+                (run_id, 100.0 + (i % 5), ts_old),
+            )
+            conn.execute(
+                "INSERT INTO evolution_metrics (run_id, metric_name, metric_value, domain, created_at) "
+                "VALUES (?, 'response_length', ?, 'general', ?)",
+                (run_id, 101.0 + (i % 5), ts_new),
+            )
+        conn.commit()
+
+        result = monitor.check_drift(window_days=7)
+        assert result["drift_score"] < 0.3
+        assert result["alert"] is False
+
+    def test_check_drift_significant(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        conn = get_db()
+        run_id = monitor._ensure_drift_run()
+        now = datetime.now(timezone.utc)
+        for i in range(20):
+            ts_old = (now - timedelta(days=10, hours=i)).isoformat()
+            ts_new = (now - timedelta(hours=i)).isoformat()
+            conn.execute(
+                "INSERT INTO evolution_metrics (run_id, metric_name, metric_value, domain, created_at) "
+                "VALUES (?, 'response_length', 50.0, 'general', ?)",
+                (run_id, ts_old),
+            )
+            conn.execute(
+                "INSERT INTO evolution_metrics (run_id, metric_name, metric_value, domain, created_at) "
+                "VALUES (?, 'response_length', 200.0, 'general', ?)",
+                (run_id, ts_new),
+            )
+        conn.commit()
+
+        result = monitor.check_drift(window_days=7)
+        assert result["drift_score"] > 0.3
+        assert result["alert"] is True
+
+    def test_get_personality_timeline_empty(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        result = monitor.get_personality_timeline()
+        assert result == []
+
+    def test_get_personality_timeline_with_data(self):
+        from cortex.evolution.scout import DriftMonitor
+        monitor = DriftMonitor()
+        monitor.record_response_metrics("Hello!", "general")
+        monitor.record_response_metrics("I can help with that.", "general")
+        result = monitor.get_personality_timeline(days=1)
+        assert len(result) >= 2
+
+
+# ── ABTester ─────────────────────────────────────────────────────────────────
+
+class TestABTester:
+
+    async def test_start_test(self):
+        from cortex.evolution.scout import ABTester
+        tester = ABTester()
+        run_id = await tester.start_test("qwen2.5:14b", duration_hours=12)
+        assert run_id > 0
+        conn = get_db()
+        row = conn.execute("SELECT * FROM evolution_runs WHERE id = ?", (run_id,)).fetchone()
+        run = dict(row)
+        assert run["run_type"] == "ab_test"
+        assert run["status"] == "running"
+
+    async def test_get_results(self):
+        from cortex.evolution.scout import ABTester
+        tester = ABTester()
+        run_id = await tester.start_test("test-model")
+        result = await tester.get_results(run_id)
+        assert result["test_id"] == run_id
+        assert result["status"] == "running"
+        assert result["candidate_model"] == "test-model"
+
+    async def test_get_results_not_found(self):
+        from cortex.evolution.scout import ABTester
+        tester = ABTester()
+        result = await tester.get_results(99999)
+        assert "error" in result
+
+    async def test_stop_test(self):
+        from cortex.evolution.scout import ABTester
+        tester = ABTester()
+        run_id = await tester.start_test("stop-model", duration_hours=1)
+        result = await tester.stop_test(run_id)
+        assert result["status"] == "completed"
+
+    async def test_stop_test_not_found(self):
+        from cortex.evolution.scout import ABTester
+        tester = ABTester()
+        result = await tester.stop_test(99999)
+        assert "error" in result
