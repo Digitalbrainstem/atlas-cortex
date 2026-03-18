@@ -1,0 +1,16 @@
+[Unit]
+Description=Atlas Satellite WiFi Setup (Captive Portal)
+After=NetworkManager.service sys-subsystem-net-devices-wlan0.device
+Wants=NetworkManager.service sys-subsystem-net-devices-wlan0.device
+ConditionPathExists=!/var/lib/atlas/wifi-configured
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 10
+ExecStart=/opt/atlas-captive-portal/hotspot.sh start
+ExecStop=/opt/atlas-captive-portal/hotspot.sh stop
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

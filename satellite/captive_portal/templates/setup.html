@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Atlas Satellite Setup</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --success: #22c55e;
+    --error: #ef4444;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+  .container { width: 100%; max-width: 420px; }
+  .logo { text-align: center; margin: 20px 0 30px; }
+  .logo svg { width: 64px; height: 64px; margin-bottom: 12px; }
+  .logo h1 { font-size: 1.5em; font-weight: 600; letter-spacing: -0.02em; }
+  .logo p { color: var(--text-dim); font-size: 0.9em; margin-top: 4px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 1em; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .network-list { max-height: 240px; overflow-y: auto; margin: 0 -20px; padding: 0 20px; }
+  .network-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; margin: 4px 0; border-radius: 8px;
+    cursor: pointer; transition: background 0.2s; border: 2px solid transparent;
+  }
+  .network-item:hover { background: rgba(99, 102, 241, 0.1); }
+  .network-item.selected {
+    background: rgba(99, 102, 241, 0.15); border-color: var(--accent);
+  }
+  .network-name { font-weight: 500; font-size: 0.95em; }
+  .network-meta {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text-dim); font-size: 0.8em;
+  }
+  .signal-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+  .signal-bar { width: 3px; background: var(--border); border-radius: 1px; }
+  .signal-bar.active { background: var(--accent); }
+  .lock-icon { font-size: 0.85em; }
+  input, select {
+    width: 100%; padding: 12px 16px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-size: 0.95em; outline: none;
+    transition: border-color 0.2s; margin-bottom: 12px;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--text-dim); }
+  select { appearance: none; cursor: pointer; }
+  label {
+    display: block; color: var(--text-dim); font-size: 0.85em;
+    margin-bottom: 6px; font-weight: 500;
+  }
+  .btn {
+    width: 100%; padding: 14px; background: var(--accent); color: white;
+    border: none; border-radius: 8px; font-size: 1em; font-weight: 600;
+    cursor: pointer; transition: background 0.2s, transform 0.1s; margin-top: 4px;
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-scan {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); padding: 8px 16px; font-size: 0.85em;
+    width: auto; margin: 0;
+  }
+  .btn-scan:hover { border-color: var(--accent); color: var(--text); }
+  .status {
+    text-align: center; padding: 16px; border-radius: 8px;
+    font-weight: 500; display: none; margin-top: 12px;
+  }
+  .status.show { display: block; }
+  .status.success { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+  .status.error { background: rgba(239, 68, 68, 0.15); color: var(--error); }
+  .status.loading { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+  .spinner {
+    display: inline-block; width: 16px; height: 16px;
+    border: 2px solid transparent; border-top: 2px solid currentColor;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pulse-dot {
+    display: inline-block; width: 8px; height: 8px; background: var(--accent);
+    border-radius: 50%; animation: pulse 2s ease-in-out infinite;
+    margin-right: 6px; vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+  .empty-state { text-align: center; padding: 30px 20px; color: var(--text-dim); }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; }
+  .manual-ssid { display: none; margin-bottom: 12px; }
+  .manual-ssid.show { display: block; }
+  .link-btn {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 0.85em; padding: 4px 0; text-decoration: underline;
+  }
+  footer {
+    text-align: center; color: var(--text-dim); font-size: 0.75em;
+    margin-top: 20px; opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="logo">
+    <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="32" r="30" stroke="#6366f1" stroke-width="2"/>
+      <circle cx="32" cy="32" r="20" stroke="#6366f1" stroke-width="1.5" opacity="0.6"/>
+      <circle cx="32" cy="32" r="10" fill="#6366f1" opacity="0.8"/>
+      <circle cx="32" cy="32" r="4" fill="white"/>
+      <line x1="32" y1="2" x2="32" y2="14" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+      <line x1="32" y1="50" x2="32" y2="62" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+      <line x1="2" y1="32" x2="14" y2="32" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+      <line x1="50" y1="32" x2="62" y2="32" stroke="#6366f1" stroke-width="1.5" opacity="0.4"/>
+    </svg>
+    <h1>Atlas Satellite</h1>
+    <p><span class="pulse-dot"></span>WiFi Setup — {{ hostname }}</p>
+  </div>
+
+  <!-- Network Selection -->
+  <div class="card">
+    <div class="flex-between">
+      <h2>📡 Available Networks</h2>
+      <button class="btn btn-scan" onclick="scanNetworks()">Scan</button>
+    </div>
+    <div id="networkList" class="network-list">
+      <div class="empty-state">
+        <div class="spinner"></div> Scanning for networks...
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <button class="link-btn" onclick="toggleManualSSID()">Enter network name manually</button>
+    </div>
+  </div>
+
+  <!-- Connection Form -->
+  <div class="card">
+    <h2>🔐 Connect</h2>
+    <div id="manualSSID" class="manual-ssid">
+      <label for="ssid">Network Name (SSID)</label>
+      <input type="text" id="ssid" placeholder="Enter network name">
+    </div>
+    <div id="selectedDisplay" style="margin-bottom:12px; display:none;">
+      <label>Selected Network</label>
+      <div style="padding:10px 16px; background:var(--bg); border-radius:8px; font-weight:500;" id="selectedName"></div>
+    </div>
+
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="Enter WiFi password">
+
+    <label for="country">Country</label>
+    <select id="country">
+      <option value="US" selected>United States (US)</option>
+      <option value="GB">United Kingdom (GB)</option>
+      <option value="CA">Canada (CA)</option>
+      <option value="AU">Australia (AU)</option>
+      <option value="DE">Germany (DE)</option>
+      <option value="FR">France (FR)</option>
+      <option value="JP">Japan (JP)</option>
+      <option value="NL">Netherlands (NL)</option>
+      <option value="SE">Sweden (SE)</option>
+      <option value="NZ">New Zealand (NZ)</option>
+      <option value="IN">India (IN)</option>
+      <option value="BR">Brazil (BR)</option>
+      <option value="MX">Mexico (MX)</option>
+      <option value="IT">Italy (IT)</option>
+      <option value="ES">Spain (ES)</option>
+    </select>
+
+    <button class="btn" id="connectBtn" onclick="connectWifi()" disabled>
+      Connect
+    </button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <footer>Atlas Cortex — Satellite Setup v2.0</footer>
+</div>
+
+<script>
+  /* Pre-loaded network data from server-side scan */
+  const initialNetworks = {{ networks | tojson }};
+  let selectedSSID = '';
+  let manualMode = false;
+
+  function renderNetworks(networks) {
+    const list = document.getElementById('networkList');
+    if (!networks || networks.length === 0) {
+      list.innerHTML = '<div class="empty-state">No networks found. Try scanning again.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    networks.forEach(function(net) {
+      const div = document.createElement('div');
+      div.className = 'network-item';
+      div.onclick = function() { selectNetwork(net.ssid, div); };
+
+      const signal = net.signal;
+      const bars = [signal > 0, signal > 25, signal > 50, signal > 75];
+      let barsHTML = '';
+      for (let i = 0; i < bars.length; i++) {
+        barsHTML += '<div class="signal-bar' + (bars[i] ? ' active' : '') +
+                    '" style="height:' + (4 + i * 4) + 'px"></div>';
+      }
+
+      const secured = net.security && net.security !== '' && net.security !== '--';
+      div.innerHTML =
+        '<span class="network-name">' + escapeHtml(net.ssid) + '</span>' +
+        '<span class="network-meta">' +
+          (secured ? '<span class="lock-icon">🔒</span>' : '') +
+          '<span class="signal-bars">' + barsHTML + '</span>' +
+        '</span>';
+      list.appendChild(div);
+    });
+  }
+
+  async function scanNetworks() {
+    const list = document.getElementById('networkList');
+    list.innerHTML = '<div class="empty-state"><div class="spinner"></div> Scanning...</div>';
+    try {
+      const res = await fetch('/scan');
+      const data = await res.json();
+      renderNetworks(data.networks);
+    } catch (e) {
+      list.innerHTML = '<div class="empty-state">Scan failed. Try again.</div>';
+    }
+  }
+
+  function selectNetwork(ssid, el) {
+    document.querySelectorAll('.network-item').forEach(function(item) {
+      item.classList.remove('selected');
+    });
+    el.classList.add('selected');
+    selectedSSID = ssid;
+    manualMode = false;
+
+    document.getElementById('manualSSID').classList.remove('show');
+    document.getElementById('selectedDisplay').style.display = 'block';
+    document.getElementById('selectedName').textContent = ssid;
+    document.getElementById('connectBtn').disabled = false;
+    document.getElementById('password').focus();
+  }
+
+  function toggleManualSSID() {
+    manualMode = !manualMode;
+    document.getElementById('manualSSID').classList.toggle('show', manualMode);
+    if (manualMode) {
+      document.getElementById('selectedDisplay').style.display = 'none';
+      selectedSSID = '';
+      document.querySelectorAll('.network-item').forEach(function(item) {
+        item.classList.remove('selected');
+      });
+      document.getElementById('ssid').focus();
+      document.getElementById('connectBtn').disabled = false;
+    }
+  }
+
+  async function connectWifi() {
+    const ssid = manualMode
+      ? document.getElementById('ssid').value.trim()
+      : selectedSSID;
+    const password = document.getElementById('password').value;
+    const country = document.getElementById('country').value;
+
+    if (!ssid) {
+      showStatus('Please select or enter a network name.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById('connectBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Connecting...';
+    showStatus('Connecting to ' + escapeHtml(ssid) + '...', 'loading');
+
+    try {
+      const res = await fetch('/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ssid: ssid, password: password, country: country }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showStatus('✅ ' + data.message + ' The satellite will now configure itself.', 'success');
+        btn.innerHTML = '✅ Connected!';
+        pollStatus();
+      } else {
+        showStatus('❌ ' + (data.message || data.error), 'error');
+        btn.disabled = false;
+        btn.innerHTML = 'Connect';
+      }
+    } catch (e) {
+      /* Connection drop is expected when WiFi switches — treat as success */
+      showStatus('✅ WiFi configured! The satellite is connecting...', 'success');
+      btn.innerHTML = '✅ Connected!';
+    }
+  }
+
+  function pollStatus() {
+    let checks = 0;
+    const interval = setInterval(async function() {
+      checks++;
+      if (checks > 10) { clearInterval(interval); return; }
+      try {
+        const res = await fetch('/status');
+        const data = await res.json();
+        if (data.connected && data.ip) {
+          showStatus('✅ Connected! IP: ' + data.ip, 'success');
+          clearInterval(interval);
+        }
+      } catch (e) {
+        /* Portal may be shutting down — that's expected */
+        clearInterval(interval);
+      }
+    }, 3000);
+  }
+
+  function showStatus(msg, type) {
+    const el = document.getElementById('status');
+    el.className = 'status show ' + type;
+    el.innerHTML = msg;
+  }
+
+  function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+  }
+
+  /* Render initial networks from server-side scan */
+  renderNetworks(initialNetworks);
+</script>
+</body>
+</html>
