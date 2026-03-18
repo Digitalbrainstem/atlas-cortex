@@ -14,6 +14,11 @@ const routes = [
     component: () => import('../views/DashboardView.vue'),
   },
   {
+    path: '/chat',
+    name: 'chat',
+    component: () => import('../views/ChatView.vue'),
+  },
+  {
     path: '/users',
     name: 'users',
     component: () => import('../views/UsersView.vue'),

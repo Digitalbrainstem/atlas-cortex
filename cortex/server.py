@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -177,6 +177,54 @@ app.add_api_websocket_route("/ws/satellite", satellite_ws_handler)
 
 # Mount avatar display WebSocket endpoint
 app.add_api_websocket_route("/ws/avatar", avatar_ws_handler)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Browser chat WebSocket
+# ──────────────────────────────────────────────────────────────────
+
+async def chat_ws_handler(websocket: WebSocket) -> None:
+    """Browser chat WebSocket — streams pipeline responses token-by-token."""
+    await websocket.accept()
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            message = data.get("message", "")
+            user_id = data.get("user_id", "web_user")
+            history = data.get("history", [])
+
+            if not message:
+                await websocket.send_json({"type": "error", "text": "Empty message"})
+                continue
+
+            provider = _get_provider()
+            db_conn = _get_db()
+
+            await websocket.send_json({"type": "start"})
+
+            full_response = ""
+            async for chunk in run_pipeline(
+                message=message,
+                provider=provider,
+                user_id=user_id,
+                conversation_history=history,
+                db_conn=db_conn,
+            ):
+                full_response += chunk
+                await websocket.send_json({"type": "token", "text": chunk})
+
+            await websocket.send_json({
+                "type": "end",
+                "full_text": full_response,
+            })
+    except WebSocketDisconnect:
+        logger.info("Chat WebSocket client disconnected")
+    except Exception:
+        logger.exception("Chat WebSocket error")
+
+
+app.add_api_websocket_route("/ws/chat", chat_ws_handler)
 
 # Wire barge-in: satellite → avatar PLAYBACK_STOP
 async def _on_barge_in(satellite_id: str, room: str | None) -> None:
