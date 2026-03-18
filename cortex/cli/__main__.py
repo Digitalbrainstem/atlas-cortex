@@ -66,6 +66,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── status ───────────────────────────────────────────────────
     sub.add_parser("status", help="Show system status")
 
+    # ── diagnose ─────────────────────────────────────────────────
+    sub.add_parser("diagnose", help="Run system diagnostics")
+
     return parser
 
 
@@ -105,6 +108,11 @@ async def _run_status(_args: argparse.Namespace) -> int:
     return await print_status()
 
 
+async def _run_diagnose(_args: argparse.Namespace) -> int:
+    from cortex.cli.diagnose import run_diagnose
+    return await run_diagnose()
+
+
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
@@ -120,6 +128,7 @@ def main() -> int:
         "ask": _run_ask,
         "agent": _run_agent,
         "status": _run_status,
+        "diagnose": _run_diagnose,
     }
 
     handler = handlers.get(args.command)
