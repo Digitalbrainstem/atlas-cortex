@@ -15,6 +15,7 @@ Start with::
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -184,12 +185,78 @@ app.add_api_websocket_route("/ws/avatar", avatar_ws_handler)
 # ──────────────────────────────────────────────────────────────────
 
 async def chat_ws_handler(websocket: WebSocket) -> None:
-    """Browser chat WebSocket — streams pipeline responses token-by-token."""
+    """Browser chat WebSocket — streams pipeline responses and voice I/O."""
     await websocket.accept()
+    audio_buffer = bytearray()
 
     try:
         while True:
             data = await websocket.receive_json()
+            msg_type = data.get("type", "chat")
+
+            # ── Voice input: STT ─────────────────────────────────
+            if msg_type == "audio_start":
+                audio_buffer.clear()
+                continue
+
+            if msg_type == "audio_data":
+                try:
+                    audio_buffer.extend(base64.b64decode(data.get("data", "")))
+                except Exception:
+                    pass
+                continue
+
+            if msg_type == "audio_end":
+                transcript = ""
+                try:
+                    from cortex.speech.stt import transcribe, is_hallucinated
+                    sample_rate = data.get("sample_rate", 16000)
+                    transcript = await transcribe(
+                        bytes(audio_buffer), sample_rate=sample_rate,
+                    )
+                    if is_hallucinated(transcript):
+                        transcript = ""
+                except Exception as exc:
+                    logger.warning("STT failed: %s", exc)
+                audio_buffer.clear()
+                await websocket.send_json({
+                    "type": "transcript",
+                    "text": transcript,
+                })
+                continue
+
+            # ── Voice output: TTS ────────────────────────────────
+            if msg_type == "tts_request":
+                text = data.get("text", "")
+                if not text:
+                    continue
+                try:
+                    from cortex.speech.tts import synthesize_speech
+                    voice = data.get("voice", "af_bella")
+                    pcm, sample_rate, provider_name = await synthesize_speech(
+                        text, voice,
+                    )
+                    if pcm:
+                        await websocket.send_json({
+                            "type": "tts_audio",
+                            "data": base64.b64encode(pcm).decode(),
+                            "sample_rate": sample_rate,
+                            "provider": provider_name,
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "tts_error",
+                            "text": "No TTS provider available",
+                        })
+                except Exception as exc:
+                    logger.warning("TTS failed: %s", exc)
+                    await websocket.send_json({
+                        "type": "tts_error",
+                        "text": str(exc),
+                    })
+                continue
+
+            # ── Text chat (default) ──────────────────────────────
             message = data.get("message", "")
             user_id = data.get("user_id", "web_user")
             history = data.get("history", [])
