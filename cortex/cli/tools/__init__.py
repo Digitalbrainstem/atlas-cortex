@@ -91,6 +91,14 @@ class ToolRegistry:
 
 def get_default_registry() -> ToolRegistry:
     """Create a registry with all built-in tools registered."""
+    from cortex.cli.tools.dev import (
+        BuildTool,
+        DBQueryTool,
+        DockerTool,
+        LintTool,
+        PackageManageTool,
+        TestRunTool,
+    )
     from cortex.cli.tools.files import (
         FileEditTool,
         FileListTool,
@@ -98,6 +106,12 @@ def get_default_registry() -> ToolRegistry:
         FileWriteTool,
     )
     from cortex.cli.tools.git import GitTool
+    from cortex.cli.tools.network import (
+        APICallTool,
+        SSHTool,
+        WebFetchTool,
+        WebSearchTool,
+    )
     from cortex.cli.tools.shell import GlobTool, GrepTool, ShellExecTool
 
     registry = ToolRegistry()
@@ -110,6 +124,18 @@ def get_default_registry() -> ToolRegistry:
         GrepTool,
         GlobTool,
         GitTool,
+        # Network tools
+        WebSearchTool,
+        WebFetchTool,
+        APICallTool,
+        SSHTool,
+        # Dev tools
+        TestRunTool,
+        BuildTool,
+        LintTool,
+        DockerTool,
+        DBQueryTool,
+        PackageManageTool,
     ]:
         registry.register(tool_cls())
     return registry
