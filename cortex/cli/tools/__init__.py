@@ -138,4 +138,53 @@ def get_default_registry() -> ToolRegistry:
         PackageManageTool,
     ]:
         registry.register(tool_cls())
+
+    # Atlas integration tools (optional — depend on cortex modules)
+    try:
+        from cortex.cli.tools.atlas import (
+            HAControlTool,
+            MemoryStoreTool,
+            MemoryTool,
+            NotifyTool,
+            ReminderTool,
+            RoutineTool,
+            TimerTool,
+        )
+
+        for cls in [
+            HAControlTool,
+            TimerTool,
+            ReminderTool,
+            RoutineTool,
+            NotifyTool,
+            MemoryTool,
+            MemoryStoreTool,
+        ]:
+            registry.register(cls())
+    except ImportError:
+        pass
+
+    # Multi-modal tools (optional)
+    try:
+        from cortex.cli.tools.multimodal import (
+            EmbedTextTool,
+            ImageGenerateTool,
+            OCRTool,
+            SpeechToTextTool,
+            TextToSpeechTool,
+            VisionAnalyzeTool,
+        )
+
+        for cls in [
+            VisionAnalyzeTool,
+            ImageGenerateTool,
+            EmbedTextTool,
+            OCRTool,
+            SpeechToTextTool,
+            TextToSpeechTool,
+        ]:
+            registry.register(cls())
+    except ImportError:
+        pass
+
     return registry
