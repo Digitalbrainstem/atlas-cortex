@@ -77,15 +77,16 @@ See [installation.md](installation.md) for the full installer design.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P9 | Self-Evolution | 🔲 Planned | C5 + I4 |
-| P10 | Story Time Engine | 🔲 Planned | C11 + C12 + C6 |
+| P9 | Self-Evolution | ✅ Complete | C5 + I4 |
+| P10 | Story Time Engine | ✅ Complete | C11 + C12 + C6 |
 | P11 | Atlas CLI Agent | ✅ Complete | C0 + C1 |
-| P12 | Standalone Web App | 🔲 Planned | P11 |
+| P12 | Standalone Web App | ✅ Complete | P11 |
 | P13 | Legacy Protocol | 🔲 Planned | I2 |
 | P14 | Household Management | 🔲 Planned | I2 + P3 |
 | P15 | Security & Monitoring | 🔲 Planned | I2 + P5 |
 | P16 | Health & Wellness | 🔲 Planned | C6 + P3 |
 | P17 | Multi-Language Support | 🔲 Planned | C6 + C11 |
+| P18 | Visual Media & Casting | 🔲 Future | P8 + I2 |
 
 ---
 
@@ -1047,67 +1048,167 @@ See [learning-education.md](learning-education.md) for full design.
 
 # Part 7: Intercom & Broadcasting
 
-See [intercom-broadcasting.md](intercom-broadcasting.md) for full design.
-
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
 | P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 (satellites) |
 
-### P7.1 — Intercom Intent Parser
-- Extract target rooms, zones, people, and message from voice
+Atlas owns this entirely — HA has no intercom system. Satellites are Atlas
+hardware with mics and speakers, so Atlas IS the intercom.
 
-### P7.2 — Message Personalizer
-- Adapt tone and voice for target audience (child vs adult)
+### P7.1 — Announce & Broadcast Engine
+- `cortex/intercom/engine.py` — IntercomEngine
+- Announce: TTS to specific room/satellite ("tell the kids dinner is ready")
+- Broadcast: TTS to ALL satellites ("we're leaving in 5 minutes")
+- Zone broadcast: TTS to satellite group ("announce upstairs: bedtime")
+- Priority levels: normal (respects quiet hours), urgent (louder), emergency (max volume, all rooms)
 
-### P7.3 — Satellite Router
-- Deliver TTS audio to specific satellites or zones
+### P7.2 — Zone Management
+- `cortex/intercom/zones.py` — ZoneManager
+- DB table: satellite_zones (zone_id, zone_name, satellite_ids JSON)
+- Create named groups: "upstairs", "kids rooms", "common areas"
+- Admin UI for zone CRUD
+- Voice: "create a zone called bedrooms with the kids room and master"
+
+### P7.3 — Message Personalizer
+- Adapt announcement for target audience using user profiles (C6)
+- Child in room? Simpler language, gentler tone
+- Adult? Concise, direct
+- Optionally use target user's preferred voice
 
 ### P7.4 — Two-Way Calling
 - Bidirectional audio stream between two satellites
+- "Call the garage" → open mic+speaker on both satellites
+- WebSocket audio bridge in server.py
+- Auto-timeout after 5 minutes of silence
+- "Hang up" / "end call" to close
 
-### P7.5 — Zone Management
-- Create/edit/delete satellite groups (upstairs, bedrooms, etc.)
+### P7.5 — Drop-In Monitoring
+- One-way audio FROM a satellite (parent listening to nursery)
+- "Listen to the nursery" → stream nursery mic to requesting satellite speaker
+- Requires parental auth (admin only)
+- Visual indicator on monitored satellite (LED pattern) for transparency
 
-### P7.6 — Emergency Broadcast
-- Max-priority, all-satellite, max-volume override
-
-### P7.7 — Pipeline Integration
-- Layer 2 plugin for intercom/announce/call intents
+### P7.6 — Pipeline Integration
+- Layer 2 plugin: "tell X", "announce", "broadcast", "call the X", "intercom"
+- Natural language room/zone/person resolution
 
 ---
 
 # Part 8: Media & Entertainment
 
-See [media-entertainment.md](media-entertainment.md) for full design.
-
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) + I2 (HA media players) |
+| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) + I2 (HA) |
+
+## Hybrid Design Principle
+
+> Atlas talks DIRECTLY to media services with stable APIs.
+> Atlas uses HA ONLY for physical device control (speakers, Chromecasts).
+> Atlas never depends on a third-party HA integration for critical media UX.
+
+```
+User: "Play jazz in the kitchen"
+  │
+  Atlas (brain):
+  ├── Understands intent: play music
+  ├── Knows user prefers YouTube Music
+  ├── Knows kitchen has a Chromecast speaker
+  ├── Remembers "Dad likes jazz in the evening"
+  │
+  ├── Direct → YouTube Music API: search "jazz", get stream URL
+  │
+  └── HA → media_player.kitchen: cast stream URL
+      (OR satellite → stream audio directly)
+```
 
 ### P8.1 — Media Provider Interface
-- Abstract source with search, stream, health check
+- `cortex/media/base.py` — Abstract MediaProvider
+- Methods: search(query), get_stream_url(track_id), get_playlists(),
+  get_playback_state(), play(), pause(), skip(), set_volume()
+- Each provider implements this interface
+- Provider registry with priority ordering
 
-### P8.2 — Local Library Provider
-- File scanning (FLAC, MP3, OGG, WAV), ID3 tags, search index
-- Optional Jellyfin/Plex/Navidrome integration
+### P8.2 — YouTube Music Provider (Priority — your primary service)
+- `cortex/media/youtube_music.py`
+- Uses `ytmusicapi` (OAuth auth) for search, playlists, library, queue
+- Uses `yt-dlp` for stream URL extraction (audio-only)
+- Robust error handling: retry on failure, degrade gracefully
+- Cache search results and stream URLs (URLs expire — refresh logic)
+- WAF-critical: if ytmusicapi breaks, clear error message + fallback to local
+- OAuth token refresh handling
 
-### P8.3 — Spotify Provider
-- Spotify Connect API via HA or `spotipy`
+### P8.3 — Local Library Provider
+- `cortex/media/local_library.py`
+- Scan configured directories for audio files (FLAC, MP3, OGG, WAV, M4A)
+- Read ID3/mutagen tags (artist, album, title, genre, year)
+- SQLite search index (FTS5) for fast queries
+- Always available — the offline fallback
+- "Play something" with no service configured → plays local
 
-### P8.4 — YouTube Music Provider
-- `ytmusicapi` search and streaming
+### P8.4 — Plex Provider
+- `cortex/media/plex.py`
+- Uses `plexapi` library (official, well-maintained)
+- Search music library, get stream URLs
+- Also: movies/shows metadata for "what should we watch" queries
+- Config: plex_url, plex_token
 
-### P8.5 — HA Media Provider
-- Wrap HA `media_player.*` entities
+### P8.5 — Audiobookshelf Provider
+- `cortex/media/audiobookshelf.py`
+- Uses `aioaudiobookshelf` or direct REST API
+- Get library, search books, get stream URL with chapter offset
+- Sync progress: report current position, resume from last position
+- "Continue my audiobook" → resume from exact timestamp
+- "Where did I leave off in Dune?" → chapter + timestamp
+- Config: abs_url, abs_token
 
 ### P8.6 — Podcast Provider
-- RSS parsing, auto-download, episode tracking, resume position
+- `cortex/media/podcasts.py`
+- RSS feed parser (no external service dependency)
+- DB: podcast_subscriptions, podcast_episodes, podcast_progress
+- Auto-check for new episodes on schedule
+- Resume position tracking per episode
+- "Any new episodes of Hardcore History?"
 
-### P8.7 — Playback Controller
-- Play/pause/skip/volume/transfer between rooms
+### P8.7 — Playback Router
+- `cortex/media/router.py` — PlaybackRouter
+- Decides WHERE to play based on context:
+  - Satellite speaker (direct PCM stream via WebSocket)
+  - HA media_player entity (Chromecast, Sonos, etc.)
+  - Web browser (via chat WebSocket)
+- Room resolution: "kitchen" → finds kitchen satellite or HA speaker
+- Transfer: "move this to the bedroom" → stop kitchen, start bedroom
+- Volume control routed to appropriate target
 
 ### P8.8 — Multi-Room Sync
-- HA media groups, Snapcast, or satellite-based sync
+- Synchronized playback across multiple satellites/speakers
+- Start same stream on multiple targets with timing sync
+- "Play everywhere" → all satellites + HA speakers
+- Group management: "play in common areas"
+
+### P8.9 — Preference Engine
+- `cortex/media/preferences.py`
+- Per-user music taste learning from history
+- Time-of-day patterns: "morning playlist" vs "evening jazz"
+- "Play something" → smart selection based on user + time + mood
+- Genre affinity scoring from listening history
+
+### P8.10 — Pipeline Plugin
+- Layer 2 plugin matching: "play X", "music", "listen to", "put on",
+  "continue my audiobook", "any new podcasts", "what's playing",
+  "skip", "pause", "volume", "play everywhere", "move to X"
+- Resolves provider + target + action from natural language
+
+### P8.11 — Spotify Provider (lower priority)
+- `cortex/media/spotify.py`
+- Uses `spotipy` (official library, stable)
+- Search, playlists, playback control via Spotify Connect
+- Atlas controls Spotify directly, NOT through HA's integration
+- Config: spotify_client_id, spotify_client_secret, redirect_uri
+
+### P8.12 — Admin UI
+- MediaView.vue: configured providers, playback history, preferences
+- Provider config forms (API keys, URLs, scan directories)
+- Now Playing dashboard across all rooms
 
 ### P8.9 — Smart Playlists
 - Learn preferences from listening patterns
@@ -1323,20 +1424,29 @@ P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
 |-------|------|--------|---------------|
 | P14 | Household Management | 🔲 Planned | I2 (HA) + P3 (scheduling) |
 
-### P14.1 — Pet Care
-- Feeding schedule reminders, vet appointment tracking
-- Medication reminders for pets
-- Integration with smart feeders via HA
+Atlas is the brain: remembers schedules, tracks state, sends reminders.
+HA is the body: smart feeders, sensors, physical integrations.
+Existing services: grocery list apps, calendar apps — Atlas talks to them directly.
 
-### P14.2 — Inventory Tracking
-- "We're running low on milk" -> auto-add to grocery list
-- Pantry management via voice
-- Expiration date tracking
+### P14.1 — Pet Care
+- Feeding schedule reminders via scheduling engine (Part 3)
+- Vet appointment tracking via calendar (CalDAV)
+- Medication reminders for pets
+- Smart feeder integration: HA for device control, Atlas for schedule intelligence
+- "Did you feed the dog?" → check if smart feeder ran today (HA sensor)
+
+### P14.2 — Inventory & Grocery
+- "We're running low on milk" → add to grocery list (existing Lists plugin)
+- Voice-managed shopping list with categories
+- Expiration date tracking (manual input, reminder on approaching dates)
+- "What's on the grocery list?" → reads back from list system
 
 ### P14.3 — Chore Management
+- DB table: chores (name, assigned_to, frequency, last_done, next_due)
 - Fair rotation tracking for household members
-- Voice-assigned chores with completion tracking
-- Weekly chore report
+- Voice: "assign dishes to Jake this week"
+- Completion confirmation: "I finished the laundry"
+- Weekly chore report via daily briefing (Part 5)
 
 ---
 
@@ -1346,20 +1456,29 @@ P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
 |-------|------|--------|---------------|
 | P15 | Security & Monitoring | 🔲 Planned | I2 (HA) + P5 (proactive) |
 
-### P15.1 — Camera Intelligence
-- Camera feed summaries: "Who was at the front door?"
-- Motion alert classification: pets vs packages vs people
-- Visitor history and recognition
+HA handles: camera feeds, door/window sensors, alarm systems, motion detectors.
+Atlas adds: intelligence layer — pattern recognition, natural language queries,
+smart alerting, context-aware responses.
 
-### P15.2 — Door & Window Status
-- "Is the garage door open?" — real-time status
-- Auto-lock reminders at bedtime
-- Departure checklist: all doors locked, windows closed
+### P15.1 — Security Status Queries
+- "Is the garage door open?" → query HA entity state (already works via HA plugin)
+- "Are all doors locked?" → aggregate check across lock entities
+- "Who's home?" → presence detection via HA person entities
+- These are mostly HA queries Atlas already supports — formalize as smart queries
 
-### P15.3 — Security Routines
-- Away mode: simulate presence (lights, TV, blinds)
-- Alert escalation: notify -> announce -> alarm
-- Integration with security systems via HA
+### P15.2 — Smart Alerting (extends Part 5 Proactive)
+- Proactive rules for security events:
+  - Door opened at unusual hour → alert
+  - Motion when house is "away" mode → alert
+  - Garage door left open > 30min → reminder
+- Camera integration: if HA exposes camera entities, Atlas can describe
+  "Someone is at the front door" (using vision model on 4060 for camera frames)
+
+### P15.3 — Security Routines (extends Part 4 Routines)
+- "Goodnight" routine: lock all doors, close garage, arm alarm
+- "Leaving" routine: lock up, set away mode
+- "Away mode": simulate presence (random lights via HA, already possible)
+- These are mostly routine templates — add security-specific ones
 
 ---
 
@@ -1369,25 +1488,28 @@ P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
 |-------|------|--------|---------------|
 | P16 | Health & Wellness | 🔲 Planned | C6 (profiles) + P3 (scheduling) |
 
+Atlas is the brain: tracks medication schedules, sends reminders, monitors patterns.
+HA provides: presence sensors, environmental sensors (air quality, temperature).
+No external health services — all local and private.
+
 ### P16.1 — Medication Reminders
-- Per-user medication schedules with confirmation tracking
-- "Did you take your vitamin?" -> voice confirmation
-- Missed dose alerts and logging
+- DB table: medications (user_id, name, dosage, schedule, last_taken)
+- Scheduled reminders via Part 3 scheduling engine
+- Voice confirmation: "Did you take your vitamin?" → "Yes" → mark taken
+- Missed dose tracking and escalation (remind again in 30 min)
+- Privacy-critical: all data local, never sent anywhere
 
-### P16.2 — Sleep Analysis
-- Sleep pattern analysis from presence sensors
-- Bedtime routine suggestions
-- Sleep quality reporting
+### P16.2 — Environmental Health
+- Air quality from HA sensors (if available)
+- Temperature/humidity comfort tracking
+- "Is the air quality good today?" → check HA + outdoor API
+- Proactive rule: alert if CO2 > threshold, suggest opening windows
 
-### P16.3 — Environmental Health
-- Air quality monitoring and ventilation suggestions
-- Humidity and temperature comfort tracking
-- Pollen and allergy alerts
-
-### P16.4 — Activity Reminders
-- "You've been sitting for 2 hours" movement prompts
-- Exercise suggestions based on weather and schedule
-- Hydration reminders
+### P16.3 — Activity & Wellness Reminders
+- "You've been sitting for 2 hours" → presence sensor + timer
+- Hydration reminders on schedule
+- Sleep tracking from presence sensors (when bedroom occupied)
+- These are proactive rules (Part 5) with health-specific templates
 
 ---
 
@@ -1404,13 +1526,48 @@ P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
 
 ### P17.2 — Multilingual TTS/STT
 - Language-appropriate TTS voice selection
-- Multi-language STT model support
+- Multi-language STT model support (Whisper supports 99 languages)
 - Accent-aware speech recognition
 
 ### P17.3 — Translation Bridge
 - Real-time translation between household members
 - "Tell mom dinner is ready" -> translates if needed
-- Vocabulary building for language learners
+- Uses existing translation plugin (Part 2.7) as backbone
+
+---
+
+# Part 18: Visual Media & Casting (Future)
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P18 | Visual Media & Casting | 🔲 Future | P8 (media) + I2 (HA) |
+
+Audio is Part 8. Visual media (TV, video) is a different beast — different
+protocols, different hardware. Kept separate intentionally.
+
+### P18.1 — Chromecast Control
+- Discovery and casting via `pychromecast`
+- "Cast this to the living room TV"
+- Transport controls: play/pause/stop/volume
+
+### P18.2 — Plex Video Casting
+- Browse Plex movies/shows by voice
+- "Play The Office on the bedroom TV" → cast to Chromecast/Plex client
+- Resume from last position
+
+### P18.3 — Apple TV Control
+- Via `pyatv` library
+- Transport controls, app launching
+- "Pause the Apple TV"
+
+### P18.4 — Media Transfer
+- "Move this to the bedroom TV" → stop on current, start on target
+- Room-aware: knows which TV is in which room via HA entities
+
+### P18.5 — Ambient Display
+- Photo slideshow on idle TVs (from local photos or Google Photos)
+- Weather/calendar dashboard on kitchen TV
+- "Show my photos on the living room TV"
 
 ---
 
