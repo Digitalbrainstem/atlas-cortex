@@ -38,3 +38,7 @@ pytest-asyncio>=1.0.0
 websockets>=12.0
 python-multipart
 playwright>=1.40
+
+# CLI dependencies
+rich>=13.0
+prompt_toolkit>=3.0
