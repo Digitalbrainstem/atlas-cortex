@@ -11,9 +11,15 @@ from __future__ import annotations
 from cortex.speech.tts import synthesize_speech, stream_orpheus, extract_pcm
 from cortex.speech.stt import transcribe, is_hallucinated
 from cortex.speech.voices import resolve_voice, to_orpheus_voice, ORPHEUS_VOICES
+from cortex.speech.hotswap import (
+    get_hotswap_manager, reset_hotswap_manager, HotSwapManager, GPUSlot,
+)
+from cortex.speech.fish_audio import FishAudioProvider
 
 __all__ = [
     "synthesize_speech", "stream_orpheus", "extract_pcm",
     "transcribe", "is_hallucinated",
     "resolve_voice", "to_orpheus_voice", "ORPHEUS_VOICES",
+    "get_hotswap_manager", "reset_hotswap_manager", "HotSwapManager", "GPUSlot",
+    "FishAudioProvider",
 ]
