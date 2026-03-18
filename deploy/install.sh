@@ -357,10 +357,36 @@ if command -v ollama &>/dev/null || curl -sf http://localhost:11434/api/version 
         # Offer LoRA adapters for capable systems
         if [ "$GPU_MODE" != "cpu" ]; then
             echo ""
+            info "LoRA Expert Adapters (~50MB each):"
+            echo ""
+            echo "  ★ Recommended:"
+            echo "    • coding.lora      — Code generation & debugging"
+            echo "    • reasoning.lora   — Chain-of-thought & logic"
+            echo "    • math.lora        — Mathematical problem solving"
+            echo "    • atlas.lora       — Atlas personality & home context"
+            echo ""
+            echo "  Optional:"
+            echo "    • medical.lora     — Clinical reasoning & health"
+            echo "    • sysadmin.lora    — Server management & networking"
+            echo "    • security.lora    — Vulnerability analysis & hardening"
+            echo "    • creative.lora    — Creative writing & storytelling"
+            echo ""
             if [ -t 0 ]; then
-                PULL_LORAS=$(ask "Pull LoRA adapters? (coding, reasoning, math, atlas)" "yes")
-                if [ "$PULL_LORAS" = "yes" ]; then
-                    for lora in coding.lora reasoning.lora math.lora atlas.lora; do
+                LORA_CHOICE=$(ask "Install LoRAs? (all/recommended/none)" "recommended")
+                case "$LORA_CHOICE" in
+                    all)
+                        LORA_LIST="coding.lora reasoning.lora math.lora atlas.lora medical.lora sysadmin.lora security.lora creative.lora"
+                        ;;
+                    recommended|yes)
+                        LORA_LIST="coding.lora reasoning.lora math.lora atlas.lora"
+                        ;;
+                    *)
+                        LORA_LIST=""
+                        info "No LoRAs selected (you can add them later with: ollama pull <name>.lora)"
+                        ;;
+                esac
+                if [ -n "$LORA_LIST" ]; then
+                    for lora in $LORA_LIST; do
                         info "Pulling $lora..."
                         ollama pull "$lora" 2>/dev/null && ok "$lora ready" || warn "$lora not available yet"
                     done

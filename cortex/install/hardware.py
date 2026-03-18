@@ -313,7 +313,16 @@ ATLAS_MODELS = {
     },
 }
 
-ATLAS_LORAS = ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"]
+ATLAS_LORAS = {
+    "coding.lora": {"description": "Code generation & debugging", "size_mb": 50, "recommended": True},
+    "reasoning.lora": {"description": "Chain-of-thought & logic", "size_mb": 50, "recommended": True},
+    "math.lora": {"description": "Mathematical problem solving", "size_mb": 50, "recommended": True},
+    "atlas.lora": {"description": "Atlas personality & home context", "size_mb": 50, "recommended": True},
+    "medical.lora": {"description": "Clinical reasoning & health", "size_mb": 50, "recommended": False},
+    "sysadmin.lora": {"description": "Server management & networking", "size_mb": 50, "recommended": False},
+    "security.lora": {"description": "Vulnerability analysis & hardening", "size_mb": 50, "recommended": False},
+    "creative.lora": {"description": "Creative writing & storytelling", "size_mb": 50, "recommended": False},
+}
 
 # VRAM tiers: (min_vram_mb, {atlas models, fallback models, ...})
 _VRAM_TIERS = [
