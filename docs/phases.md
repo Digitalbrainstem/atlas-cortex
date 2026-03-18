@@ -66,12 +66,26 @@ See [installation.md](installation.md) for the full installer design.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P3 | Alarms, Timers & Reminders | 🔲 Planned | S2.5 + I2 |
-| P4 | Routines & Automations | 🔲 Planned | I2 + P3 |
+| P3 | Alarms, Timers & Reminders | ✅ Complete | S2.5 + I2 |
+| P4 | Routines & Automations | ✅ Complete | I2 + P3 |
 | P5 | Proactive Intelligence | 🔲 Planned | I2 + S2.5 + C5 |
-| P6 | Learning & Education | 🔲 Planned | C6 + C12 |
+| P6 | Learning & Education | ✅ Complete | C6 + C12 |
 | P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 |
 | P8 | Media & Entertainment | 🔲 Planned | S2.5 + I2 |
+
+### Part 9–17: Advanced Features
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P9 | Self-Evolution | 🔲 Planned | C5 + I4 |
+| P10 | Story Time Engine | 🔲 Planned | C11 + C12 + C6 |
+| P11 | Atlas CLI Agent | ✅ Complete | C0 + C1 |
+| P12 | Standalone Web App | 🔲 Planned | P11 |
+| P13 | Legacy Protocol | 🔲 Planned | I2 |
+| P14 | Household Management | 🔲 Planned | I2 + P3 |
+| P15 | Security & Monitoring | 🔲 Planned | I2 + P5 |
+| P16 | Health & Wellness | 🔲 Planned | C6 + P3 |
+| P17 | Multi-Language Support | 🔲 Planned | C6 + C11 |
 
 ---
 
@@ -1146,4 +1160,278 @@ P7.6 ──────────────┘
 P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
                                    │
                         P8.9 ◀────┘──▶ P8.11
+```
+
+---
+
+# Part 9: Self-Evolution
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P9 | Self-Evolution | 🔲 Planned | C5 (memory) + I4 (self-learning) |
+
+### P9.1 — Evolution Engine
+- Autonomous model improvement pipeline
+- Analyze conversation logs for quality gaps
+- Schedule overnight training runs
+
+### P9.2 — LoRA Training Pipeline
+- Automated QLoRA fine-tuning on consumer GPU (RTX 4060)
+- Domain-specific adapter training from usage patterns
+- Validation against core principles test suite
+
+### P9.3 — Model Scout
+- Discover new base models from HuggingFace/Ollama
+- Benchmark against current model on curated eval set
+- Safety gates: promote only if passes all safety checks
+
+### P9.4 — A/B Testing
+- Run new model/LoRA alongside current for shadow evaluation
+- User-transparent comparison, auto-promote winners
+
+### P9.5 — Personality Drift Monitor
+- Track personality metrics over time
+- Alert if responses deviate from trained personality
+- Rollback mechanism for bad evolutions
+
+### P9.6 — Evolution Dashboard
+- Admin UI showing evolution history, training runs, model comparisons
+- Manual approve/reject for model promotions
+
+---
+
+# Part 10: Story Time Engine
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P10 | Story Time | 🔲 Planned | C11 (speech) + C12 (safety) + C6 (profiles) |
+
+### P10.1 — Story Generator
+- Age-appropriate story generation via LLM
+- Genre selection: adventure, fantasy, science, bedtime
+- Branching narratives: child makes choices that affect the story
+
+### P10.2 — Character Voice System
+- Map story characters to distinct voice profiles
+- Fish Audio S2: multi-speaker dialogue in single pass, 15K+ emotion tags
+- Zero-shot voice cloning from reference audio (10-30s sample)
+
+### P10.3 — TTS Hot-Swap Manager
+- GPU memory management for RTX 4060 (8GB VRAM)
+- Unload Qwen3-TTS -> Load Fish Audio S2 -> Generate story audio -> Unload -> Reload Qwen3-TTS
+- During swap: conversational TTS falls back to Orpheus or Kokoro
+
+### P10.4 — Audio Pre-Generation
+- Pre-generate all story segments before playback
+- Cache generated audio for repeat listens
+- Background generation while previous segment plays
+
+### P10.5 — Interactive Story Mode
+- Voice-driven story progression: child speaks choices
+- "What should the knight do next?" -> child responds -> story continues
+- Integrated with safety guardrails for age-appropriate content
+
+### P10.6 — Story Library
+- Save and revisit favorite stories
+- Parent-curated collections
+- Story progress tracking (bookmarks, chapters)
+
+---
+
+# Part 11: Atlas CLI Agent
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P11 | Atlas CLI | ✅ Complete | C0 (providers) + C1 (pipeline) |
+
+### P11.1 — CLI Entry Point & REPL — ✅ Complete
+- python -m cortex.cli with chat/ask/agent/status subcommands
+- Interactive REPL with streaming, slash commands, conversation history
+
+### P11.2 — Tool System — ✅ Complete
+- 31 tools across 7 tiers: core, network, dev, atlas, multimodal, context, LoRA
+- AgentTool ABC with JSON Schema for function calling
+- ToolRegistry with get_default_registry()
+
+### P11.3 — ReAct Agent — ✅ Complete
+- Think -> Act -> Observe loop with text-based tool calling
+- Multi-modal file input (--file for images, PDFs, logs)
+- Confirmation prompts for destructive operations
+
+### P11.4 — Context & Sessions — ✅ Complete
+- Context window management with token budgeting
+- Session persistence in ~/.atlas/sessions/
+- LoRA routing stub for future expert adapter hot-swap
+
+### P11.5 — Expert LoRA Integration
+- Connect LoRA router to actual adapter hot-swapping via Ollama
+- Auto-classify tasks and load coding/reasoning/math/sysadmin LoRAs
+- Benchmark LoRA vs base model for quality validation
+
+### P11.6 — Codebase Semantic Index
+- Embed entire repo on RTX 4060 for semantic code search
+- Incremental updates as files change
+- "Find code similar to this pattern" queries
+
+---
+
+# Part 12: Standalone Web App
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P12 | Standalone Web App | 🔲 Planned | P11 (CLI) + admin panel |
+
+### P12.1 — Chat Web UI
+- Browser-based chat interface (no Open WebUI dependency)
+- WebSocket streaming, conversation history
+- Mobile-responsive
+
+### P12.2 — Voice Web Interface
+- Browser-based voice input/output via Web Audio API
+- Push-to-talk and wake word modes
+- Avatar display during conversation
+
+### P12.3 — Dashboard Integration
+- Merge admin panel + chat into single app
+- User-facing vs admin-facing views based on role
+
+---
+
+# Part 13: Legacy Protocol
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P13 | Legacy Protocol | 🔲 Planned | I2 (HA) |
+
+### P13.1 — Open WebUI Compatibility
+- Maintain pipe.py function for Open WebUI integration
+- Protocol versioning for backward compat
+
+### P13.2 — Wyoming Protocol Bridge
+- Full Wyoming protocol support for HA voice pipeline
+- Bidirectional audio streaming
+
+### P13.3 — API Versioning
+- OpenAI-compatible API v1 stability guarantees
+- Deprecation policy for breaking changes
+
+---
+
+# Part 14: Household Management
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P14 | Household Management | 🔲 Planned | I2 (HA) + P3 (scheduling) |
+
+### P14.1 — Pet Care
+- Feeding schedule reminders, vet appointment tracking
+- Medication reminders for pets
+- Integration with smart feeders via HA
+
+### P14.2 — Inventory Tracking
+- "We're running low on milk" -> auto-add to grocery list
+- Pantry management via voice
+- Expiration date tracking
+
+### P14.3 — Chore Management
+- Fair rotation tracking for household members
+- Voice-assigned chores with completion tracking
+- Weekly chore report
+
+---
+
+# Part 15: Security & Monitoring
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P15 | Security & Monitoring | 🔲 Planned | I2 (HA) + P5 (proactive) |
+
+### P15.1 — Camera Intelligence
+- Camera feed summaries: "Who was at the front door?"
+- Motion alert classification: pets vs packages vs people
+- Visitor history and recognition
+
+### P15.2 — Door & Window Status
+- "Is the garage door open?" — real-time status
+- Auto-lock reminders at bedtime
+- Departure checklist: all doors locked, windows closed
+
+### P15.3 — Security Routines
+- Away mode: simulate presence (lights, TV, blinds)
+- Alert escalation: notify -> announce -> alarm
+- Integration with security systems via HA
+
+---
+
+# Part 16: Health & Wellness
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P16 | Health & Wellness | 🔲 Planned | C6 (profiles) + P3 (scheduling) |
+
+### P16.1 — Medication Reminders
+- Per-user medication schedules with confirmation tracking
+- "Did you take your vitamin?" -> voice confirmation
+- Missed dose alerts and logging
+
+### P16.2 — Sleep Analysis
+- Sleep pattern analysis from presence sensors
+- Bedtime routine suggestions
+- Sleep quality reporting
+
+### P16.3 — Environmental Health
+- Air quality monitoring and ventilation suggestions
+- Humidity and temperature comfort tracking
+- Pollen and allergy alerts
+
+### P16.4 — Activity Reminders
+- "You've been sitting for 2 hours" movement prompts
+- Exercise suggestions based on weather and schedule
+- Hydration reminders
+
+---
+
+# Part 17: Multi-Language Support
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P17 | Multi-Language | 🔲 Planned | C6 (profiles) + C11 (speech) |
+
+### P17.1 — Language Detection
+- Auto-detect spoken/typed language
+- Per-user language preference stored in profile
+- Seamless switching mid-conversation
+
+### P17.2 — Multilingual TTS/STT
+- Language-appropriate TTS voice selection
+- Multi-language STT model support
+- Accent-aware speech recognition
+
+### P17.3 — Translation Bridge
+- Real-time translation between household members
+- "Tell mom dinner is ready" -> translates if needed
+- Vocabulary building for language learners
+
+---
+
+## Extended Dependency Graph (Full)
+
+```
+PARTS 1-2 (COMPLETE) ──▶ ALL subsequent parts
+
+PART 2.5 ─────────────────▶ PART 7 (intercom)
+                            PART 8 (media)
+
+PART 3 (scheduling) ──────▶ PART 14 (household)
+                            PART 16 (health)
+
+PART 5 (proactive) ───────▶ PART 15 (security)
+
+PART 9 (self-evolution) ◀── PART 1 (C5 memory + I4 learning)
+
+PART 10 (story time) ◀──── PART 1 (C11 speech + C6 profiles)
+
+PART 11 (CLI) ─────────────▶ PART 12 (standalone web app)
+
+PART 13 (legacy) ◀───────── PART 2 (I2 HA)
 ```
