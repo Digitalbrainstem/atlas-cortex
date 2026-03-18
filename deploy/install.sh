@@ -269,44 +269,110 @@ if command -v ollama &>/dev/null || curl -sf http://localhost:11434/api/version 
     ok "Ollama detected"
     OLLAMA_FOUND="yes"
 
-    # Recommend models based on GPU
+    # Check if Atlas models are available
+    ATLAS_ULTRA_OK="no"
+    ATLAS_CORE_OK="no"
+    if ollama show atlas-ultra:9b &>/dev/null 2>&1; then
+        ATLAS_ULTRA_OK="yes"
+        ok "atlas-ultra:9b available"
+    fi
+    if ollama show atlas-core:2b &>/dev/null 2>&1; then
+        ATLAS_CORE_OK="yes"
+        ok "atlas-core:2b available"
+    fi
+
+    # Determine recommended model based on GPU + Atlas availability
     case $GPU_MODE in
         multi)
-            RECOMMENDED_MODEL="qwen2.5:14b"
+            if [ "$ATLAS_ULTRA_OK" = "yes" ]; then
+                RECOMMENDED_MODEL="atlas-ultra:9b"
+            else
+                RECOMMENDED_MODEL="atlas-ultra:9b"
+                FALLBACK_MODEL="qwen2.5:14b"
+            fi
             info "Multi-GPU: Recommending $RECOMMENDED_MODEL for inference"
             ;;
         single)
-            RECOMMENDED_MODEL="qwen2.5:7b"
+            FALLBACK_MODEL="qwen2.5:7b"
             if [ ${#NVIDIA_GPUS[@]} -gt 0 ]; then
                 VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
-                if [ -n "$VRAM" ] && [ "$VRAM" -ge 16000 ] 2>/dev/null; then
-                    RECOMMENDED_MODEL="qwen2.5:14b"
-                elif [ -n "$VRAM" ] && [ "$VRAM" -ge 8000 ] 2>/dev/null; then
-                    RECOMMENDED_MODEL="qwen2.5:7b"
-                elif [ -n "$VRAM" ]; then
-                    RECOMMENDED_MODEL="qwen2.5:3b"
+                if [ -n "$VRAM" ] && [ "$VRAM" -ge 8000 ] 2>/dev/null; then
+                    RECOMMENDED_MODEL="atlas-ultra:9b"
+                    FALLBACK_MODEL="qwen2.5:7b"
+                    [ -n "$VRAM" ] && [ "$VRAM" -ge 16000 ] 2>/dev/null && FALLBACK_MODEL="qwen2.5:14b"
+                else
+                    RECOMMENDED_MODEL="atlas-core:2b"
+                    FALLBACK_MODEL="qwen2.5:3b"
                 fi
+            else
+                RECOMMENDED_MODEL="atlas-ultra:9b"
             fi
             info "Single GPU: Recommending $RECOMMENDED_MODEL"
             ;;
         cpu)
-            RECOMMENDED_MODEL="qwen2.5:1.5b"
-            info "CPU-only: Recommending $RECOMMENDED_MODEL (smallest)"
+            RECOMMENDED_MODEL="atlas-core:2b"
+            FALLBACK_MODEL="qwen2.5:1.5b"
+            info "CPU-only: Recommending $RECOMMENDED_MODEL (lightweight)"
             ;;
     esac
 
     if [ -t 0 ]; then
+        echo ""
+        info "Select model to pull:"
+        echo "    1. atlas-ultra:9b  (9B params, 8GB+ VRAM)  — best quality"
+        echo "    2. atlas-core:2b   (2B params, 4GB+ VRAM)  — faster, lighter"
+        if [ -n "${FALLBACK_MODEL:-}" ]; then
+            echo "    3. $FALLBACK_MODEL  — generic Qwen (no Atlas training)"
+        fi
+        echo "    4. Custom (enter model name)"
+        echo ""
         PULL_MODEL=$(ask "Pull model?" "$RECOMMENDED_MODEL")
+
+        # Resolve numbered choices
+        case "$PULL_MODEL" in
+            1) PULL_MODEL="atlas-ultra:9b" ;;
+            2) PULL_MODEL="atlas-core:2b" ;;
+            3) PULL_MODEL="${FALLBACK_MODEL:-$RECOMMENDED_MODEL}" ;;
+            4)
+                PULL_MODEL=$(ask "Enter model name" "$RECOMMENDED_MODEL")
+                ;;
+        esac
+
         if [ -n "$PULL_MODEL" ]; then
             info "Pulling $PULL_MODEL (this may take a while)..."
-            ollama pull "$PULL_MODEL" && ok "Model $PULL_MODEL ready" || warn "Model pull failed — try manually: ollama pull $PULL_MODEL"
+            if ollama pull "$PULL_MODEL" 2>/dev/null; then
+                ok "Model $PULL_MODEL ready"
+            elif [ -n "${FALLBACK_MODEL:-}" ] && [ "$PULL_MODEL" != "$FALLBACK_MODEL" ]; then
+                warn "Could not pull $PULL_MODEL — trying fallback $FALLBACK_MODEL"
+                if ollama pull "$FALLBACK_MODEL"; then
+                    ok "Fallback model $FALLBACK_MODEL ready"
+                else
+                    warn "Model pull failed — try manually: ollama pull $FALLBACK_MODEL"
+                fi
+            else
+                warn "Model pull failed — try manually: ollama pull $PULL_MODEL"
+            fi
+        fi
+
+        # Offer LoRA adapters for capable systems
+        if [ "$GPU_MODE" != "cpu" ]; then
+            echo ""
+            if [ -t 0 ]; then
+                PULL_LORAS=$(ask "Pull LoRA adapters? (coding, reasoning, math, atlas)" "yes")
+                if [ "$PULL_LORAS" = "yes" ]; then
+                    for lora in coding.lora reasoning.lora math.lora atlas.lora; do
+                        info "Pulling $lora..."
+                        ollama pull "$lora" 2>/dev/null && ok "$lora ready" || warn "$lora not available yet"
+                    done
+                fi
+            fi
         fi
     else
         info "Non-interactive: run 'ollama pull $RECOMMENDED_MODEL' to download the model"
     fi
 else
     warn "Ollama not found — install it from https://ollama.com"
-    info "After installing Ollama, run: ollama pull qwen2.5:7b"
+    info "After installing Ollama, run: ollama pull atlas-ultra:9b"
     OLLAMA_FOUND="no"
 fi
 
@@ -392,7 +458,7 @@ if [ "$OLLAMA_FOUND" = "no" ]; then
     echo ""
     echo -e "  ${YELLOW}Next: Install Ollama for LLM support:${NC}"
     echo -e "    curl -fsSL https://ollama.ai/install.sh | sh"
-    echo -e "    ollama pull qwen2.5:7b"
+    echo -e "    ollama pull atlas-ultra:9b"
 fi
 
 echo ""
