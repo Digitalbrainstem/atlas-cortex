@@ -229,11 +229,52 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
     model_thinking = rec["thinking"]
     model_embedding = rec["embedding"]
 
+    # ── LoRA adapter selection (if Atlas model chosen) ─────────
+    from cortex.install.hardware import ATLAS_LORAS
+    selected_loras: list[str] = []
+
+    is_atlas_model = "atlas" in model_fast.lower()
+    if is_atlas_model and not non_interactive:
+        _print("\n  LoRA Expert Adapters:")
+        _print("  These make Atlas smarter in specific domains (~50MB each).\n")
+
+        recommended = [k for k, v in ATLAS_LORAS.items() if v["recommended"]]
+        optional = [k for k, v in ATLAS_LORAS.items() if not v["recommended"]]
+
+        _print("  ★ Recommended (included by default):")
+        for name in recommended:
+            info = ATLAS_LORAS[name]
+            _print(f"    ✓ {name:<20s} {info['description']}")
+
+        _print("\n  Optional:")
+        for i, name in enumerate(optional, 1):
+            info = ATLAS_LORAS[name]
+            _print(f"    {i}. {name:<20s} {info['description']}")
+
+        _print(f"\n  Total recommended: {len(recommended)} adapters (~{len(recommended) * 50}MB)")
+
+        if _yes_no("  Install all LoRAs (recommended + optional)?"):
+            selected_loras = list(ATLAS_LORAS.keys())
+            _print(f"  ✓ All {len(selected_loras)} LoRA adapters selected")
+        elif _yes_no("  Install recommended LoRAs?"):
+            selected_loras = recommended
+            _print(f"  ✓ {len(selected_loras)} recommended LoRAs selected")
+            # Ask about each optional one
+            for name in optional:
+                info = ATLAS_LORAS[name]
+                if _yes_no(f"  Also install {name} ({info['description']})?", default=False):
+                    selected_loras.append(name)
+        else:
+            _print("  No LoRAs selected (you can add them later)")
+    elif is_atlas_model:
+        # Non-interactive: install recommended only
+        selected_loras = [k for k, v in ATLAS_LORAS.items() if v["recommended"]]
+
     _print(f"\n  Fast:      {model_fast}")
     _print(f"  Thinking:  {model_thinking}")
     _print(f"  Embedding: {model_embedding}")
-    if loras:
-        _print(f"  LoRAs:     {', '.join(loras)}")
+    if selected_loras:
+        _print(f"  LoRAs:     {', '.join(selected_loras)}")
 
     if not non_interactive:
         if not _yes_no("\n  Accept model selection?"):
