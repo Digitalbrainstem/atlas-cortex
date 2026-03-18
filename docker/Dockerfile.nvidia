@@ -1,0 +1,8 @@
+# NVIDIA GPU variant — extends the base Atlas Cortex image
+FROM ghcr.io/betanu701/atlas-cortex:latest
+
+# NVIDIA GPU support
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# The actual GPU drivers come from nvidia-container-toolkit on the host
