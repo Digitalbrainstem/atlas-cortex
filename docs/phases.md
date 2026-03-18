@@ -60,18 +60,33 @@ See [installation.md](installation.md) for the full installer design.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| S2.5 | Satellite Speaker/Mic System | 🔲 Planned | C11 (TTS) + C3a (Voice ID) |
+| S2.5 | Satellite Speaker/Mic System | ⏸️ Wake word deferred | C11 (TTS) + C3a (Voice ID) |
 
 ### Part 3–8: Extended Features
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P3 | Alarms, Timers & Reminders | 🔲 Planned | S2.5 + I2 |
-| P4 | Routines & Automations | 🔲 Planned | I2 + P3 |
+| P3 | Alarms, Timers & Reminders | ✅ Complete | S2.5 + I2 |
+| P4 | Routines & Automations | ✅ Complete | I2 + P3 |
 | P5 | Proactive Intelligence | 🔲 Planned | I2 + S2.5 + C5 |
-| P6 | Learning & Education | 🔲 Planned | C6 + C12 |
+| P6 | Learning & Education | ✅ Complete | C6 + C12 |
 | P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 |
 | P8 | Media & Entertainment | 🔲 Planned | S2.5 + I2 |
+
+### Part 9–17: Advanced Features
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P9 | Self-Evolution | ✅ Complete | C5 + I4 |
+| P10 | Story Time Engine | ✅ Complete | C11 + C12 + C6 |
+| P11 | Atlas CLI Agent | ✅ Complete | C0 + C1 |
+| P12 | Standalone Web App | ✅ Complete | P11 |
+| P13 | Legacy Protocol | 🔲 Planned | I2 |
+| P14 | Household Management | 🔲 Planned | I2 + P3 |
+| P15 | Security & Monitoring | 🔲 Planned | I2 + P5 |
+| P16 | Health & Wellness | 🔲 Planned | C6 + P3 |
+| P17 | Multi-Language Support | 🔲 Planned | C6 + C11 |
+| P18 | Visual Media & Casting | 🔲 Future | P8 + I2 |
 
 ---
 
@@ -839,7 +854,7 @@ Distributed speaker/microphone devices for whole-house Atlas presence. See [sate
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| S2.5 | Satellite System | 🔲 Planned | Part 1 C11 (TTS) + C3a (Voice ID) |
+| S2.5 | Satellite System | ⏸️ Wake word deferred | Part 1 C11 (TTS) + C3a (Voice ID) |
 
 ### S2.5.1 — Satellite Agent Core
 - Audio capture (16kHz mono), playback, agent loop
@@ -1033,67 +1048,176 @@ See [learning-education.md](learning-education.md) for full design.
 
 # Part 7: Intercom & Broadcasting
 
-See [intercom-broadcasting.md](intercom-broadcasting.md) for full design.
-
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
 | P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 (satellites) |
 
-### P7.1 — Intercom Intent Parser
-- Extract target rooms, zones, people, and message from voice
+Atlas owns this entirely — HA has no intercom system. Satellites are Atlas
+hardware with mics and speakers, so Atlas IS the intercom.
 
-### P7.2 — Message Personalizer
-- Adapt tone and voice for target audience (child vs adult)
+### P7.1 — Announce & Broadcast Engine
+- `cortex/intercom/engine.py` — IntercomEngine
+- Announce: TTS to specific room/satellite ("tell the kids dinner is ready")
+- Broadcast: TTS to ALL satellites ("we're leaving in 5 minutes")
+- Zone broadcast: TTS to satellite group ("announce upstairs: bedtime")
+- Priority levels: normal (respects quiet hours), urgent (louder), emergency (max volume, all rooms)
 
-### P7.3 — Satellite Router
-- Deliver TTS audio to specific satellites or zones
+### P7.2 — Zone Management
+- `cortex/intercom/zones.py` — ZoneManager
+- DB table: satellite_zones (zone_id, zone_name, satellite_ids JSON)
+- Create named groups: "upstairs", "kids rooms", "common areas"
+- Admin UI for zone CRUD
+- Voice: "create a zone called bedrooms with the kids room and master"
+
+### P7.3 — Message Personalizer
+- Adapt announcement for target audience using user profiles (C6)
+- Child in room? Simpler language, gentler tone
+- Adult? Concise, direct
+- Optionally use target user's preferred voice
 
 ### P7.4 — Two-Way Calling
 - Bidirectional audio stream between two satellites
+- "Call the garage" → open mic+speaker on both satellites
+- WebSocket audio bridge in server.py
+- Auto-timeout after 5 minutes of silence
+- "Hang up" / "end call" to close
 
-### P7.5 — Zone Management
-- Create/edit/delete satellite groups (upstairs, bedrooms, etc.)
+### P7.5 — Drop-In Monitoring
+- One-way audio FROM a satellite (parent listening to nursery)
+- "Listen to the nursery" → stream nursery mic to requesting satellite speaker
+- Requires parental auth (admin only)
+- Visual indicator on monitored satellite (LED pattern) for transparency
 
-### P7.6 — Emergency Broadcast
-- Max-priority, all-satellite, max-volume override
-
-### P7.7 — Pipeline Integration
-- Layer 2 plugin for intercom/announce/call intents
+### P7.6 — Pipeline Integration
+- Layer 2 plugin: "tell X", "announce", "broadcast", "call the X", "intercom"
+- Natural language room/zone/person resolution
 
 ---
 
 # Part 8: Media & Entertainment
 
-See [media-entertainment.md](media-entertainment.md) for full design.
-
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) + I2 (HA media players) |
+| P8 | Media & Entertainment | 🔲 Planned | S2.5 (satellites) |
+
+## Design Principle
+
+> Atlas owns the audio pipeline end-to-end.
+> Satellites ARE the speaker network — every room already has one.
+> Chromecast via `pychromecast` directly (skip HA, more reliable).
+> HA `media_player` only as last resort for devices Atlas can't reach.
+> Atlas talks DIRECTLY to media services (YouTube Music, Plex, Audiobookshelf).
+
+```
+User: "Play jazz in the kitchen"
+  │
+  Atlas (brain):
+  ├── Understands intent: play music
+  ├── Knows user prefers YouTube Music
+  ├── Knows kitchen has a satellite speaker
+  ├── Remembers "Dad likes jazz in the evening"
+  │
+  ├── Direct → YouTube Music API: search "jazz", get stream URL
+  │
+  └── Playback priority:
+      1. Kitchen satellite → stream PCM via WebSocket (we control both ends)
+      2. Kitchen Chromecast → cast via pychromecast (reliable, no HA)
+      3. HA media_player → last resort for unknown devices
+```
 
 ### P8.1 — Media Provider Interface
-- Abstract source with search, stream, health check
+- `cortex/media/base.py` — Abstract MediaProvider
+- Methods: search(query), get_stream_url(track_id), get_playlists(),
+  get_playback_state(), play(), pause(), skip(), set_volume()
+- Each provider implements this interface
+- Provider registry with priority ordering
 
-### P8.2 — Local Library Provider
-- File scanning (FLAC, MP3, OGG, WAV), ID3 tags, search index
-- Optional Jellyfin/Plex/Navidrome integration
+### P8.2 — YouTube Music Provider (Priority — your primary service)
+- `cortex/media/youtube_music.py`
+- Uses `ytmusicapi` (OAuth auth) for search, playlists, library, queue
+- Uses `yt-dlp` for stream URL extraction (audio-only)
+- Robust error handling: retry on failure, degrade gracefully
+- Cache search results and stream URLs (URLs expire — refresh logic)
+- WAF-critical: if ytmusicapi breaks, clear error message + fallback to local
+- OAuth token refresh handling
 
-### P8.3 — Spotify Provider
-- Spotify Connect API via HA or `spotipy`
+### P8.3 — Local Library Provider
+- `cortex/media/local_library.py`
+- Scan configured directories for audio files (FLAC, MP3, OGG, WAV, M4A)
+- Read ID3/mutagen tags (artist, album, title, genre, year)
+- SQLite search index (FTS5) for fast queries
+- Always available — the offline fallback
+- "Play something" with no service configured → plays local
 
-### P8.4 — YouTube Music Provider
-- `ytmusicapi` search and streaming
+### P8.4 — Plex Provider
+- `cortex/media/plex.py`
+- Uses `plexapi` library (official, well-maintained)
+- Search music library, get stream URLs
+- Also: movies/shows metadata for "what should we watch" queries
+- Config: plex_url, plex_token
 
-### P8.5 — HA Media Provider
-- Wrap HA `media_player.*` entities
+### P8.5 — Audiobookshelf Provider
+- `cortex/media/audiobookshelf.py`
+- Uses `aioaudiobookshelf` or direct REST API
+- Get library, search books, get stream URL with chapter offset
+- Sync progress: report current position, resume from last position
+- "Continue my audiobook" → resume from exact timestamp
+- "Where did I leave off in Dune?" → chapter + timestamp
+- Config: abs_url, abs_token
 
 ### P8.6 — Podcast Provider
-- RSS parsing, auto-download, episode tracking, resume position
+- `cortex/media/podcasts.py`
+- RSS feed parser (no external service dependency)
+- DB: podcast_subscriptions, podcast_episodes, podcast_progress
+- Auto-check for new episodes on schedule
+- Resume position tracking per episode
+- "Any new episodes of Hardcore History?"
 
-### P8.7 — Playback Controller
-- Play/pause/skip/volume/transfer between rooms
+### P8.7 — Playback Router
+- `cortex/media/router.py` — PlaybackRouter
+- Decides WHERE to play based on context, with clear priority:
+  1. **Atlas Satellite** (primary) — Direct PCM stream via WebSocket
+     We control both ends. Rock solid. Every room has one.
+  2. **Chromecast** — `pychromecast` library directly (NOT through HA)
+     Mature, stable, well-maintained. Cast stream URL to device.
+  3. **HA media_player** — Last resort for devices Atlas can't reach
+     Sonos or other smart speakers that HA happens to expose.
+- Room resolution: "kitchen" → finds kitchen satellite first, then Chromecast, then HA entity
+- Transfer: "move this to the bedroom" → stop kitchen, start bedroom (same stream URL)
+- Volume control routed to appropriate target
+- `pychromecast` for Chromecast discovery + control (skip HA entirely)
 
 ### P8.8 — Multi-Room Sync
-- HA media groups, Snapcast, or satellite-based sync
+- Synchronized playback across multiple satellites
+- Start same stream on multiple satellites with timing sync via WebSocket
+- "Play everywhere" → all satellites get the stream
+- Chromecast groups for grouped casting (pychromecast supports this natively)
+- Group management: "play in common areas" → resolve zone to satellites
+
+### P8.9 — Preference Engine
+- `cortex/media/preferences.py`
+- Per-user music taste learning from history
+- Time-of-day patterns: "morning playlist" vs "evening jazz"
+- "Play something" → smart selection based on user + time + mood
+- Genre affinity scoring from listening history
+
+### P8.10 — Pipeline Plugin
+- Layer 2 plugin matching: "play X", "music", "listen to", "put on",
+  "continue my audiobook", "any new podcasts", "what's playing",
+  "skip", "pause", "volume", "play everywhere", "move to X"
+- Resolves provider + target + action from natural language
+
+### P8.11 — Spotify Provider (lower priority)
+- `cortex/media/spotify.py`
+- Uses `spotipy` (official library, stable)
+- Search, playlists, playback control via Spotify Connect
+- Atlas controls Spotify directly, NOT through HA's integration
+- Config: spotify_client_id, spotify_client_secret, redirect_uri
+
+### P8.12 — Admin UI
+- MediaView.vue: configured providers, playback history, preferences
+- Provider config forms (API keys, URLs, scan directories)
+- Now Playing dashboard across all rooms
 
 ### P8.9 — Smart Playlists
 - Learn preferences from listening patterns
@@ -1146,4 +1270,334 @@ P7.6 ──────────────┘
 P8.1 ──▶ P8.2-P8.6 ──▶ P8.7 ──▶ P8.8 ──▶ P8.10
                                    │
                         P8.9 ◀────┘──▶ P8.11
+```
+
+---
+
+# Part 9: Self-Evolution
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P9 | Self-Evolution | 🔲 Planned | C5 (memory) + I4 (self-learning) |
+
+### P9.1 — Evolution Engine
+- Autonomous model improvement pipeline
+- Analyze conversation logs for quality gaps
+- Schedule overnight training runs
+
+### P9.2 — LoRA Training Pipeline
+- Automated QLoRA fine-tuning on consumer GPU (RTX 4060)
+- Domain-specific adapter training from usage patterns
+- Validation against core principles test suite
+
+### P9.3 — Model Scout
+- Discover new base models from HuggingFace/Ollama
+- Benchmark against current model on curated eval set
+- Safety gates: promote only if passes all safety checks
+
+### P9.4 — A/B Testing
+- Run new model/LoRA alongside current for shadow evaluation
+- User-transparent comparison, auto-promote winners
+
+### P9.5 — Personality Drift Monitor
+- Track personality metrics over time
+- Alert if responses deviate from trained personality
+- Rollback mechanism for bad evolutions
+
+### P9.6 — Evolution Dashboard
+- Admin UI showing evolution history, training runs, model comparisons
+- Manual approve/reject for model promotions
+
+---
+
+# Part 10: Story Time Engine
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P10 | Story Time | 🔲 Planned | C11 (speech) + C12 (safety) + C6 (profiles) |
+
+### P10.1 — Story Generator
+- Age-appropriate story generation via LLM
+- Genre selection: adventure, fantasy, science, bedtime
+- Branching narratives: child makes choices that affect the story
+
+### P10.2 — Character Voice System
+- Map story characters to distinct voice profiles
+- Fish Audio S2: multi-speaker dialogue in single pass, 15K+ emotion tags
+- Zero-shot voice cloning from reference audio (10-30s sample)
+
+### P10.3 — TTS Hot-Swap Manager
+- GPU memory management for RTX 4060 (8GB VRAM)
+- Unload Qwen3-TTS -> Load Fish Audio S2 -> Generate story audio -> Unload -> Reload Qwen3-TTS
+- During swap: conversational TTS falls back to Orpheus or Kokoro
+
+### P10.4 — Audio Pre-Generation
+- Pre-generate all story segments before playback
+- Cache generated audio for repeat listens
+- Background generation while previous segment plays
+
+### P10.5 — Interactive Story Mode
+- Voice-driven story progression: child speaks choices
+- "What should the knight do next?" -> child responds -> story continues
+- Integrated with safety guardrails for age-appropriate content
+
+### P10.6 — Story Library
+- Save and revisit favorite stories
+- Parent-curated collections
+- Story progress tracking (bookmarks, chapters)
+
+---
+
+# Part 11: Atlas CLI Agent
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P11 | Atlas CLI | ✅ Complete | C0 (providers) + C1 (pipeline) |
+
+### P11.1 — CLI Entry Point & REPL — ✅ Complete
+- python -m cortex.cli with chat/ask/agent/status subcommands
+- Interactive REPL with streaming, slash commands, conversation history
+
+### P11.2 — Tool System — ✅ Complete
+- 31 tools across 7 tiers: core, network, dev, atlas, multimodal, context, LoRA
+- AgentTool ABC with JSON Schema for function calling
+- ToolRegistry with get_default_registry()
+
+### P11.3 — ReAct Agent — ✅ Complete
+- Think -> Act -> Observe loop with text-based tool calling
+- Multi-modal file input (--file for images, PDFs, logs)
+- Confirmation prompts for destructive operations
+
+### P11.4 — Context & Sessions — ✅ Complete
+- Context window management with token budgeting
+- Session persistence in ~/.atlas/sessions/
+- LoRA routing stub for future expert adapter hot-swap
+
+### P11.5 — Expert LoRA Integration
+- Connect LoRA router to actual adapter hot-swapping via Ollama
+- Auto-classify tasks and load coding/reasoning/math/sysadmin LoRAs
+- Benchmark LoRA vs base model for quality validation
+
+### P11.6 — Codebase Semantic Index
+- Embed entire repo on RTX 4060 for semantic code search
+- Incremental updates as files change
+- "Find code similar to this pattern" queries
+
+---
+
+# Part 12: Standalone Web App
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P12 | Standalone Web App | 🔲 Planned | P11 (CLI) + admin panel |
+
+### P12.1 — Chat Web UI
+- Browser-based chat interface (no Open WebUI dependency)
+- WebSocket streaming, conversation history
+- Mobile-responsive
+
+### P12.2 — Voice Web Interface
+- Browser-based voice input/output via Web Audio API
+- Push-to-talk and wake word modes
+- Avatar display during conversation
+
+### P12.3 — Dashboard Integration
+- Merge admin panel + chat into single app
+- User-facing vs admin-facing views based on role
+
+---
+
+# Part 13: Legacy Protocol
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P13 | Legacy Protocol | 🔲 Planned | I2 (HA) |
+
+### P13.1 — Open WebUI Compatibility
+- Maintain pipe.py function for Open WebUI integration
+- Protocol versioning for backward compat
+
+### P13.2 — Wyoming Protocol Bridge
+- Full Wyoming protocol support for HA voice pipeline
+- Bidirectional audio streaming
+
+### P13.3 — API Versioning
+- OpenAI-compatible API v1 stability guarantees
+- Deprecation policy for breaking changes
+
+---
+
+# Part 14: Household Management
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P14 | Household Management | 🔲 Planned | I2 (HA) + P3 (scheduling) |
+
+Atlas is the brain: remembers schedules, tracks state, sends reminders.
+HA is the body: smart feeders, sensors, physical integrations.
+Existing services: grocery list apps, calendar apps — Atlas talks to them directly.
+
+### P14.1 — Pet Care
+- Feeding schedule reminders via scheduling engine (Part 3)
+- Vet appointment tracking via calendar (CalDAV)
+- Medication reminders for pets
+- Smart feeder integration: HA for device control, Atlas for schedule intelligence
+- "Did you feed the dog?" → check if smart feeder ran today (HA sensor)
+
+### P14.2 — Inventory & Grocery
+- "We're running low on milk" → add to grocery list (existing Lists plugin)
+- Voice-managed shopping list with categories
+- Expiration date tracking (manual input, reminder on approaching dates)
+- "What's on the grocery list?" → reads back from list system
+
+### P14.3 — Chore Management
+- DB table: chores (name, assigned_to, frequency, last_done, next_due)
+- Fair rotation tracking for household members
+- Voice: "assign dishes to Jake this week"
+- Completion confirmation: "I finished the laundry"
+- Weekly chore report via daily briefing (Part 5)
+
+---
+
+# Part 15: Security & Monitoring
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P15 | Security & Monitoring | 🔲 Planned | I2 (HA) + P5 (proactive) |
+
+HA handles: camera feeds, door/window sensors, alarm systems, motion detectors.
+Atlas adds: intelligence layer — pattern recognition, natural language queries,
+smart alerting, context-aware responses.
+
+### P15.1 — Security Status Queries
+- "Is the garage door open?" → query HA entity state (already works via HA plugin)
+- "Are all doors locked?" → aggregate check across lock entities
+- "Who's home?" → presence detection via HA person entities
+- These are mostly HA queries Atlas already supports — formalize as smart queries
+
+### P15.2 — Smart Alerting (extends Part 5 Proactive)
+- Proactive rules for security events:
+  - Door opened at unusual hour → alert
+  - Motion when house is "away" mode → alert
+  - Garage door left open > 30min → reminder
+- Camera integration: if HA exposes camera entities, Atlas can describe
+  "Someone is at the front door" (using vision model on 4060 for camera frames)
+
+### P15.3 — Security Routines (extends Part 4 Routines)
+- "Goodnight" routine: lock all doors, close garage, arm alarm
+- "Leaving" routine: lock up, set away mode
+- "Away mode": simulate presence (random lights via HA, already possible)
+- These are mostly routine templates — add security-specific ones
+
+---
+
+# Part 16: Health & Wellness
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P16 | Health & Wellness | 🔲 Planned | C6 (profiles) + P3 (scheduling) |
+
+Atlas is the brain: tracks medication schedules, sends reminders, monitors patterns.
+HA provides: presence sensors, environmental sensors (air quality, temperature).
+No external health services — all local and private.
+
+### P16.1 — Medication Reminders
+- DB table: medications (user_id, name, dosage, schedule, last_taken)
+- Scheduled reminders via Part 3 scheduling engine
+- Voice confirmation: "Did you take your vitamin?" → "Yes" → mark taken
+- Missed dose tracking and escalation (remind again in 30 min)
+- Privacy-critical: all data local, never sent anywhere
+
+### P16.2 — Environmental Health
+- Air quality from HA sensors (if available)
+- Temperature/humidity comfort tracking
+- "Is the air quality good today?" → check HA + outdoor API
+- Proactive rule: alert if CO2 > threshold, suggest opening windows
+
+### P16.3 — Activity & Wellness Reminders
+- "You've been sitting for 2 hours" → presence sensor + timer
+- Hydration reminders on schedule
+- Sleep tracking from presence sensors (when bedroom occupied)
+- These are proactive rules (Part 5) with health-specific templates
+
+---
+
+# Part 17: Multi-Language Support
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P17 | Multi-Language | 🔲 Planned | C6 (profiles) + C11 (speech) |
+
+### P17.1 — Language Detection
+- Auto-detect spoken/typed language
+- Per-user language preference stored in profile
+- Seamless switching mid-conversation
+
+### P17.2 — Multilingual TTS/STT
+- Language-appropriate TTS voice selection
+- Multi-language STT model support (Whisper supports 99 languages)
+- Accent-aware speech recognition
+
+### P17.3 — Translation Bridge
+- Real-time translation between household members
+- "Tell mom dinner is ready" -> translates if needed
+- Uses existing translation plugin (Part 2.7) as backbone
+
+---
+
+# Part 18: Visual Media & Casting (Future)
+
+| Phase | Name | Status | Prerequisites |
+|-------|------|--------|---------------|
+| P18 | Visual Media & Casting | 🔲 Future | P8 (media) + I2 (HA) |
+
+Audio is Part 8. Visual media (TV, video) is a different beast — different
+protocols, different hardware. Kept separate intentionally.
+
+### P18.1 — Chromecast Control
+- Discovery and casting via `pychromecast`
+- "Cast this to the living room TV"
+- Transport controls: play/pause/stop/volume
+
+### P18.2 — Plex Video Casting
+- Browse Plex movies/shows by voice
+- "Play The Office on the bedroom TV" → cast to Chromecast/Plex client
+- Resume from last position
+
+### P18.3 — Apple TV Control
+- Via `pyatv` library
+- Transport controls, app launching
+- "Pause the Apple TV"
+
+### P18.4 — Media Transfer
+- "Move this to the bedroom TV" → stop on current, start on target
+- Room-aware: knows which TV is in which room via HA entities
+
+### P18.5 — Ambient Display
+- Photo slideshow on idle TVs (from local photos or Google Photos)
+- Weather/calendar dashboard on kitchen TV
+- "Show my photos on the living room TV"
+
+---
+
+## Extended Dependency Graph (Full)
+
+```
+PARTS 1-2 (COMPLETE) ──▶ ALL subsequent parts
+
+PART 2.5 ─────────────────▶ PART 7 (intercom)
+                            PART 8 (media)
+
+PART 3 (scheduling) ──────▶ PART 14 (household)
+                            PART 16 (health)
+
+PART 5 (proactive) ───────▶ PART 15 (security)
+
+PART 9 (self-evolution) ◀── PART 1 (C5 memory + I4 learning)
+
+PART 10 (story time) ◀──── PART 1 (C11 speech + C6 profiles)
+
+PART 11 (CLI) ─────────────▶ PART 12 (standalone web app)
+
+PART 13 (legacy) ◀───────── PART 2 (I2 HA)
 ```

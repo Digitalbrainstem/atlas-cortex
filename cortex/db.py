@@ -878,6 +878,226 @@ CREATE TABLE IF NOT EXISTS routine_runs (
     steps_completed INTEGER DEFAULT 0,
     error_message TEXT DEFAULT ''
 );
+
+-- Story Time Engine
+CREATE TABLE IF NOT EXISTS stories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    genre TEXT DEFAULT 'adventure',
+    target_age_group TEXT DEFAULT 'child',
+    summary TEXT DEFAULT '',
+    total_chapters INTEGER DEFAULT 1,
+    created_by TEXT DEFAULT '',
+    is_interactive INTEGER DEFAULT 0,
+    parent_approved INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS story_chapters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    chapter_number INTEGER NOT NULL,
+    title TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    narrator_voice TEXT DEFAULT 'default',
+    choices TEXT DEFAULT '[]',
+    next_chapter_map TEXT DEFAULT '{}',
+    audio_cached INTEGER DEFAULT 0,
+    audio_path TEXT DEFAULT '',
+    duration_seconds REAL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS story_characters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    voice_id TEXT DEFAULT '',
+    voice_style TEXT DEFAULT '',
+    reference_audio TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS story_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    story_id INTEGER NOT NULL REFERENCES stories(id),
+    current_chapter INTEGER DEFAULT 1,
+    choices_made TEXT DEFAULT '[]',
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_listened TEXT,
+    completed INTEGER DEFAULT 0,
+    UNIQUE(user_id, story_id)
+);
+
+-- Proactive Intelligence
+CREATE TABLE IF NOT EXISTS proactive_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    provider TEXT NOT NULL,
+    condition_type TEXT NOT NULL,
+    condition_config TEXT DEFAULT '{}',
+    action_type TEXT NOT NULL,
+    action_config TEXT DEFAULT '{}',
+    priority TEXT DEFAULT 'normal',
+    enabled INTEGER DEFAULT 1,
+    cooldown_minutes INTEGER DEFAULT 60,
+    last_fired TEXT,
+    fire_count INTEGER DEFAULT 0,
+    user_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS proactive_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER REFERENCES proactive_rules(id),
+    provider TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_data TEXT DEFAULT '{}',
+    action_taken TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    quiet_hours_start TEXT DEFAULT '22:00',
+    quiet_hours_end TEXT DEFAULT '07:00',
+    min_priority TEXT DEFAULT 'normal',
+    max_per_hour INTEGER DEFAULT 10,
+    channels TEXT DEFAULT '["log"]',
+    UNIQUE(user_id)
+);
+
+-- ───────── Self-Evolution ─────────
+
+CREATE TABLE IF NOT EXISTS evolution_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_type TEXT NOT NULL,  -- analysis, training, evaluation, promotion
+    status TEXT DEFAULT 'pending',  -- pending, running, completed, failed
+    config TEXT DEFAULT '{}',
+    results TEXT DEFAULT '{}',
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS evolution_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER REFERENCES evolution_runs(id),
+    metric_name TEXT NOT NULL,
+    metric_value REAL NOT NULL,
+    domain TEXT DEFAULT 'general',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS model_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_name TEXT NOT NULL,
+    model_type TEXT DEFAULT 'base',  -- base, lora, candidate
+    source TEXT DEFAULT '',  -- ollama, huggingface, local
+    status TEXT DEFAULT 'available',  -- available, active, retired, candidate
+    eval_score REAL DEFAULT 0,
+    safety_score REAL DEFAULT 0,
+    personality_score REAL DEFAULT 0,
+    metadata TEXT DEFAULT '{}',
+    promoted_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(model_name, model_type)
+);
+
+-- ── Media & Entertainment ────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS media_library (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT DEFAULT '',
+    album TEXT DEFAULT '',
+    genre TEXT DEFAULT '',
+    duration_seconds REAL DEFAULT 0,
+    external_id TEXT DEFAULT '',
+    file_path TEXT DEFAULT '',
+    metadata TEXT DEFAULT '{}',
+    indexed_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS media_playback_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    media_id INTEGER REFERENCES media_library(id),
+    provider TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT DEFAULT '',
+    played_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    duration_listened REAL DEFAULT 0,
+    completed INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS media_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    genre TEXT NOT NULL,
+    affinity REAL DEFAULT 0.5,
+    play_count INTEGER DEFAULT 0,
+    last_played TEXT,
+    UNIQUE(user_id, genre)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    feed_url TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    last_checked TEXT,
+    auto_download INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER REFERENCES podcast_subscriptions(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    audio_url TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    duration_seconds REAL DEFAULT 0,
+    published_at TEXT,
+    listened INTEGER DEFAULT 0,
+    progress_seconds REAL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ───────── Intercom & Broadcasting ─────────
+
+CREATE TABLE IF NOT EXISTS satellite_zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    satellite_ids TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS intercom_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    source_room TEXT DEFAULT '',
+    target TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    user_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS active_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    caller_satellite TEXT NOT NULL,
+    callee_satellite TEXT NOT NULL,
+    status TEXT DEFAULT 'ringing',
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    ended_at TEXT
+);
 """
 
 
