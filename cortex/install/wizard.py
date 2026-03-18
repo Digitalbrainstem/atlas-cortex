@@ -80,19 +80,62 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
     ram = hw.get("ram_mb", 0)
     disk = hw.get("disk", {})
     gpus = hw.get("gpus", [])
+    deployment = hw.get("deployment", {})
 
+    _print("\n── Hardware Detection ──\n")
     _print(f"  CPU: {cpu.get('model', 'Unknown')} ({cpu.get('cores', '?')} cores)")
     _print(f"  RAM: {ram // 1024} GB")
     _print(f"  Disk: {disk.get('free_gb', 0):.0f} GB free on {disk.get('path', '.')}")
-    if gpus:
-        for gpu in gpus:
-            igpu_note = " (iGPU)" if gpu.get("is_igpu") else ""
-            _print(f"  GPU: {gpu['name']} ({gpu['vram_mb'] // 1024} GB {gpu.get('compute_api', '').upper()}){igpu_note}")
-    else:
-        _print("  GPU: None detected (CPU-only mode)")
 
+    if gpus:
+        _print("\n  GPUs Found:")
+        for i, gpu in enumerate(gpus, 1):
+            api = gpu.get("compute_api", "").upper()
+            kind = "integrated" if gpu.get("is_igpu") else "discrete"
+            vram_str = f"{gpu['vram_mb'] // 1024}GB VRAM" if gpu.get("vram_mb") else "VRAM unknown"
+            api_str = f" ({api})" if api and api != "NONE" else ""
+            _print(f"    {i}. {gpu.get('vendor', '').upper()} {gpu['name']} — {vram_str}{api_str}  [{kind}]")
+    else:
+        _print("\n  GPU: None detected (CPU-only mode)")
+
+    # Show deployment recommendation
+    tier = deployment.get("tier", "cpu-only")
     rec = recommend_models(hw)
     _print(f"\n  Recommended model tier: {rec['class']}")
+
+    if tier == "dual-gpu":
+        llm_dev = deployment.get("llm_device", {})
+        tts_dev = deployment.get("tts_device", {})
+        _print("\n── Deployment Recommendation ──\n")
+        _print("  ✨ Dual-GPU Setup Detected — Best Configuration:\n")
+        _print("  ┌─────────────────────────────────────────────────┐")
+        _print(f"  │ {llm_dev.get('name', '?')} ({llm_dev.get('vram_mb', 0) // 1024}GB, {llm_dev.get('compute_api', '?').upper()})")
+        _print(f"  │   → LLM inference ({rec['fast']})")
+        _print("  │   → LoRA training (overnight)")
+        _print("  │")
+        _print(f"  │ {tts_dev.get('name', '?')} ({tts_dev.get('vram_mb', 0) // 1024}GB, {tts_dev.get('compute_api', '?').upper()})")
+        _print("  │   → TTS (Orpheus / Kokoro)")
+        _print("  │   → Specialist models (vision, embeddings)")
+        _print("  └─────────────────────────────────────────────────┘")
+        for note in deployment.get("notes", []):
+            _print(f"  ℹ  {note}")
+    elif tier == "single-gpu":
+        _print("\n── Deployment Recommendation ──\n")
+        gpu_dev = deployment.get("llm_device", {})
+        _print(f"  Single GPU: {gpu_dev.get('name', '?')} ({gpu_dev.get('vram_mb', 0) // 1024}GB)")
+        _print("  All models share this GPU (LLM + TTS take turns)")
+    elif tier == "cpu-only":
+        _print("\n── Deployment Recommendation ──\n")
+        _print("  ⚠  CPU-only mode — expect slower responses")
+        _print("  Recommended: smallest models (qwen2.5:1.5b / qwen2.5:3b)")
+        _print("  TTS: Piper (CPU, fast) recommended over GPU-based TTS")
+
+    if not non_interactive and gpus:
+        accept = _yes_no("\n  Accept this configuration?")
+        if not accept:
+            _print("  (Adjust model choices in step 4)")
+    elif not gpus:
+        pass  # nothing to confirm for CPU-only
 
     # ── [3/6] LLM backend discovery ───────────────────────────
     _print("\n[3/6] Scanning for existing LLM backends...")

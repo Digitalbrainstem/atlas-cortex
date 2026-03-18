@@ -53,18 +53,46 @@ def detect_nvidia_gpus() -> list[dict[str, Any]]:
                 vram_mb = int(parts[1].strip())
             except ValueError:
                 vram_mb = 0
+            lower = name.lower()
+            is_igpu = (
+                any(x in lower for x in ["tegra", "orin", "xavier", "integrated"])
+                or vram_mb < 1024
+            )
             gpus.append({
                 "vendor": "nvidia",
                 "name": name,
                 "vram_mb": vram_mb,
-                "is_igpu": "integrated" in name.lower() or vram_mb < 2048,
+                "is_igpu": is_igpu,
                 "compute_api": "cuda",
             })
     return gpus
 
 
+_AMD_IGPU_MARKERS = [
+    "vega 3", "vega 6", "vega 7", "vega 8", "vega 10", "vega 11",
+    "raphael", "780m", "680m", "610m", "integrated",
+]
+
+# Known AMD discrete VRAM sizes (substring → MB) for lspci fallback
+_AMD_VRAM_HINTS: list[tuple[str, int]] = [
+    ("7900 xtx", 24576), ("7900 xt", 20480), ("7900 gre", 16384),
+    ("7800 xt", 16384), ("7700 xt", 12288), ("7600", 8192),
+    ("6950 xt", 16384), ("6900 xt", 16384), ("6800 xt", 16384),
+    ("6800", 16384), ("6750 xt", 12288), ("6700 xt", 12288),
+    ("6600 xt", 8192), ("6600", 8192),
+]
+
+
+def _is_amd_igpu(name: str, vram_mb: int) -> bool:
+    lower = name.lower()
+    if any(x in lower for x in _AMD_IGPU_MARKERS):
+        return True
+    # Small VRAM with no discrete-class model name ⇒ likely iGPU
+    return vram_mb > 0 and vram_mb < 2048
+
+
 def detect_amd_gpus() -> list[dict[str, Any]]:
-    """Detect AMD GPUs via rocm-smi or /sys."""
+    """Detect AMD GPUs via rocm-smi, /sys, or lspci fallback."""
     # Try rocm-smi
     out = _run(["rocm-smi", "--showmeminfo", "vram", "--json"])
     if out:
@@ -76,11 +104,12 @@ def detect_amd_gpus() -> list[dict[str, Any]]:
                 if key.startswith("card"):
                     vram_bytes = int(info.get("VRAM Total Memory (B)", 0))
                     vram_mb = vram_bytes // (1024 * 1024)
+                    name = info.get("Card series", "AMD GPU")
                     gpus.append({
                         "vendor": "amd",
-                        "name": info.get("Card series", "AMD GPU"),
+                        "name": name,
                         "vram_mb": vram_mb,
-                        "is_igpu": vram_mb < 2048,
+                        "is_igpu": _is_amd_igpu(name, vram_mb),
                         "compute_api": "rocm",
                     })
             if gpus:
@@ -89,7 +118,7 @@ def detect_amd_gpus() -> list[dict[str, Any]]:
             pass
 
     # Fallback: /sys/class/drm
-    gpus = []
+    gpus: list[dict[str, Any]] = []
     drm = Path("/sys/class/drm")
     if drm.exists():
         for card in drm.glob("card*/device/mem_info_vram_total"):
@@ -100,11 +129,36 @@ def detect_amd_gpus() -> list[dict[str, Any]]:
                     "vendor": "amd",
                     "name": "AMD GPU",
                     "vram_mb": vram_mb,
-                    "is_igpu": vram_mb < 2048,
+                    "is_igpu": _is_amd_igpu("AMD GPU", vram_mb),
                     "compute_api": "rocm",
                 })
             except Exception:
                 pass
+    if gpus:
+        return gpus
+
+    # Fallback: lspci
+    out = _run(["lspci", "-nn"])
+    for line in out.splitlines():
+        if not ("VGA" in line or "Display" in line or "3D controller" in line):
+            continue
+        lower = line.lower()
+        if "amd" not in lower and "radeon" not in lower and "advanced micro" not in lower:
+            continue
+        name = line.split(": ", 1)[1] if ": " in line else "AMD GPU"
+        vram_mb = 0
+        name_lower = name.lower()
+        for hint, mb in _AMD_VRAM_HINTS:
+            if hint in name_lower:
+                vram_mb = mb
+                break
+        gpus.append({
+            "vendor": "amd",
+            "name": name.strip(),
+            "vram_mb": vram_mb,
+            "is_igpu": _is_amd_igpu(name, vram_mb),
+            "compute_api": "rocm",
+        })
     return gpus
 
 
@@ -130,12 +184,58 @@ def detect_apple_silicon() -> list[dict[str, Any]]:
     }]
 
 
+def detect_intel_gpus() -> list[dict[str, Any]]:
+    """Detect Intel GPUs (Arc discrete or integrated UHD/Iris)."""
+    gpus: list[dict[str, Any]] = []
+    out = _run(["lspci", "-nn"])
+    for line in out.splitlines():
+        if not ("VGA" in line or "Display" in line or "3D controller" in line):
+            continue
+        lower = line.lower()
+        if "intel" not in lower:
+            continue
+        name = line.split(": ", 1)[1] if ": " in line else "Intel GPU"
+        is_discrete = any(
+            x in lower
+            for x in ["arc", "a770", "a750", "a580", "a380", "a310", "b580"]
+        )
+        vram_mb = 0
+        if is_discrete:
+            name_lower = name.lower()
+            if "a770" in name_lower:
+                vram_mb = 16384
+            elif "a750" in name_lower or "a580" in name_lower:
+                vram_mb = 8192
+            elif "b580" in name_lower:
+                vram_mb = 12288
+            elif "a380" in name_lower:
+                vram_mb = 6144
+            elif "a310" in name_lower:
+                vram_mb = 4096
+            else:
+                vram_mb = 4096  # conservative guess for unknown Arc
+        gpus.append({
+            "vendor": "intel",
+            "name": name.strip(),
+            "vram_mb": vram_mb,
+            "is_igpu": not is_discrete,
+            "compute_api": "sycl" if is_discrete else "none",
+        })
+    return gpus
+
+
 def detect_gpus() -> list[dict[str, Any]]:
-    """Return a list of detected GPUs (best-effort, never raises)."""
+    """Detect ALL GPUs from ALL vendors.
+
+    A system may have mixed vendors (e.g. AMD + NVIDIA), so every vendor
+    is always checked regardless of earlier results.  Apple Silicon is the
+    exception — it is only probed when no discrete GPUs are found (there is
+    no mixed-vendor scenario on Apple hardware).
+    """
     gpus: list[dict[str, Any]] = []
     gpus.extend(detect_nvidia_gpus())
-    if not gpus:
-        gpus.extend(detect_amd_gpus())
+    gpus.extend(detect_amd_gpus())
+    gpus.extend(detect_intel_gpus())
     if not gpus:
         gpus.extend(detect_apple_silicon())
     return gpus
@@ -263,6 +363,94 @@ def recommend_models(hardware: dict[str, Any]) -> dict[str, Any]:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Deployment recommendation
+# ──────────────────────────────────────────────────────────────────
+
+def _docker_variant(primary: dict[str, Any], secondary: dict[str, Any] | None = None) -> str:
+    """Determine which docker-compose GPU override to use."""
+    vendors = {primary["vendor"]}
+    if secondary:
+        vendors.add(secondary["vendor"])
+
+    if vendors == {"nvidia"}:
+        return "gpu-nvidia"
+    elif vendors == {"amd"}:
+        return "gpu-amd"
+    elif "nvidia" in vendors and "amd" in vendors:
+        return "gpu-both"
+    elif "intel" in vendors:
+        return "gpu-intel"
+    return "cpu"
+
+
+def recommend_deployment(hardware: dict[str, Any]) -> dict[str, Any]:
+    """Recommend how to deploy across available hardware.
+
+    Returns a deployment plan with tier, device assignments, model
+    recommendations, human-readable notes, and docker-compose variant.
+    """
+    gpus = hardware.get("gpus", [])
+    discrete_gpus = [g for g in gpus if not g.get("is_igpu", False)]
+
+    if len(discrete_gpus) >= 2:
+        sorted_gpus = sorted(discrete_gpus, key=lambda g: g["vram_mb"], reverse=True)
+        primary = sorted_gpus[0]
+        secondary = sorted_gpus[1]
+
+        notes = [
+            f"LLM on {primary['name']} ({primary['vram_mb'] // 1024}GB) via {primary.get('compute_api', '?').upper()}",
+            f"TTS + specialist models on {secondary['name']} ({secondary['vram_mb'] // 1024}GB) via {secondary.get('compute_api', '?').upper()}",
+            "LoRA training can run overnight on the LLM GPU",
+        ]
+        if primary.get("vendor") != secondary.get("vendor"):
+            notes.append(
+                f"Mixed vendor: LLM uses {primary.get('compute_api', '?').upper()}, "
+                f"TTS uses {secondary.get('compute_api', '?').upper()}"
+            )
+
+        return {
+            "tier": "dual-gpu",
+            "llm_device": primary,
+            "tts_device": secondary,
+            "specialist_device": secondary,
+            "models": recommend_models(hardware),
+            "notes": notes,
+            "docker_compose_variant": _docker_variant(primary, secondary),
+        }
+
+    elif len(discrete_gpus) == 1:
+        gpu = discrete_gpus[0]
+        return {
+            "tier": "single-gpu",
+            "llm_device": gpu,
+            "tts_device": gpu,
+            "specialist_device": None,
+            "models": recommend_models(hardware),
+            "notes": [
+                f"All models share {gpu['name']} ({gpu['vram_mb'] // 1024}GB)",
+                "TTS and LLM take turns on the same GPU",
+            ],
+            "docker_compose_variant": _docker_variant(gpu),
+        }
+
+    else:
+        return {
+            "tier": "cpu-only",
+            "llm_device": None,
+            "tts_device": None,
+            "specialist_device": None,
+            "models": _VRAM_TIERS[-1][1],
+            "notes": [
+                "No discrete GPU detected — running CPU-only",
+                "Expect slower responses (5-15 seconds)",
+                "Use smaller models: qwen2.5:1.5b or qwen2.5:3b",
+                "TTS: Piper (CPU, fast) recommended over GPU-based TTS",
+            ],
+            "docker_compose_variant": "cpu",
+        }
+
+
+# ──────────────────────────────────────────────────────────────────
 # Master detect function
 # ──────────────────────────────────────────────────────────────────
 
@@ -279,4 +467,5 @@ def detect_hardware() -> dict[str, Any]:
         "release": platform.release(),
     }
     hw["recommended_models"] = recommend_models(hw)
+    hw["deployment"] = recommend_deployment(hw)
     return hw
