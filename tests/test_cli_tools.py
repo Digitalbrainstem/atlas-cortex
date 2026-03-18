@@ -372,7 +372,7 @@ class TestDefaultRegistry:
     def test_schemas_are_valid(self):
         reg = get_default_registry()
         schemas = reg.get_function_schemas()
-        assert len(schemas) == 8
+        assert len(schemas) == 31
         for s in schemas:
             assert s["type"] == "function"
             fn = s["function"]
