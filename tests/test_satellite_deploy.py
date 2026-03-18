@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
+flask = pytest.importorskip("flask", reason="flask not installed — satellite captive portal tests skipped")
+
 from satellite.captive_portal.portal import app
 
 
