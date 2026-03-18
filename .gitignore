@@ -48,3 +48,18 @@ admin/.vscode/
 
 # Copilot workspace (tracked — needed for LLM development context)
 # .github/copilot-instructions.md
+
+# Distillation model backups (too large for git)
+data/distillation/h100_backup/models/
+data/distillation/h100_backup/datasets/lora_datasets*/
+data/distillation/h100_backup/datasets/specialist_teacher/
+data/distillation/h100_backup/datasets/lora_datasets/
+data/distillation/h100_backup/datasets/*.jsonl
+*.tar.gz
+*.safetensors
+*.bin
+*.gguf
+*.onnx
+
+# Stack Exchange raw data
+data/stackexchange/
