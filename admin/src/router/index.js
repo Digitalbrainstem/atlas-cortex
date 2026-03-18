@@ -10,6 +10,10 @@ const routes = [
   },
   {
     path: '/',
+    redirect: '/chat',
+  },
+  {
+    path: '/dashboard',
     name: 'dashboard',
     component: () => import('../views/DashboardView.vue'),
   },
@@ -84,6 +88,11 @@ const routes = [
     component: () => import('../views/EvolutionView.vue'),
   },
   {
+    path: '/stories',
+    name: 'stories',
+    component: () => import('../views/StoriesView.vue'),
+  },
+  {
     path: '/system',
     name: 'system',
     component: () => import('../views/SystemView.vue'),
@@ -92,6 +101,11 @@ const routes = [
     path: '/learning',
     name: 'learning',
     component: () => import('../views/LearningView.vue'),
+  },
+  {
+    path: '/proactive',
+    name: 'proactive',
+    component: () => import('../views/ProactiveView.vue'),
   },
 ];
 
