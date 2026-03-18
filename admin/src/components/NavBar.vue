@@ -26,6 +26,7 @@ const adminItems = [
   { name: 'Scheduling', route: 'scheduling', icon: '⏰' },
   { name: 'Routines', route: 'routines', icon: '🔄' },
   { name: 'Learning', route: 'learning', icon: '📚' },
+  { name: 'Proactive', route: 'proactive', icon: '⚡' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },
 ];

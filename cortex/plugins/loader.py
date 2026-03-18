@@ -48,6 +48,8 @@ BUILTIN_PLUGINS: dict[str, str] = {
     "conversions": "cortex.plugins.conversions:ConversionPlugin",
     "movie": "cortex.plugins.movie:MoviePlugin",
     "cooking": "cortex.plugins.cooking:CookingPlugin",
+    "stories": "cortex.plugins.stories:StoryPlugin",
+    "daily_briefing": "cortex.plugins.briefing:DailyBriefingPlugin",
 }
 
 

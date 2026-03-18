@@ -16,6 +16,7 @@ from cortex.proactive.providers import (
     AnomalyDetector,
     CalendarAwareness,
 )
+from cortex.proactive.briefing import DailyBriefing
 
 __all__ = [
     "RuleEngine",
@@ -25,4 +26,5 @@ __all__ = [
     "EnergyMonitor",
     "AnomalyDetector",
     "CalendarAwareness",
+    "DailyBriefing",
 ]
