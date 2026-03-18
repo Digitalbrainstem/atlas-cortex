@@ -9,7 +9,11 @@ const router = useRouter();
 const collapsed = ref(false);
 const mobileOpen = ref(false);
 
-const navItems = [
+const chatItems = [
+  { name: 'Chat', route: 'chat', icon: '💬' },
+];
+
+const adminItems = [
   { name: 'Dashboard', route: 'dashboard', icon: '📊' },
   { name: 'Users', route: 'users', icon: '👥' },
   { name: 'Satellites', route: 'satellites', icon: '📡' },
@@ -22,6 +26,9 @@ const navItems = [
   { name: 'Scheduling', route: 'scheduling', icon: '⏰' },
   { name: 'Routines', route: 'routines', icon: '🔄' },
   { name: 'Learning', route: 'learning', icon: '📚' },
+  { name: 'Proactive', route: 'proactive', icon: '⚡' },
+  { name: 'Media', route: 'media', icon: '🎵' },
+  { name: 'Intercom', route: 'intercom', icon: '📢' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },
 ];
@@ -49,7 +56,7 @@ function handleLogout() {
 
   <nav class="sidebar" :class="{ collapsed, 'mobile-open': mobileOpen }">
     <div class="sidebar-header">
-      <div class="logo" @click="navigate('dashboard')">
+      <div class="logo" @click="navigate('chat')">
         <span class="logo-icon">🧠</span>
         <span v-if="!collapsed" class="logo-text">Atlas Cortex</span>
       </div>
@@ -60,7 +67,21 @@ function handleLogout() {
 
     <div class="sidebar-nav">
       <a
-        v-for="item in navItems"
+        v-for="item in chatItems"
+        :key="item.route"
+        class="nav-item"
+        :class="{ active: isActive(item.route) }"
+        @click="navigate(item.route)"
+      >
+        <span class="nav-icon">{{ item.icon }}</span>
+        <span v-if="!collapsed" class="nav-label">{{ item.name }}</span>
+      </a>
+
+      <div v-if="!collapsed" class="nav-section-label">Admin</div>
+      <div v-else class="nav-divider"></div>
+
+      <a
+        v-for="item in adminItems"
         :key="item.route"
         class="nav-item"
         :class="{ active: isActive(item.route) }"
@@ -218,5 +239,21 @@ function handleLogout() {
     background: rgba(0, 0, 0, 0.5);
     z-index: 999;
   }
+}
+
+.nav-section-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0.75rem 0.75rem 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.nav-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.5rem 0.75rem;
 }
 </style>
