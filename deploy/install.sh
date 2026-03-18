@@ -72,19 +72,75 @@ ok "All prerequisites satisfied"
 # ── 2. Hardware detection ──────────────────────────────────────────
 step "Detecting hardware"
 
-GPU="none"
-if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
-    GPU="nvidia"
-    GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1)
-    ok "NVIDIA GPU: $GPU_INFO"
-elif command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
-    GPU="amd"
-    ok "AMD GPU detected (ROCm)"
-elif [ -d /dev/dri ] && ls /dev/dri/renderD* &>/dev/null; then
-    GPU="intel"
-    ok "Intel GPU detected (likely)"
+NVIDIA_GPUS=()
+AMD_GPUS=()
+INTEL_GPUS=()
+
+# NVIDIA
+if command -v nvidia-smi &>/dev/null; then
+    while IFS= read -r line; do
+        [ -n "$line" ] && NVIDIA_GPUS+=("$line")
+    done < <(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null)
+fi
+
+# AMD
+if command -v rocm-smi &>/dev/null; then
+    while IFS= read -r line; do
+        [ -n "$line" ] && AMD_GPUS+=("$line")
+    done < <(rocm-smi --showproductname 2>/dev/null | grep -iE 'card|gpu' | head -5)
+fi
+# AMD lspci fallback
+if [ ${#AMD_GPUS[@]} -eq 0 ] && command -v lspci &>/dev/null; then
+    while IFS= read -r line; do
+        [ -n "$line" ] && AMD_GPUS+=("$line")
+    done < <(lspci 2>/dev/null | grep -iE 'VGA.*amd|VGA.*radeon|Display.*amd|Display.*radeon')
+fi
+
+# Intel discrete (Arc)
+if command -v lspci &>/dev/null; then
+    while IFS= read -r line; do
+        if echo "$line" | grep -qiE 'arc|a770|a750|a580|b580'; then
+            INTEL_GPUS+=("$line")
+        fi
+    done < <(lspci 2>/dev/null | grep -iE 'VGA.*intel|Display.*intel')
+fi
+
+TOTAL_GPUS=$(( ${#NVIDIA_GPUS[@]} + ${#AMD_GPUS[@]} + ${#INTEL_GPUS[@]} ))
+
+if [ "$TOTAL_GPUS" -eq 0 ]; then
+    warn "No discrete GPU detected — CPU-only mode"
+    GPU_MODE="cpu"
+elif [ "$TOTAL_GPUS" -eq 1 ]; then
+    ok "Single GPU detected"
+    GPU_MODE="single"
 else
-    warn "No GPU detected — CPU-only mode"
+    ok "Multi-GPU detected ($TOTAL_GPUS GPUs)"
+    GPU_MODE="multi"
+fi
+
+# Show detailed GPU info
+for gpu in "${NVIDIA_GPUS[@]}"; do
+    ok "  NVIDIA: $gpu"
+done
+for gpu in "${AMD_GPUS[@]}"; do
+    ok "  AMD: $gpu"
+done
+for gpu in "${INTEL_GPUS[@]}"; do
+    ok "  Intel: $gpu"
+done
+
+# Recommend Docker Compose variant
+if [ ${#NVIDIA_GPUS[@]} -gt 0 ] && [ ${#AMD_GPUS[@]} -gt 0 ]; then
+    COMPOSE_VARIANT="gpu-both"
+    info "Mixed GPU: NVIDIA + AMD — will configure both runtimes"
+elif [ ${#NVIDIA_GPUS[@]} -gt 0 ]; then
+    COMPOSE_VARIANT="gpu-nvidia"
+elif [ ${#AMD_GPUS[@]} -gt 0 ]; then
+    COMPOSE_VARIANT="gpu-amd"
+elif [ ${#INTEL_GPUS[@]} -gt 0 ]; then
+    COMPOSE_VARIANT="gpu-intel"
+else
+    COMPOSE_VARIANT="cpu"
 fi
 
 RAM_GB=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo "unknown")
@@ -103,7 +159,7 @@ if [ "$DISK_AVAIL" != "unknown" ]; then
     fi
 fi
 
-# Detect Ollama
+# Detect Ollama (for summary — full setup in step 8b)
 if command -v ollama &>/dev/null || curl -sf http://localhost:11434/api/version &>/dev/null; then
     ok "Ollama detected"
     OLLAMA_FOUND="yes"
@@ -178,7 +234,7 @@ ok "Updated pip/setuptools"
 ok "Installed atlas-cortex"
 
 # Install extras based on hardware
-if [ "$GPU" != "none" ]; then
+if [ "$GPU_MODE" != "cpu" ]; then
     info "GPU detected — consider installing media extras:"
     info "  $VENV/bin/pip install -e '$INSTALL_DIR[media]'"
 fi
@@ -204,6 +260,54 @@ if [ -t 0 ]; then
 else
     warn "Non-interactive mode — skipping wizard"
     info "Run later: $VENV/bin/python -m cortex.install"
+fi
+
+# ── 8b. Model setup ──────────────────────────────────────────────
+step "Model Setup"
+
+if command -v ollama &>/dev/null || curl -sf http://localhost:11434/api/version &>/dev/null; then
+    ok "Ollama detected"
+    OLLAMA_FOUND="yes"
+
+    # Recommend models based on GPU
+    case $GPU_MODE in
+        multi)
+            RECOMMENDED_MODEL="qwen2.5:14b"
+            info "Multi-GPU: Recommending $RECOMMENDED_MODEL for inference"
+            ;;
+        single)
+            RECOMMENDED_MODEL="qwen2.5:7b"
+            if [ ${#NVIDIA_GPUS[@]} -gt 0 ]; then
+                VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+                if [ -n "$VRAM" ] && [ "$VRAM" -ge 16000 ] 2>/dev/null; then
+                    RECOMMENDED_MODEL="qwen2.5:14b"
+                elif [ -n "$VRAM" ] && [ "$VRAM" -ge 8000 ] 2>/dev/null; then
+                    RECOMMENDED_MODEL="qwen2.5:7b"
+                elif [ -n "$VRAM" ]; then
+                    RECOMMENDED_MODEL="qwen2.5:3b"
+                fi
+            fi
+            info "Single GPU: Recommending $RECOMMENDED_MODEL"
+            ;;
+        cpu)
+            RECOMMENDED_MODEL="qwen2.5:1.5b"
+            info "CPU-only: Recommending $RECOMMENDED_MODEL (smallest)"
+            ;;
+    esac
+
+    if [ -t 0 ]; then
+        PULL_MODEL=$(ask "Pull model?" "$RECOMMENDED_MODEL")
+        if [ -n "$PULL_MODEL" ]; then
+            info "Pulling $PULL_MODEL (this may take a while)..."
+            ollama pull "$PULL_MODEL" && ok "Model $PULL_MODEL ready" || warn "Model pull failed — try manually: ollama pull $PULL_MODEL"
+        fi
+    else
+        info "Non-interactive: run 'ollama pull $RECOMMENDED_MODEL' to download the model"
+    fi
+else
+    warn "Ollama not found — install it from https://ollama.com"
+    info "After installing Ollama, run: ollama pull qwen2.5:7b"
+    OLLAMA_FOUND="no"
 fi
 
 # ── 9. Systemd service ──────────────────────────────────────────
@@ -273,7 +377,16 @@ echo ""
 echo -e "  ${BOLD}Install path:${NC}  $INSTALL_DIR"
 echo -e "  ${BOLD}Python venv:${NC}   $VENV"
 echo -e "  ${BOLD}Data:${NC}          $DATA_DIR"
-echo -e "  ${BOLD}GPU:${NC}           $GPU"
+echo -e "  ${BOLD}GPU:${NC}           ${GPU_MODE} (${COMPOSE_VARIANT})"
+for gpu in "${NVIDIA_GPUS[@]}"; do
+    echo -e "                   NVIDIA: $gpu"
+done
+for gpu in "${AMD_GPUS[@]}"; do
+    echo -e "                   AMD: $gpu"
+done
+for gpu in "${INTEL_GPUS[@]}"; do
+    echo -e "                   Intel: $gpu"
+done
 
 if [ "$OLLAMA_FOUND" = "no" ]; then
     echo ""
