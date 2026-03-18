@@ -34,12 +34,10 @@ dependencies = [
     "websockets>=12.0",
     # Multipart form parsing
     "python-multipart",
-    # CLI
-    "rich>=13.0",
-    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
+cli = ["rich>=13.0", "prompt_toolkit>=3.0"]
 vector = ["chromadb>=0.4"]
 media = [
     "pychromecast>=14.0",
@@ -53,7 +51,7 @@ dev = [
     "pytest-asyncio>=1.0.0",
     "playwright>=1.40",
 ]
-all = ["atlas-cortex[vector,media,dev]"]
+all = ["atlas-cortex[cli,vector,media,dev]"]
 
 [project.scripts]
 atlas = "cortex.cli.__main__:main"

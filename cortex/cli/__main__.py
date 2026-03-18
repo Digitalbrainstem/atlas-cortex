@@ -114,6 +114,11 @@ async def _run_diagnose(_args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    # Check deps before importing anything that needs them
+    from cortex.cli import _check_cli_deps
+    if not _check_cli_deps():
+        return 1
+
     parser = _build_parser()
     args = parser.parse_args()
 

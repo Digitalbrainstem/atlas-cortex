@@ -4,6 +4,28 @@ Get Atlas Cortex running in under 5 minutes. Choose the path that fits your setu
 
 ---
 
+## Installation Options
+
+### Server Only (no CLI)
+```bash
+pip install atlas-cortex
+atlas-server  # starts the server
+```
+
+### Server + CLI Agent
+```bash
+pip install atlas-cortex[cli]
+atlas chat    # interactive chat
+atlas agent "build something"  # autonomous agent
+```
+
+### Everything
+```bash
+pip install atlas-cortex[all]  # server + cli + media + vector search
+```
+
+---
+
 ## Path A: Docker (Recommended)
 
 ### Prerequisites
@@ -11,8 +33,19 @@ Get Atlas Cortex running in under 5 minutes. Choose the path that fits your setu
 - 8GB+ RAM (16GB recommended)
 - GPU optional but recommended for voice and LLM performance
 
-### Steps
+### Pull and Run
+```bash
+docker pull ghcr.io/betanu701/atlas-cortex:latest
+docker run -d --name atlas -p 5100:5100 -v atlas-data:/data ghcr.io/betanu701/atlas-cortex
+```
 
+### With GPU (NVIDIA)
+```bash
+docker pull ghcr.io/betanu701/atlas-cortex:latest-nvidia
+docker run -d --gpus all --name atlas -p 5100:5100 -v atlas-data:/data ghcr.io/betanu701/atlas-cortex:latest-nvidia
+```
+
+### Docker Compose
 ```bash
 # 1. Clone the repository
 git clone https://github.com/Betanu701/atlas-cortex.git
@@ -28,8 +61,7 @@ docker compose -f docker/docker-compose.yml up -d
 #    http://localhost:5100
 ```
 
-### GPU Support
-
+### GPU Compose Overrides
 ```bash
 # NVIDIA (CUDA)
 docker compose -f docker/docker-compose.yml \
