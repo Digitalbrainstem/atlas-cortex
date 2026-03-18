@@ -22,6 +22,8 @@ from cortex.admin.routines import router as routines_router
 from cortex.admin.evolution import router as evolution_router
 from cortex.admin.stories import router as stories_router
 from cortex.admin.proactive import router as proactive_router
+from cortex.admin.intercom import router as intercom_router
+from cortex.admin.media import router as media_router
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -41,3 +43,5 @@ router.include_router(routines_router)
 router.include_router(evolution_router)
 router.include_router(stories_router)
 router.include_router(proactive_router)
+router.include_router(intercom_router)
+router.include_router(media_router)

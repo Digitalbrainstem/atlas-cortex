@@ -1007,6 +1007,97 @@ CREATE TABLE IF NOT EXISTS model_registry (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(model_name, model_type)
 );
+
+-- ── Media & Entertainment ────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS media_library (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT DEFAULT '',
+    album TEXT DEFAULT '',
+    genre TEXT DEFAULT '',
+    duration_seconds REAL DEFAULT 0,
+    external_id TEXT DEFAULT '',
+    file_path TEXT DEFAULT '',
+    metadata TEXT DEFAULT '{}',
+    indexed_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS media_playback_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    media_id INTEGER REFERENCES media_library(id),
+    provider TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT DEFAULT '',
+    played_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    duration_listened REAL DEFAULT 0,
+    completed INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS media_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    genre TEXT NOT NULL,
+    affinity REAL DEFAULT 0.5,
+    play_count INTEGER DEFAULT 0,
+    last_played TEXT,
+    UNIQUE(user_id, genre)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    feed_url TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    last_checked TEXT,
+    auto_download INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER REFERENCES podcast_subscriptions(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    audio_url TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    duration_seconds REAL DEFAULT 0,
+    published_at TEXT,
+    listened INTEGER DEFAULT 0,
+    progress_seconds REAL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ───────── Intercom & Broadcasting ─────────
+
+CREATE TABLE IF NOT EXISTS satellite_zones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT DEFAULT '',
+    satellite_ids TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS intercom_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    source_room TEXT DEFAULT '',
+    target TEXT DEFAULT '',
+    message TEXT DEFAULT '',
+    user_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS active_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    caller_satellite TEXT NOT NULL,
+    callee_satellite TEXT NOT NULL,
+    status TEXT DEFAULT 'ringing',
+    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    ended_at TEXT
+);
 """
 
 
