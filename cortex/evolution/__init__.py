@@ -6,16 +6,31 @@ interaction patterns, sentiment history, and relationship depth.
 Phase C4 implementation: Emotional Profile Engine (C4.1), Nightly
 Personality Evolution (C4.2), Contextual Response Personalization (C4.3),
 and Memory & Proactive Suggestions (C4.4).
+
+Part 9 additions: Self-evolution engine, conversation analysis, and
+model registry for autonomous improvement.
 """
 
-# Module ownership: Emotional evolution: rapport, mood tracking
+# Module ownership: Emotional evolution: rapport, mood tracking, self-evolution
 
 from __future__ import annotations
+
+from cortex.evolution.analysis import ConversationAnalyzer
+from cortex.evolution.engine import EvolutionEngine
+from cortex.evolution.registry import ModelRegistry
 
 import json
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+__all__ = [
+    "ConversationAnalyzer",
+    "EmotionalEvolution",
+    "EmotionalState",
+    "EvolutionEngine",
+    "ModelRegistry",
+]
 
 
 @dataclass
