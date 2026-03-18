@@ -37,6 +37,21 @@ BUILTIN_PLUGINS: dict[str, str] = {
     "scheduling": "cortex.plugins.timers:SchedulingPlugin",
     "stem_games": "cortex.plugins.games:STEMGamesPlugin",
     "routines": "cortex.plugins.routines:RoutinePlugin",
+    "news": "cortex.plugins.news:NewsPlugin",
+    "translation": "cortex.plugins.translation:TranslationPlugin",
+    "stocks": "cortex.plugins.stocks:StocksPlugin",
+    "sports": "cortex.plugins.sports:SportsPlugin",
+    "sound_library": "cortex.plugins.sound_library:SoundLibraryPlugin",
+    "weather": "cortex.plugins.weather:WeatherPlugin",
+    "dictionary": "cortex.plugins.dictionary:DictionaryPlugin",
+    "wikipedia": "cortex.plugins.wikipedia:WikipediaPlugin",
+    "conversions": "cortex.plugins.conversions:ConversionPlugin",
+    "movie": "cortex.plugins.movie:MoviePlugin",
+    "cooking": "cortex.plugins.cooking:CookingPlugin",
+    "stories": "cortex.plugins.stories:StoryPlugin",
+    "daily_briefing": "cortex.plugins.briefing:DailyBriefingPlugin",
+    "media": "cortex.plugins.media:MediaPlugin",
+    "intercom": "cortex.plugins.intercom:IntercomPlugin",
 }
 
 
