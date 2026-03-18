@@ -68,12 +68,12 @@ See [installation.md](installation.md) for the full installer design.
 |-------|------|--------|---------------|
 | P3 | Alarms, Timers & Reminders | ✅ Complete | S2.5 + I2 |
 | P4 | Routines & Automations | ✅ Complete | I2 + P3 |
-| P5 | Proactive Intelligence | 🔲 Planned | I2 + S2.5 + C5 |
+| P5 | Proactive Intelligence | ✅ Complete | I2 + S2.5 + C5 |
 | P6 | Learning & Education | ✅ Complete | C6 + C12 |
-| P7 | Intercom & Broadcasting | 🔲 Planned | S2.5 |
-| P8 | Media & Entertainment | 🔲 Planned | S2.5 + I2 |
+| P7 | Intercom & Broadcasting | ✅ Complete | S2.5 |
+| P8 | Media & Entertainment | ✅ Complete | S2.5 + I2 |
 
-### Part 9–17: Advanced Features
+### Part 9–18: Advanced Features
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
