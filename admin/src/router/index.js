@@ -107,6 +107,16 @@ const routes = [
     name: 'proactive',
     component: () => import('../views/ProactiveView.vue'),
   },
+  {
+    path: '/media',
+    name: 'media',
+    component: () => import('../views/MediaView.vue'),
+  },
+  {
+    path: '/intercom',
+    name: 'intercom',
+    component: () => import('../views/IntercomView.vue'),
+  },
 ];
 
 const router = createRouter({
