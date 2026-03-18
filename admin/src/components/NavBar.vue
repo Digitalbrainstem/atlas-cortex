@@ -11,6 +11,7 @@ const mobileOpen = ref(false);
 
 const navItems = [
   { name: 'Dashboard', route: 'dashboard', icon: '📊' },
+  { name: 'Chat', route: 'chat', icon: '💬' },
   { name: 'Users', route: 'users', icon: '👥' },
   { name: 'Satellites', route: 'satellites', icon: '📡' },
   { name: 'Parental Controls', route: 'parental', icon: '👨‍👩‍👧' },
