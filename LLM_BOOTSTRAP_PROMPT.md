@@ -11,11 +11,12 @@
 Read these files in order before making any changes:
 
 1. **`.github/copilot-instructions.md`** — Build, test, architecture, conventions
-2. **`docs/roadmap.md`** — What's done, what's next, MVP blockers
+2. **`docs/roadmap.md`** — What's done, what's next
 3. **`docs/architecture.md`** — 4-layer pipeline, processing flow
-4. **`docs/voice-engine.md`** — TTS providers (Kokoro primary), voice pipeline, timing data
+4. **`docs/voice-engine.md`** — TTS providers, voice pipeline, timing data
 5. **`docs/development-mocks.md`** — How to develop without GPU/servers
 6. **`docs/infrastructure.md`** — Production deployment, Docker stack, satellite hardware
+7. **`docs/configuration.md`** — All environment variables
 
 ## Step 2: Set Up Mock Development Environment
 
@@ -41,7 +42,7 @@ python -m cortex.server
 ## Step 3: Run Tests
 
 ```bash
-# All tests (625+ pass, ~3min)
+# All tests (2,825+ pass)
 python -m pytest tests/ -q
 
 # Specific module
@@ -59,55 +60,51 @@ Known pre-existing failures (not regressions):
 
 ## Step 4: Understand Current State
 
-### What Works (Deployed to Production)
-- 4-layer pipeline (context → instant → plugins → LLM)
-- Kokoro TTS (primary, CPU, sub-2s synthesis, port 8880)
-- Sentence-level TTS streaming (audio starts before LLM finishes)
-- Pre-generated filler cache (0ms lookup during pipeline wait)
-- Hallucination detection for Whisper noise patterns
-- Auto-listen after questions (conversational continuity)
-- ReSpeaker button handler (gpiod, GPIO 17, toggle/press/hold modes)
-- Safety guardrails (input + output, content tiers, jailbreak defense)
-- Memory system (HOT/COLD, BM25 + optional vector search)
-- Admin panel (Vue 3 SPA)
+### Completed Parts (16 of 18 phases)
+- **Part 1**: Core Engine — 4-layer pipeline, providers, memory (HOT/COLD), safety, avatar, profiles, context, backup
+- **Part 2**: Integration — HA, discovery, voice pipeline, self-learning, knowledge (WebDAV/CalDAV), lists, offsite backup
+- **Part 2.5**: Satellite system (wake word deferred)
+- **Part 2.7**: Plugin infrastructure — 21 built-in plugins
+- **Part 3**: Alarms, timers, reminders — NL time parser, notification routing
+- **Part 4**: Routines & automations — triggers (voice/cron/HA events), templates
+- **Part 5**: Proactive intelligence — rule engine, weather/energy/anomaly/calendar providers, daily briefing
+- **Part 6**: Learning & education — Socratic tutoring, quiz gen (through Calc III), 3 STEM games
+- **Part 7**: Intercom — announce, broadcast, zones, two-way calling, drop-in
+- **Part 8**: Media — YouTube Music, Plex, Audiobookshelf, podcasts, local library, playback router
+- **Part 9**: Self-evolution — conversation analysis, LoRA training (ROCm/AMD), model scout, A/B testing, drift monitor
+- **Part 10**: Story time — generator, character voices (Fish Audio S2), TTS hot-swap, interactive stories
+- **Part 11**: Atlas CLI — REPL, 31 agent tools, ReAct loop, context management, sessions
+- **Part 12**: Standalone web app — browser chat, WebSocket streaming, voice I/O, avatar, dashboard
 
-### Voice Pipeline Timing (Real Measurements)
-| Component | Average | Range |
-|-----------|---------|-------|
-| STT (Whisper.cpp Vulkan) | 190ms | 176-251ms |
-| LLM (qwen2.5:7b) | 4371ms | 1768-6672ms |
-| Time to first TTS audio | 4620ms | 2259-5191ms |
-| Total end-to-end | 8567ms | 6518-11291ms |
+### Admin Panel Views (20 total)
+Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Satellites, SatelliteDetail, Plugins, Scheduling, Routines, Learning, Proactive, Media, Intercom, Evolution, Stories, System
 
-### Pending Todos (Priority Order)
+### Hardware Architecture (Production)
+- RX 7900 XT (20GB, ROCm) — LLM inference + LoRA training at night
+- RTX 4060 (8GB, CUDA) — TTS (Qwen3-TTS), specialist models (vision, embeddings)
+- TTS hierarchy: Qwen3-TTS → Fish Audio S2 (stories) → Orpheus → Kokoro → Piper
 
-#### 🔴 MVP Blockers
-- **wake-word-reliability** — openwakeword needs 2-3 tries from cold start. Investigate model fine-tuning, mic AGC, or alternative wake word engine.
-
-#### 🟡 Near-term
-- **admin-ui-button** — Add button_mode dropdown to `admin/src/views/SatelliteDetailView.vue`
-
-#### 🟢 Conversational Engine (CE-1 through CE-5)
-These are the next major architectural phase — see `docs/roadmap.md` Part 2.5:
-
-1. **CE-1: Streaming STT** — Extended listening with local phrase boundary detection
-2. **CE-2: Multi-question queuing** — Queue multiple phrases, process in order
-3. **CE-3: Barge-in** — Hot mics during TTS, interrupt detection
-4. **CE-4: Pause/pivot** — Pause TTS on interruption, decide to pivot or resume
-5. **CE-5: Adaptive LEDs** — Dual-state LED patterns by satellite hardware
+### Remaining Parts (Planned)
+- P13: Legacy Protocol
+- P14: Household Management
+- P15: Security & Monitoring
+- P16: Health & Wellness
+- P17: Multi-Language Support
+- P18: Visual Media & Casting
 
 ## Key Technical Facts
 
 ### TTS Provider Stack
-- **Primary: Kokoro** — `TTS_PROVIDER=kokoro`, port 8880, voice `af_bella`
+- **Primary: Qwen3-TTS** — GPU (RTX 4060), high quality
+- **Character voices: Fish Audio S2** — GPU, TTS hot-swap for stories
 - **Alternate: Orpheus** — GPU-based, supports emotion tags (`<laugh>`, `<sigh>`)
-- **Fallback: Piper** — Ultra-fast CPU, basic quality
-- Kokoro is used via `KokoroClient` in `cortex/voice/kokoro.py` AND registered as `KokoroTTSProvider` in the provider registry
+- **CPU fallback: Kokoro** — port 8880, voice `af_bella`
+- **Last resort: Piper** — Ultra-fast CPU, basic quality
 
 ### LLM Configuration
-- `MODEL_FAST=qwen2.5:7b` — factual questions (default)
-- `MODEL_THINKING=qwen2.5:7b` — reasoning tasks (same model in current setup)
-- Both must be set via env vars — defaults in code are `qwen2.5:14b` / `qwen3:30b-a3b`
+- `MODEL_FAST=qwen2.5:14b` — factual questions (default; production uses `qwen2.5:7b`)
+- `MODEL_THINKING=qwen3:30b-a3b` — reasoning tasks (production uses `qwen2.5:7b`)
+- Both must be set via env vars
 
 ### Satellite Hardware (Reference)
 - Pi Zero 2W + ReSpeaker 2-mic HAT
@@ -130,7 +127,7 @@ These are the next major architectural phase — see `docs/roadmap.md` Part 2.5:
 - `mocks/data/voice_benchmark_results.json` — voice pipeline timing (35 questions)
 - `mocks/conftest.py` — pytest fixtures for auto-starting mocks
 
-## Directory Structure (Key Files)
+## Directory Structure (Key Modules)
 
 ```
 cortex/
@@ -138,31 +135,18 @@ cortex/
 ├── pipe.py                      # Open WebUI Pipe function
 ├── db.py                        # SQLite schema (50+ tables)
 ├── auth.py                      # JWT authentication
-├── admin_api.py                 # DEPRECATED shim → cortex.admin
-├── jokes.py                     # DEPRECATED shim → cortex.content.jokes
-├── admin/                       # Admin API domain routers
-│   ├── __init__.py              # Assembles 9 sub-routers
-│   ├── helpers.py               # Shared _db(), _rows(), _row()
-│   ├── auth.py                  # Login, session, password
-│   ├── dashboard.py             # Dashboard stats
-│   ├── users.py                 # User CRUD, parental controls
-│   ├── safety.py                # Safety events, jailbreak patterns
-│   ├── devices.py               # Speakers, HA devices
-│   ├── system.py                # Settings, evolution, system info
-│   ├── satellites.py            # Satellite management
-│   ├── tts.py                   # TTS preview, voice management
-│   └── avatar.py                # Avatar skins, audio routing
-├── orchestrator/                # Request coordination
-│   ├── __init__.py              # Entry: process_voice_pipeline()
+├── admin/                       # Admin API domain routers (9 sub-routers)
+├── orchestrator/                # Request coordination (STT→pipeline→TTS)
 │   ├── voice.py                 # STT → pipeline → TTS flow
 │   ├── text.py                  # Sentence splitting, auto-listen
 │   └── filler.py                # Filler dispatch (cache → live)
 ├── speech/                      # All audio synthesis/transcription
-│   ├── __init__.py              # Entry: synthesize_speech, transcribe
-│   ├── tts.py                   # Multi-provider TTS (Orpheus→Kokoro→Piper)
+│   ├── tts.py                   # Multi-provider TTS with hot-swap
 │   ├── stt.py                   # Whisper + Wyoming STT
 │   ├── voices.py                # Voice resolution (satellite→user→system)
-│   └── cache.py                 # Unified audio cache (data/tts_cache/)
+│   ├── cache.py                 # Unified audio cache (data/tts_cache/)
+│   ├── fish_audio.py            # Fish Audio S2 character voices
+│   └── hotswap.py               # Runtime TTS model swapping
 ├── pipeline/
 │   ├── __init__.py              # Pipeline orchestrator (run_pipeline)
 │   ├── events.py                # Typed events (TextToken, ExpressionEvent, etc.)
@@ -171,57 +155,35 @@ cortex/
 │   ├── layer2_plugins.py        # Learned patterns + plugin dispatch
 │   └── layer3_llm.py            # Filler + LLM streaming
 ├── avatar/                      # Avatar state: face, mouth, skin
-│   ├── __init__.py              # Public API + backward compat
-│   ├── controller.py            # Single entry point for avatar control
-│   ├── expressions.py           # Expression mapping (19 emotions)
-│   ├── visemes.py               # Lip-sync viseme generation
-│   ├── skins/                   # SVG skins (default, nick)
-│   ├── broadcast.py             # WS transport to display clients
-│   ├── websocket.py             # WS handler (connect, greeting, jokes)
-│   └── display.html             # Client-side renderer
 ├── memory/                      # HOT/COLD memory system
-│   ├── __init__.py              # Re-exports + backward compat
-│   ├── controller.py            # MemorySystem singleton
-│   ├── hot.py                   # HOT recall (BM25 + vector, RRF)
-│   ├── cold.py                  # COLD async write queue
-│   ├── classification.py        # Memory type classifier
-│   ├── pii.py                   # PII redaction
-│   ├── vector.py                # ChromaDB wrapper
-│   └── types.py                 # MemoryEntry, MemoryHit
-├── notifications/               # Alert and notification system
-│   ├── __init__.py              # Entry: send_notification()
-│   └── channels.py              # NotificationChannel ABC, LogChannel
-├── selfmod/                     # Self-evolution with security gates
-│   ├── __init__.py              # Entry: validate_change()
-│   └── zones.py                 # FROZEN/MUTABLE zone definitions
-├── learning/                    # Self-learning (re-exports)
-│   └── __init__.py              # FallthroughAnalyzer, NightlyEvolution
-├── content/                     # Pre-cached content
-│   ├── __init__.py              # Entry: jokes module
-│   └── jokes.py                 # Joke bank, rotation, TTS pre-gen
-├── scheduler/                   # Background task management
-│   └── __init__.py              # register_task, start_all, stop_all
-├── voice/                       # DEPRECATED → use cortex.speech
-│   ├── providers/               # TTS provider implementations
-│   └── ...                      # Legacy voice module
-├── satellite/
-│   ├── websocket.py             # Thin WS handler → delegates to orchestrator
-│   └── provisioning.py          # Satellite setup/config
-├── safety/
-│   ├── __init__.py              # Input/Output guardrails → notifications
-│   └── jailbreak.py             # 5-layer jailbreak defense
-├── filler/
-│   └── cache.py                 # Pre-generated filler audio cache
-├── evolution/                   # Emotional evolution (rapport, mood)
-├── grounding/                   # Anti-hallucination (confidence scoring)
-├── plugins/
-│   ├── base.py                  # CortexPlugin abstract class
-│   └── __init__.py              # PluginRegistry
+├── safety/                      # Input/Output guardrails, jailbreak defense
+├── plugins/                     # CortexPlugin ABC + PluginRegistry
 ├── providers/                   # LLM providers (Ollama, OpenAI)
 ├── profiles/                    # User profiles, parental controls
 ├── context/                     # Token budgeting
-└── integrations/                # Plugin impls (HA, knowledge, lists)
-    └── learning/                # Fallthrough analysis, pattern lifecycle
+├── scheduling/                  # Alarms, timers, reminders
+├── routines/                    # Routine automations, triggers, templates
+├── proactive/                   # Proactive intelligence, daily briefing
+├── intercom/                    # Announce, broadcast, two-way calling
+├── media/                       # YouTube Music, Plex, ABS, podcasts, router
+├── stories/                     # Story generator, character voices, library
+├── evolution/                   # LoRA training, model scout, drift
+├── cli/                         # Atlas CLI agent (REPL, 31 tools, ReAct)
+├── learning/                    # Self-learning (re-exports)
+├── notifications/               # Alert and notification routing
+├── selfmod/                     # Self-evolution security gates
+├── content/                     # Pre-cached content (jokes)
+├── scheduler/                   # Background task management
+├── filler/                      # Pre-generated filler audio cache
+├── grounding/                   # Anti-hallucination (confidence scoring)
+├── backup/                      # Automated backup/restore + offsite
+├── satellite/                   # WebSocket handler + provisioning
+├── install/                     # Hardware detection & installer
+├── discovery/                   # Network service discovery
+├── integrity/                   # Data integrity checks
+├── integrations/                # Plugin impls (HA, knowledge, lists)
+│   └── learning/                # Fallthrough analysis, pattern lifecycle
+└── voice/                       # DEPRECATED → use cortex.speech
 
 satellite/atlas_satellite/
 ├── agent.py                     # Satellite state machine
@@ -237,6 +199,6 @@ mocks/
 ├── mock_tts_server.py           # Mock Kokoro
 └── data/                        # Benchmark results
 
-admin/                           # Vue 3 + Vite SPA
-docs/                            # Architecture, roadmap, guides
+admin/                           # Vue 3 + Vite SPA (20 views)
+docs/                            # Architecture, roadmap, guides (35+ files)
 ```

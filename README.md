@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-645%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-2825%2B%20passing-brightgreen.svg)](#testing)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -34,10 +34,11 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Self-learning** — commands that go to the LLM are analyzed nightly and converted into fast regex patterns
 
 ### 🗣️ Voice & Speech Engine
-- **Emotional TTS** — Kokoro speech synthesis with natural, expressive voices (Orpheus available for emotion tags)
+- **Multi-TTS stack** — Qwen3-TTS (primary), Fish Audio S2 (story character voices), Orpheus (emotional), Kokoro (CPU), Piper (fast fallback)
 - **Voice identification** — recognizes family members by voice, personalizes responses per person
-- **Multiple providers** — Kokoro (natural, CPU primary), Orpheus (emotional, GPU), Piper (fast, CPU fallback)
+- **TTS hot-swap** — swap voice models at runtime for character voices in stories
 - **Sentence-boundary streaming** — starts speaking before the full response is generated
+- **Speaker age estimation** — hybrid age detection for content tier assignment
 
 ### 🎭 Avatar System
 - **Animated face** — Nick Jr. Face-inspired SVG avatar with real-time lip-sync and expressions
@@ -49,6 +50,69 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 
 ![Avatar Expressions](docs/images/avatar-expressions.png)
 *Neutral · Talking · Silly grin (after a joke punchline)*
+
+### ⏰ Alarms, Timers & Reminders
+- **Natural language time parsing** — *"Wake me up at 7am"*, *"Set a 15-minute timer"*
+- **Recurring alarms** with RRULE recurrence rules
+- **Notification routing** — deliver to the right satellite speaker or HA media player
+- **Snooze/dismiss via voice** — *"Snooze for 5 minutes"* / *"Stop"*
+
+### 🔄 Routines & Automations
+- **Built-in routines** — *"Good morning"* → lights, coffee, weather, calendar
+- **Custom routines** — *"When I say 'movie time', dim lights and turn on TV"*
+- **Multiple triggers** — voice command, cron schedule, HA events
+- **Conversational builder** — Atlas asks clarifying questions to build routines
+- **Templates** — pre-built routines for common scenarios
+
+### 📡 Proactive Intelligence
+- **Rule engine** with notification throttling
+- **Weather, energy, anomaly, and calendar providers**
+- **Daily briefing** — personalized morning summary
+- **Pattern detection** — learns household habits over time
+
+### 📚 Learning & Education
+- **Socratic tutoring** — guides understanding, never gives direct answers
+- **Quiz generator** — math curriculum through Calculus III
+- **3 STEM games** — Number Quest, Science Safari, Word Wizard
+- **Progress tracking** and parent reports per child
+
+### 📢 Intercom & Broadcasting
+- **Targeted announce** — *"Tell the kids dinner is ready"* → children's rooms
+- **Whole-house broadcast** — all satellites simultaneously
+- **Two-way calling** — *"Atlas, talk to the garage"*
+- **Drop-in monitoring** — listen to a room without announcement
+- **Zone groups** — broadcast to custom room groups
+
+### 🎵 Media & Entertainment
+- **YouTube Music, Plex, Audiobookshelf, Podcasts**
+- **Local music library** with ID3 tag scanning
+- **Multi-room playback** via satellite → Chromecast → HA media players
+- **Playback router** — picks the best output for each room
+
+### 📖 Story Time
+- **Interactive branching stories** with user choices
+- **Character voices** via Fish Audio S2 with TTS hot-swap
+- **Story library** — save, resume, and replay stories
+- **Age-appropriate content** per user profile
+
+### 🤖 Self-Evolution
+- **Conversation quality analysis** — identifies areas for improvement
+- **LoRA training pipeline** on AMD GPUs (ROCm) — runs overnight
+- **Model scout** with safety gates — finds and evaluates new models
+- **A/B testing** for model comparisons
+- **Personality drift monitoring** — ensures consistency over time
+
+### 💻 Atlas CLI Agent
+- **Interactive chat**: `atlas chat`
+- **Autonomous agent**: `atlas agent "build an API"`
+- **31 agent tools** — file, shell, git, web, vision, memory
+- **ReAct reasoning loop** with context management and sessions
+
+### 🌐 Standalone Web App
+- **Browser chat** with WebSocket streaming
+- **Voice input/output** in the browser
+- **Animated avatar** with lip-sync
+- **Unified dashboard** for all Atlas features
 
 ### 🛡️ Safety & Content Policy
 - **Age-appropriate responses** — automatically adapts vocabulary and content for toddlers, children, teens, and adults
@@ -71,8 +135,10 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 
 ### 🖥️ Admin Web Panel
 - **Dark-themed dashboard** — real-time stats, recent activity, system health at a glance
+- **20 views** — Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Satellites, SatelliteDetail, Plugins, Scheduling, Routines, Learning, Proactive, Media, Intercom, Evolution, Stories, System
 - **User management** — profiles, age settings, vocabulary levels, parental controls
 - **Safety monitoring** — guardrail event log, jailbreak pattern management, content tier overrides
+- **Plugin management** — enable/disable 21 built-in plugins with per-plugin settings
 - **Voice enrollment** — view and manage speaker profiles, confidence thresholds
 - **Device management** — Home Assistant devices, aliases, command patterns
 - **Evolution tracking** — rapport scores, emotional profiles, nightly evolution logs
@@ -103,17 +169,19 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
   ┌─────────▼──────────┐ ┌─────────▼──────────┐ ┌─────────▼──────────┐
   │   Input Pipeline    │ │  Safety Guardrails  │ │   Voice Engine      │
   │                     │ │                     │ │                     │
-  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Kokoro TTS        │
-  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Orpheus fallback  │
-  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Piper fallback    │
-  │ L3: LLM   (500ms+)  │ │ • Crisis detection  │ │ • Voice streaming   │
+  │ L0: Context  (1ms)  │ │ • Content tiers     │ │ • Qwen3-TTS         │
+  │ L1: Instant  (5ms)  │ │ • Jailbreak defense │ │ • Fish Audio S2      │
+  │ L2: Plugins (100ms) │ │ • PII redaction     │ │ • Orpheus / Kokoro   │
+  │ L3: LLM   (500ms+)  │ │ • Crisis detection  │ │ • Piper fallback     │
   └─────────┬──────────┘ └─────────────────────┘ └─────────────────────┘
             │
   ┌─────────▼───────────────────────────────────────────────────────┐
   │                         Integrations                           │
   │                                                                │
   │  🏠 Home Assistant  📋 Lists  📚 Knowledge  🔍 Memory        │
-  │  🔧 Service Discovery  📦 Backup  🎓 Learning                │
+  │  🔧 Discovery  📦 Backup  🎓 Learning  ⏰ Scheduling         │
+  │  🔄 Routines  📡 Proactive  📢 Intercom  🎵 Media            │
+  │  📖 Stories  🤖 Evolution  💻 CLI Agent  🌐 Web App           │
   └───────────────────────────┬───────────────────────────────────┘
                                 │
                      ┌──────────▼───────────┐
@@ -123,6 +191,8 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
                                 │
                      ┌──────────▼───────────┐
                      │  Nightly Evolution    │
+                     │  LoRA training        │
+                     │  Model scouting       │
                      │  Pattern learning     │
                      │  Profile evolution    │
                      │  Device discovery     │
@@ -313,9 +383,9 @@ curl http://localhost:5100/admin/dashboard \
 
 ```
 atlas-cortex/
-├── admin/                         # Vue 3 Admin Panel (SPA)
+├── admin/                         # Vue 3 Admin Panel (SPA, 20 views)
 │   ├── src/
-│   │   ├── views/                 #   10 admin views (dashboard, users, safety, etc.)
+│   │   ├── views/                 #   20 admin views (dashboard, users, safety, etc.)
 │   │   ├── components/            #   Reusable components (NavBar, DataTable, etc.)
 │   │   ├── router/                #   Vue Router with auth guards
 │   │   ├── stores/                #   Pinia auth store
@@ -325,54 +395,59 @@ atlas-cortex/
 ├── cortex/                        # Core Python package
 │   ├── server.py                  # OpenAI-compatible FastAPI server
 │   ├── auth.py                    # JWT authentication (bcrypt + PyJWT)
-│   ├── admin_api.py               # Admin REST API (30+ endpoints)
 │   ├── pipe.py                    # Open WebUI Pipe function
 │   ├── db.py                      # SQLite schema (50+ tables, WAL mode)
+│   ├── admin/                     # Admin API domain routers (9 sub-routers)
 │   ├── pipeline/                  # 4-layer processing pipeline
 │   │   ├── layer0_context.py      #   Context assembly, sentiment, spatial
 │   │   ├── layer1_instant.py      #   Instant answers (math, date, identity)
-│   │   ├── layer2_plugins.py      #   Plugin dispatch (HA, lists, knowledge)
+│   │   ├── layer2_plugins.py      #   Plugin dispatch (21 built-in plugins)
 │   │   └── layer3_llm.py          #   Filler streaming + LLM generation
 │   ├── providers/                 # LLM backend abstraction
 │   │   ├── ollama.py              #   Ollama provider
 │   │   └── openai_compat.py       #   Any OpenAI-compatible backend
-│   ├── voice/                     # Voice & TTS engine
-│   │   ├── providers/orpheus.py   #   Orpheus emotional TTS (GPU)
-│   │   ├── providers/piper.py     #   Piper CPU fallback
-│   │   ├── kokoro.py              #   Kokoro TTS client (primary)
-│   │   ├── composer.py            #   Emotion composition
-│   │   ├── streaming.py           #   Sentence-boundary streaming
-│   │   ├── spatial.py             #   Room resolution & spatial awareness
-│   │   ├── multiroom.py           #   Multi-room command expansion
-│   │   ├── wyoming.py             #   Wyoming protocol STT/TTS client
-│   │   └── registry.py            #   Voice registry & selection
-│   ├── safety/                    # Safety guardrails
-│   │   ├── __init__.py            #   Content tiers, input/output guards
-│   │   └── jailbreak.py           #   5-layer jailbreak defense
-│   ├── plugins/                   # Plugin framework
-│   ├── integrations/              # Part 2 integrations
-│   │   ├── ha/                    #   Home Assistant (client, bootstrap, websocket)
-│   │   ├── knowledge/             #   WebDAV, CalDAV, sync scheduler
-│   │   ├── lists/                 #   Smart lists (multi-backend, HA discovery)
-│   │   └── learning/              #   Nightly self-learning engine
-│   ├── memory/                    # HOT/COLD memory architecture
-│   ├── profiles/                  # User profiles & age-awareness
+│   ├── speech/                    # All audio synthesis/transcription
+│   │   ├── tts.py                 #   Multi-provider TTS with hot-swap
+│   │   ├── stt.py                 #   Whisper + Wyoming STT
+│   │   ├── voices.py              #   Voice resolution (satellite→user→system)
+│   │   ├── cache.py               #   Unified audio cache
+│   │   ├── fish_audio.py          #   Fish Audio S2 character voices
+│   │   └── hotswap.py             #   Runtime TTS model swapping
+│   ├── orchestrator/              # Request coordination (STT→pipeline→TTS)
+│   ├── voice/                     # Legacy voice module (→ cortex.speech)
+│   ├── safety/                    # Safety guardrails + jailbreak defense
+│   ├── plugins/                   # Plugin framework (CortexPlugin, registry)
+│   ├── integrations/              # HA, knowledge, lists, learning
+│   ├── memory/                    # HOT/COLD memory (BM25 + vector, RRF)
+│   ├── profiles/                  # User profiles & parental controls
 │   ├── context/                   # Context window management
+│   ├── avatar/                    # SVG avatar, lip-sync, expressions
 │   ├── filler/                    # Sentiment-aware filler streaming
 │   ├── grounding/                 # Anti-hallucination engine
-│   ├── backup/                    # Automated backup/restore
-│   │   ├── __init__.py            #   Nightly backups, one-command restore
-│   │   ├── offsite.py             #   NAS rsync/SMB offsite sync
-│   │   └── voice_commands.py      #   Voice backup commands
+│   ├── backup/                    # Automated backup/restore + offsite
+│   ├── scheduling/                # Alarms, timers, reminders (NL time parsing)
+│   ├── routines/                  # Routine automations, triggers, templates
+│   ├── proactive/                 # Proactive intelligence, daily briefing
+│   ├── learning/                  # Self-learning (fallthrough analysis)
+│   ├── intercom/                  # Announce, broadcast, two-way calling
+│   ├── media/                     # YouTube Music, Plex, ABS, podcasts
+│   ├── stories/                   # Story generator, character voices
+│   ├── evolution/                 # LoRA training, model scout, drift
+│   ├── cli/                       # Atlas CLI agent (REPL, 31 tools)
+│   ├── notifications/             # Alert and notification routing
+│   ├── selfmod/                   # Self-evolution security gates
+│   ├── content/                   # Pre-cached content (jokes)
+│   ├── scheduler/                 # Background task management
+│   ├── satellite/                 # Satellite WebSocket + provisioning
 │   ├── install/                   # Hardware detection & installer
-│   └── discovery/                 # Network service discovery
-├── docker/
-│   ├── Dockerfile                 # Production container
-│   └── docker-compose.yml         # Full stack deployment
-├── docs/                          # Design documentation (20+ files)
-├── seeds/
-│   └── command_patterns.sql       # Initial HA command patterns
-├── tests/                         # 554 tests
+│   ├── discovery/                 # Network service discovery
+│   └── integrity/                 # Data integrity checks
+├── satellite/                     # Satellite agent (Pi, ESP32)
+├── docker/                        # Docker deployment configs
+├── docs/                          # Architecture, roadmap, guides (35+ files)
+├── mocks/                         # GPU-free development servers
+├── seeds/                         # Initial data (command patterns)
+├── tests/                         # 2,825+ tests
 ├── requirements.txt
 └── pytest.ini
 ```
@@ -390,7 +465,7 @@ python -m pytest tests/test_safety.py -v
 python -m pytest tests/test_voice.py -v
 ```
 
-**Current status: 645 tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, and multi-room modules.
+**Current status: 2,825+ tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, multi-room, scheduling, routines, proactive, intercom, media, stories, CLI, and web app modules.
 
 ## 📊 Implementation Status
 
@@ -407,9 +482,9 @@ python -m pytest tests/test_voice.py -v
 | C7 | Avatar System | ✅ Complete | SVG face, lip-sync visemes, emotion expressions, joke bank, TTS caching |
 | C9 | Backup & Restore | ✅ Complete | Automated nightly backups, one-command restore |
 | C10 | Context Management | ✅ Complete | Context windows, compaction, overflow recovery |
-| C11 | Voice & Speech | ✅ Complete | TTS providers (Kokoro primary + Orpheus + Piper), emotion, streaming |
+| C11 | Voice & Speech | ✅ Complete | Multi-TTS (Qwen3-TTS, Fish Audio S2, Orpheus, Kokoro, Piper), hot-swap, streaming |
 | C12 | Safety Guardrails | ✅ Complete | Content tiers, jailbreak defense, PII redaction |
-| — | Admin Web Panel | ✅ Complete | Vue 3 dashboard, JWT auth, 30+ REST endpoints |
+| — | Admin Web Panel | ✅ Complete | Vue 3 dashboard (20 views), JWT auth, 30+ REST endpoints |
 
 ### Part 2: Integration Layer
 
@@ -423,17 +498,38 @@ python -m pytest tests/test_voice.py -v
 | I6 | List Management | ✅ Complete | Multi-backend lists, HA to-do discovery, permissions |
 | I7 | Offsite Backup | ✅ Complete | NAS rsync/SMB, voice commands, retention policy |
 
+### Part 2.5–2.7: Satellite & Plugins
+
+| Phase | Module | Status | Description |
+|-------|--------|--------|-------------|
+| S2.5 | Satellite System | ⏸️ Wake word deferred | Distributed speakers/mics, Pi + ESP32, provisioning |
+| P2.7 | Fast-Path Plugins | ✅ Complete | 21 built-in plugins (weather, dictionary, wikipedia, conversions, movie, cooking, news, translation, stocks, sports, sound library, scheduling, routines, daily briefing, STEM games, stories, intercom, media + core 3) |
+
+### Parts 3–12: Extended Features
+
+| Phase | Module | Status | Description |
+|-------|--------|--------|-------------|
+| P3 | Alarms, Timers & Reminders | ✅ Complete | NL time parser, RRULE recurrence, notification routing |
+| P4 | Routines & Automations | ✅ Complete | Voice/cron/HA triggers, templates, conversational builder |
+| P5 | Proactive Intelligence | ✅ Complete | Rule engine, throttle, weather/energy/anomaly/calendar providers, daily briefing |
+| P6 | Learning & Education | ✅ Complete | Socratic tutoring, quiz gen (through Calc III), 3 STEM games, progress tracking |
+| P7 | Intercom & Broadcasting | ✅ Complete | Announce, broadcast, zones, two-way calling, drop-in monitoring |
+| P8 | Media & Entertainment | ✅ Complete | YouTube Music, Plex, Audiobookshelf, podcasts, local library, playback router |
+| P9 | Self-Evolution | ✅ Complete | Conversation analysis, LoRA training (ROCm/AMD), model scout, A/B testing, drift monitor |
+| P10 | Story Time | ✅ Complete | Generator, character voices (Fish Audio S2), TTS hot-swap, interactive stories, library |
+| P11 | Atlas CLI Agent | ✅ Complete | REPL, 31 agent tools, ReAct loop, context management, sessions |
+| P12 | Standalone Web App | ✅ Complete | Browser chat, WebSocket streaming, voice I/O, avatar, unified dashboard |
+
 ### Coming Next
 
 | Part | Name | Description |
 |------|------|-------------|
-| 2.5 | **Satellite System** | Distributed speakers/mics — ESP32-S3, RPi, any Linux device |
-| 3 | **Alarms, Timers & Reminders** | Wake alarms, cooking timers, location-aware reminders |
-| 4 | **Routines & Automations** | "Good morning"/"Good night" routines, custom triggers |
-| 5 | **Proactive Intelligence** | Weather actions, energy optimization, anomaly detection |
-| 6 | **Learning & Education** | Homework help, quizzes, science mode, language learning |
-| 7 | **Intercom & Broadcasting** | Room-to-room, whole-house announcements, emergency alerts |
-| 8 | **Media & Entertainment** | Local files, YouTube Music, Spotify, multi-room audio |
+| 13 | **Legacy Protocol** | Backward compatibility for older integrations |
+| 14 | **Household Management** | Pet care, cooking assistant, inventory, chore tracking |
+| 15 | **Security & Monitoring** | Camera summaries, motion alerts, visitor history |
+| 16 | **Health & Wellness** | Medication reminders, sleep analysis, air quality |
+| 17 | **Multi-Language Support** | Real-time language detection, per-user preferences |
+| 18 | **Visual Media & Casting** | Screen casting, photo display, visual content |
 
 > 📋 **Full roadmap with detailed plans:** [docs/roadmap.md](docs/roadmap.md)
 
@@ -443,6 +539,8 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 
 | Document | Description |
 |----------|-------------|
+| [Quick Start](docs/quickstart.md) | 5-minute setup guide (Docker, bare metal, satellite) |
+| [Configuration](docs/configuration.md) | All environment variables and settings |
 | [Architecture](docs/architecture.md) | System design, pipeline layers, evolution engine |
 | [Data Model](docs/data-model.md) | 50+ SQLite tables, normalized schema, relationships |
 | [Voice Engine](docs/voice-engine.md) | TTS providers, emotion composition, streaming |
@@ -458,9 +556,15 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Backup & Restore](docs/backup-restore.md) | Automated backups, one-command restore |
 | [Admin Panel Guide](docs/admin-guide.md) | Full walkthrough with screenshots |
 | [Satellite System](docs/satellite-system.md) | Satellite speaker/mic architecture |
+| [Alarms & Timers](docs/alarms-timers-reminders.md) | NL time parsing, recurrence, notification routing |
+| [Routines](docs/routines-automations.md) | Triggers, templates, conversational builder |
+| [Proactive Intelligence](docs/proactive-intelligence.md) | Rule engine, providers, daily briefing |
+| [Learning & Education](docs/learning-education.md) | Tutoring, quizzes, STEM games |
+| [Intercom](docs/intercom-broadcasting.md) | Announce, broadcast, two-way calling |
+| [Media](docs/media-entertainment.md) | YouTube Music, Plex, Audiobookshelf, podcasts |
 | [Roadmap](docs/roadmap.md) | Future features and implementation plan |
-| [Installation](docs/installation.md) | Installer flow, backend abstraction |
 | [Phases](docs/phases.md) | Implementation roadmap and dependency graph |
+| [Installation](docs/installation.md) | Installer flow, backend abstraction |
 
 ## 🤝 Contributing
 

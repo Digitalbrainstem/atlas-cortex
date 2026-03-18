@@ -41,6 +41,70 @@ Connects Atlas to real-world services discovered on your network.
 | I6 | List Management | Multi-backend lists, HA to-do discovery, permissions |
 | I7 | Offsite Backup | NAS rsync/SMB sync, voice commands, retention policy |
 
+### Part 2.7: Fast-Path Plugins
+21 built-in Layer 2 plugins for instant responses without LLM.
+
+| Category | Plugins |
+|----------|---------|
+| Information & Lookup | Weather, News Headlines, Dictionary, Translation, Wikipedia Summary |
+| Utilities | Unit Conversions, Calculator |
+| Finance | Stock Prices |
+| Sports & Entertainment | Sports Scores, Movie/TV Lookup |
+| Kids & Family | Sound Library, STEM Games (Number Quest, Science Safari, Word Wizard) |
+| Cooking | Quick Cooking Facts |
+| Home & Scheduling | Scheduling, Routines, Daily Briefing |
+| Media & Stories | Media, Intercom, Stories |
+
+### Part 3: Alarms, Timers & Reminders
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P3 | Scheduling | NL time parser, RRULE recurrence, notification routing, snooze/dismiss |
+
+### Part 4: Routines & Automations
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P4 | Routines | Voice/cron/HA event triggers, templates, conversational builder |
+
+### Part 5: Proactive Intelligence
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P5 | Proactive | Rule engine, notification throttle, weather/energy/anomaly/calendar providers, daily briefing |
+
+### Part 6: Learning & Education
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P6 | Learning | Socratic tutoring, quiz generator (through Calculus III), 3 STEM games, progress tracking, parent reports |
+
+### Part 7: Intercom & Broadcasting
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P7 | Intercom | Announce, broadcast, zones, two-way calling, drop-in monitoring |
+
+### Part 8: Media & Entertainment
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P8 | Media | YouTube Music, Plex, Audiobookshelf, podcasts, local library, playback router |
+
+### Part 9: Self-Evolution
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P9 | Evolution | Conversation analysis, model registry, LoRA training (ROCm/AMD), model scout, A/B testing, drift monitor |
+
+### Part 10: Story Time
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P10 | Stories | Generator, character voices (Fish Audio S2), TTS hot-swap, interactive branching stories, library |
+
+### Part 11: Atlas CLI Agent
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P11 | CLI | REPL, 31 agent tools, ReAct reasoning loop, context management, sessions |
+
+### Part 12: Standalone Web App
+| Phase | Module | Description |
+|-------|--------|-------------|
+| P12 | Web App | Browser chat with WebSocket streaming, voice input/output, avatar, unified dashboard |
+
 ---
 
 ## 🔜 Up Next
@@ -58,6 +122,8 @@ Connects Atlas to real-world services discovered on your network.
 | **Registration** | Auto-discover and register with Atlas Cortex server |
 | **Room Assignment** | Admin assigns satellite to room/area for spatial awareness |
 | **Hardware Agnostic** | Core protocol works on any device with mic + speaker + network |
+
+**Status:** ⏸️ Core satellite functionality works; wake word reliability deferred.
 
 **Supported Hardware:**
 - ESP32-S3 (INMP441 mic + MAX98357A speaker) — $15 per room
@@ -320,6 +386,8 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
+### Part 3: Alarms, Timers & Reminders ✅
+
 > **Design doc:** [alarms-timers-reminders.md](alarms-timers-reminders.md)
 
 | Feature | Example |
@@ -338,7 +406,7 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-### Part 4: Routines & Automations
+### Part 4: Routines & Automations ✅
 
 > **Design doc:** [routines-automations.md](routines-automations.md)
 
@@ -358,7 +426,7 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-### Part 5: Proactive Intelligence
+### Part 5: Proactive Intelligence ✅
 
 > **Design doc:** [proactive-intelligence.md](proactive-intelligence.md)
 
@@ -372,7 +440,7 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-### Part 6: Learning & Education
+### Part 6: Learning & Education ✅
 
 > **Design doc:** [learning-education.md](learning-education.md)
 
@@ -386,7 +454,7 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-### Part 7: Intercom & Broadcasting
+### Part 7: Intercom & Broadcasting ✅
 
 > **Design doc:** [intercom-broadcasting.md](intercom-broadcasting.md)
 
@@ -399,7 +467,7 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-### Part 8: Media & Entertainment
+### Part 8: Media & Entertainment ✅
 
 > **Design doc:** [media-entertainment.md](media-entertainment.md)
 
@@ -420,32 +488,38 @@ This is a **cross-cutting concern** — the `classify_intent()` function and gui
 
 ---
 
-## 🔮 Future Explorations
+## 🔮 Future — Parts 13–18
 
-These are ideas that may become their own parts:
+### Part 13: Legacy Protocol 🔲
+- Backward compatibility for older integrations and protocols
 
-### 🐾 Household Management
+### Part 14: Household Management 🔲
 - Pet care reminders: feeding schedules, vet appointments, medication
 - Cooking assistant: step-by-step recipes with integrated timers
 - Inventory tracking: *"We're running low on milk"* → auto-add to grocery list
 - Chore assignments: fair rotation tracking for household members
 
-### 🔒 Security & Monitoring
+### Part 15: Security & Monitoring 🔲
 - Camera feed summaries: *"Who was at the front door?"*
 - Motion alert intelligence: distinguishes pets, packages, people
 - Door/window status: *"Is the garage door open?"*
 - Visitor history: *"When did the kids get home from school?"*
 
-### 🌐 Multi-Language Support
-- Real-time language detection and switching
-- Per-user language preferences
-- Translation assistance between household members
-
-### 🏥 Health & Wellness
+### Part 16: Health & Wellness 🔲
 - Medication reminders with confirmation tracking
 - Sleep pattern analysis from presence sensors
 - Air quality monitoring and ventilation suggestions
 - Exercise reminders based on activity patterns
+
+### Part 17: Multi-Language Support 🔲
+- Real-time language detection and switching
+- Per-user language preferences
+- Translation assistance between household members
+
+### Part 18: Visual Media & Casting 🔲
+- Screen casting and photo display
+- Visual content on smart displays
+- Camera integration
 
 ---
 
@@ -459,23 +533,29 @@ Part 2: Integration Layer ──────────────────
          │
          ├─────────────────────┬──────────────────┐
          ▼                     ▼                  ▼
-Part 2.5: Satellites     Part 2.7: Fast-Path   Part 4: Routines
-         │               (independent)          │
-         ├───────────┐                           │
-         ▼           ▼                           ▼
-Part 3: Alarms  Part 7: Intercom
+Part 2.5: Satellites     Part 2.7: Plugins   Part 4: Routines
+  ⏸️ Wake word deferred   ✅ COMPLETE (21)     ✅ COMPLETE
+         │                                        │
+         ├───────────┐                             │
+         ▼           ▼                             ▼
+Part 3: Alarms  Part 7: Intercom          Part 5: Proactive
+  ✅ COMPLETE     ✅ COMPLETE               ✅ COMPLETE
          │           │
          ▼           ▼
-Part 5: Proactive Intelligence
-         │
-         ▼
-Part 8: Media & Entertainment
+Part 8: Media & Entertainment ──────────────────────── ✅ COMPLETE
 
-Part 6: Learning & Education ◀── Part 1 (C6 + C12)
-    (can start independently after Part 1)
+Part 6: Learning & Education ◀── Part 1 ──────────── ✅ COMPLETE
+Part 9: Self-Evolution ◀── Part 1 + Part 2 ───────── ✅ COMPLETE
+Part 10: Story Time ◀── Part 1 ───────────────────── ✅ COMPLETE
+Part 11: Atlas CLI ◀── Part 1 ────────────────────── ✅ COMPLETE
+Part 12: Standalone Web App ◀── Part 11 ──────────── ✅ COMPLETE
 
-Part 2.7: Fast-Path Plugins ◀── Part 2 (plugin system)
-    (can start independently after Part 2, no other deps)
+Part 13: Legacy Protocol ──────────────────────────── 🔲 Planned
+Part 14: Household Management ─────────────────────── 🔲 Planned
+Part 15: Security & Monitoring ────────────────────── 🔲 Planned
+Part 16: Health & Wellness ────────────────────────── 🔲 Planned
+Part 17: Multi-Language Support ───────────────────── 🔲 Planned
+Part 18: Visual Media & Casting ───────────────────── 🔲 Planned
 ```
 
 ---
