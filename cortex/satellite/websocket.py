@@ -3,13 +3,18 @@
 Handles the real-time communication channel between Atlas server and
 satellite devices:
 
-  Satellite → Server:
+  Satellite → Server (Pi protocol):
     ANNOUNCE, WAKE, AUDIO_START, AUDIO_CHUNK, AUDIO_PHRASE_END,
     AUDIO_END, STATUS, HEARTBEAT, BARGE_IN
 
+  Satellite → Server (ESP32 protocol):
+    register, audio_start, audio_data, audio_end, button, heartbeat
+
   Server → Satellite:
     ACCEPTED, TTS_START, TTS_CHUNK, TTS_END, PLAY_FILLER,
-    COMMAND, CONFIG, SYNC_FILLERS
+    COMMAND, CONFIG, SYNC_FILLERS (Pi)
+    registered, speaking_start, audio_chunk, speaking_end,
+    led, playback_stop (ESP32)
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from cortex.db import get_db, init_db
+from cortex.satellite.esp32_handler import ESP32SatelliteHandler
 
 logger = logging.getLogger(__name__)
 
@@ -101,15 +107,39 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
 
     This is the main entry point — mount it in FastAPI via:
         app.add_api_websocket_route("/ws/satellite", satellite_ws_handler)
+
+    Detects device type from the first message:
+      - ``{"type": "register", "device_type": "esp32", ...}`` → ESP32 handler
+      - ``{"type": "ANNOUNCE", ...}`` → Pi handler (existing protocol)
     """
     await websocket.accept()
     satellite_id: str | None = None
     conn = SatelliteConnection(websocket, "")
 
     try:
-        # First message must be ANNOUNCE
+        # First message determines device type
         raw = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
-        if raw.get("type") != "ANNOUNCE":
+        msg_type = raw.get("type", "")
+
+        # ── ESP32 satellite (lightweight protocol) ────────────────
+        if msg_type == "register" and raw.get("device_type") == "esp32":
+            name = raw.get("name", "esp32-satellite")
+            satellite_id = f"esp32-{name}"
+            esp32 = ESP32SatelliteHandler(websocket, satellite_id)
+            await esp32.handle_register(raw)
+            logger.info("ESP32 satellite connected: %s", satellite_id)
+
+            try:
+                async for raw_msg in websocket.iter_json():
+                    await esp32.handle_message(raw_msg)
+            except WebSocketDisconnect:
+                logger.info("ESP32 satellite disconnected: %s", satellite_id)
+            finally:
+                await esp32.on_disconnect()
+            return
+
+        # ── Pi satellite (full protocol) ──────────────────────────
+        if msg_type != "ANNOUNCE":
             await websocket.send_json({"type": "ERROR", "detail": "Expected ANNOUNCE"})
             await websocket.close()
             return

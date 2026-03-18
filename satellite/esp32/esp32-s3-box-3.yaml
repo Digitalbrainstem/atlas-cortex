@@ -1,0 +1,122 @@
+# Atlas Satellite — ESP32-S3-BOX-3
+#
+# Pre-built dev board with built-in dual microphone, speaker, and
+# 2.4" touch display. No external wiring needed.
+#
+# Usage:
+#   1. Create secrets.yaml with wifi_ssid and wifi_password
+#   2. Set atlas_server below to your server IP/hostname
+#   3. Run: esphome run esp32-s3-box-3.yaml
+
+esphome:
+  name: atlas-satellite-box3
+  friendly_name: Atlas Satellite (BOX-3)
+  platformio_options:
+    board_build.flash_mode: dio
+    board_build.arduino.memory_type: qio_opi
+
+esp32:
+  board: esp32-s3-box-3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Atlas-BOX3-Fallback"
+    password: "atlas-setup"
+
+captive_portal:
+
+logger:
+
+api:
+
+ota:
+
+# ── Audio I/O (built-in ES7210 ADC + ES8311 DAC) ─────────────────
+
+i2c:
+  sda: GPIO8
+  scl: GPIO18
+
+i2s_audio:
+  # Microphone bus (ES7210 ADC — dual mic)
+  - id: i2s_in
+    i2s_lrclk_pin: GPIO45
+    i2s_bclk_pin: GPIO47
+    i2s_mclk_pin: GPIO2
+  # Speaker bus (ES8311 DAC)
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO45
+    i2s_bclk_pin: GPIO47
+    i2s_mclk_pin: GPIO2
+
+microphone:
+  - platform: i2s_audio
+    id: mic
+    adc_type: external
+    i2s_audio_id: i2s_in
+    i2s_din_pin: GPIO44
+    pdm: false
+    bits_per_sample: 16bit
+    channel: left
+
+speaker:
+  - platform: i2s_audio
+    id: spk
+    i2s_audio_id: i2s_out
+    dac_type: external
+    i2s_dout_pin: GPIO15
+    mode: mono
+
+# ── Status LED (built-in, active low) ────────────────────────────
+
+# The BOX-3 has a single RGB LED
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    pin: GPIO39
+    num_leds: 1
+    rmt_channel: 0
+    chipset: WS2812
+    rgb_order: GRB
+
+# ── Physical buttons ─────────────────────────────────────────────
+
+# Mute button on top of the BOX-3
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO1
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Mute Button"
+    id: mute_button
+
+# ── Atlas Satellite Component ─────────────────────────────────────
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [atlas_satellite]
+
+atlas_satellite:
+  server_url: "ws://atlas-server.local:5100/ws/satellite"
+  device_name: "atlas-satellite-box3"
+  hardware: "esp32-s3-box-3"
+  microphone: mic
+  speaker: spk
+  status_led: status_led
+  sample_rate: 16000
+  bits_per_sample: 16
