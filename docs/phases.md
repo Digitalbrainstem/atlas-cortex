@@ -60,7 +60,7 @@ See [installation.md](installation.md) for the full installer design.
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| S2.5 | Satellite Speaker/Mic System | 🔲 Planned | C11 (TTS) + C3a (Voice ID) |
+| S2.5 | Satellite Speaker/Mic System | ⏸️ Wake word deferred | C11 (TTS) + C3a (Voice ID) |
 
 ### Part 3–8: Extended Features
 
@@ -853,7 +853,7 @@ Distributed speaker/microphone devices for whole-house Atlas presence. See [sate
 
 | Phase | Name | Status | Prerequisites |
 |-------|------|--------|---------------|
-| S2.5 | Satellite System | 🔲 Planned | Part 1 C11 (TTS) + C3a (Voice ID) |
+| S2.5 | Satellite System | ⏸️ Wake word deferred | Part 1 C11 (TTS) + C3a (Voice ID) |
 
 ### S2.5.1 — Satellite Agent Core
 - Audio capture (16kHz mono), playback, agent loop
