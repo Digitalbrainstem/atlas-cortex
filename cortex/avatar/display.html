@@ -899,8 +899,8 @@
             svg.style.setProperty('--face-bg', bg);
           }
 
-          // Load shared expressions (mouth, eyes, eyebrows) from library
-          await loadExpressions(svg);
+          // Expressions are baked into skin SVGs at build time
+          // (python -m cortex.avatar.skins.generate_expressions)
         }
         showViseme('IDLE');
         showExpression('neutral');
@@ -913,104 +913,6 @@
         statusEl.textContent = 'skin load failed';
         statusEl.className = 'error';
       }
-    }
-
-    async function loadExpressions(svg) {
-      try {
-        const resp = await fetch('/avatar/skin/expressions.json');
-        if (!resp.ok) return;
-        const lib = await resp.json();
-
-        // Anchor positions from skin (skins declare where features live)
-        const mouthA = svg.querySelector('#mouth-anchor');
-        const mCx = mouthA ? parseFloat(mouthA.getAttribute('data-cx') || '200') : 200;
-        const mCy = mouthA ? parseFloat(mouthA.getAttribute('data-cy') || '280') : 280;
-
-        const eyesA = svg.querySelector('#eyes-anchor');
-        const eCx = eyesA ? parseFloat(eyesA.getAttribute('data-cx') || '200') : 200;
-        const eCy = eyesA ? parseFloat(eyesA.getAttribute('data-cy') || '170') : 170;
-
-        const browsA = svg.querySelector('#eyebrows-anchor');
-        const bCx = browsA ? parseFloat(browsA.getAttribute('data-cx') || '200') : 200;
-        const bCy = browsA ? parseFloat(browsA.getAttribute('data-cy') || '148') : 148;
-
-        for (const [name, expr] of Object.entries(lib.expressions)) {
-          if (!expr.replace_mouth && !expr.replace_eyes) continue;
-
-          // Find or create expression group
-          let g = svg.querySelector(`#expr-${name}`);
-          if (!g) {
-            g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            g.id = `expr-${name}`;
-            g.style.display = 'none';
-            const blink = svg.querySelector('#blink');
-            if (blink) svg.insertBefore(g, blink);
-            else svg.appendChild(g);
-          }
-
-          // Set replace flags
-          if (expr.replace_mouth) g.setAttribute('data-replace-mouth', 'true');
-          if (expr.replace_eyes) g.setAttribute('data-replace-eyes', 'true');
-
-          // Remove previously injected elements
-          g.querySelectorAll('[data-expr-mouth]').forEach(el => el.remove());
-          g.querySelectorAll('[data-expr-eye]').forEach(el => el.remove());
-          g.querySelectorAll('[data-expr-brow]').forEach(el => el.remove());
-
-          // Inject mouth
-          if (expr.replace_mouth && expr.mouth) {
-            const mel = _createFeatureElement(expr.mouth, mCx, mCy);
-            if (mel) { mel.setAttribute('data-expr-mouth', 'true'); g.appendChild(mel); }
-          }
-
-          // Inject eyes
-          if (expr.replace_eyes && expr.eyes) {
-            for (const side of ['left', 'right']) {
-              const eyeDef = expr.eyes[side];
-              if (!eyeDef) continue;
-              const eel = _createFeatureElement(eyeDef, eCx, eCy);
-              if (eel) { eel.setAttribute('data-expr-eye', side); g.appendChild(eel); }
-            }
-          }
-
-          // Inject eyebrows
-          if (expr.replace_eyes && expr.eyebrows) {
-            for (const side of ['left', 'right']) {
-              const browDef = expr.eyebrows[side];
-              if (!browDef) continue;
-              const bel = _createFeatureElement(browDef, bCx, bCy);
-              if (bel) { bel.setAttribute('data-expr-brow', side); g.appendChild(bel); }
-            }
-          }
-        }
-        console.log('Shared expressions loaded:', Object.keys(lib.expressions).length);
-      } catch (err) {
-        console.warn('Failed to load shared expressions:', err);
-      }
-    }
-
-    function _createFeatureElement(def, anchorCx, anchorCy) {
-      const NS = 'http://www.w3.org/2000/svg';
-      let el;
-      if (def.type === 'path') {
-        el = document.createElementNS(NS, 'path');
-        el.setAttribute('d', def.d);
-        el.setAttribute('transform', `translate(${anchorCx}, ${anchorCy})`);
-      } else if (def.type === 'ellipse') {
-        el = document.createElementNS(NS, 'ellipse');
-        el.setAttribute('cx', anchorCx + (def.cx_offset || 0));
-        el.setAttribute('cy', anchorCy + (def.cy_offset || 0));
-        el.setAttribute('rx', def.rx);
-        el.setAttribute('ry', def.ry);
-      }
-      if (el) {
-        if (def.fill) el.setAttribute('fill', def.fill);
-        if (def.stroke) el.setAttribute('stroke', def.stroke);
-        if (def.stroke_width) el.setAttribute('stroke-width', def.stroke_width);
-        if (def.stroke_linecap) el.setAttribute('stroke-linecap', def.stroke_linecap);
-        if (def.opacity) el.setAttribute('opacity', def.opacity);
-      }
-      return el;
     }
 
     // ── Viseme rendering ──────────────────────────────────────
