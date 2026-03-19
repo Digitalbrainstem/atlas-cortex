@@ -8,7 +8,7 @@
             "mouth": {
                 "shape": "smile",
                 "width_ratio": 1.0,
-                "curve_ratio": 0.6
+                "curve_ratio": 0.45
             },
             "eyes": {
                 "shape": "squint",
@@ -98,7 +98,7 @@
             "replace_eyes": true,
             "mouth": {
                 "shape": "wavy",
-                "width_ratio": 0.7,
+                "width_ratio": 0.5,
                 "curve_ratio": 0.3
             },
             "eyes": {
@@ -109,6 +109,9 @@
             "eyebrows": {
                 "shape": "asymmetric_brow"
             },
+            "decorations": [
+                {"type": "question_mark", "offset_x": 50, "offset_y": -35, "size": 16, "fill": "#666", "opacity": 0.7}
+            ],
             "description": "Wavy S-curve mouth, asymmetric eyes and brows"
         },
         "excited": {
@@ -128,6 +131,10 @@
                 "shape": "raised_high",
                 "dy": -10
             },
+            "decorations": [
+                {"type": "sparkle", "offset_x": -45, "offset_y": -25, "size": 8, "fill": "#FFD600", "opacity": 0.8},
+                {"type": "sparkle", "offset_x": 45, "offset_y": -30, "size": 6, "fill": "#FFD600", "opacity": 0.6}
+            ],
             "description": "Big open grin, wide eyes, raised eyebrows"
         },
         "scared": {
@@ -198,6 +205,10 @@
             "eyebrows": {
                 "shape": "soft"
             },
+            "decorations": [
+                {"type": "heart", "offset_x": -40, "offset_y": -20, "size": 12, "fill": "#E74C3C", "opacity": 0.8},
+                {"type": "heart", "offset_x": 40, "offset_y": -25, "size": 10, "fill": "#E74C3C", "opacity": 0.6}
+            ],
             "description": "Small pucker mouth, dreamy half-closed eyes"
         },
         "crying": {
@@ -217,6 +228,10 @@
                 "inner_dy": -6,
                 "outer_dy": 4
             },
+            "decorations": [
+                {"type": "teardrop", "side": "left", "offset_x": -5, "offset_y": 25, "fill": "#5DADE2", "opacity": 0.7},
+                {"type": "teardrop", "side": "right", "offset_x": 5, "offset_y": 25, "fill": "#5DADE2", "opacity": 0.7}
+            ],
             "description": "Open frown, tightly squinted eyes, worried brows"
         },
         "sleepy": {
@@ -235,6 +250,9 @@
                 "shape": "relaxed_low",
                 "dy": 2
             },
+            "decorations": [
+                {"type": "zzz", "offset_x": 60, "offset_y": -40, "size": 14, "fill": "#999", "opacity": 0.7}
+            ],
             "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
         },
         "winking": {
@@ -258,8 +276,8 @@
             "replace_eyes": true,
             "mouth": {
                 "shape": "big_grin",
-                "width_ratio": 1.3,
-                "curve_ratio": 0.6,
+                "width_ratio": 1.5,
+                "curve_ratio": 0.8,
                 "fill": "#fff"
             },
             "eyes": {
@@ -276,18 +294,21 @@
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "shape": "wavy",
+                "shape": "tongue_out",
                 "width_ratio": 1.0,
                 "curve_ratio": 0.35
             },
             "eyes": {
                 "shape": "asymmetric_size",
-                "left_ry_ratio": 1.2,
-                "right_ry_ratio": 0.65
+                "left_ry_ratio": 1.4,
+                "right_ry_ratio": 0.45
             },
             "eyebrows": {
                 "shape": "wavy_brow"
             },
+            "decorations": [
+                {"type": "tongue", "offset_y": 15, "width": 20, "height": 15, "fill": "#E74C6F"}
+            ],
             "description": "Wavy mouth, mismatched eye sizes, wavy brows"
         },
         "listening": {

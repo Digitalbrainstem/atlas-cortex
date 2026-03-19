@@ -26,7 +26,7 @@ _ELLIPSE_MOUTH_SHAPES = {"open_o", "pucker", "small_o"}
 # All recognised mouth shape names
 _MOUTH_SHAPES = {
     "smile", "frown", "open_o", "smirk", "wavy", "big_grin",
-    "open_frown", "side", "pucker", "small_o",
+    "open_frown", "side", "pucker", "small_o", "tongue_out",
 }
 
 # All recognised eye shape names
@@ -97,50 +97,67 @@ def derive_mouth_geometry(root: ET.Element) -> dict:
 
 
 def derive_eye_geometry(root: ET.Element) -> dict:
-    """Extract eye positions and radii from eyes-base."""
+    """Extract eye positions, radii, pupils, and glints from eyes-base."""
     ns = "http://www.w3.org/2000/svg"
     eyes_g = root.find(f".//*[@id='eyes-base']")
     if eyes_g is None:
         raise ValueError("SVG missing eyes-base group")
 
-    ellipses = eyes_g.findall(f"{{{ns}}}ellipse")
-    if not ellipses:
-        ellipses = eyes_g.findall("ellipse")
+    children = list(eyes_g)
+    if len(children) < 6:
+        raise ValueError("eyes-base needs at least 6 children (white+pupil+glint × 2)")
 
-    if len(ellipses) < 2:
-        raise ValueError("eyes-base needs at least 2 ellipses (left + right eye whites)")
+    # Children 0,1,2 = left eye; children 3,4,5 = right eye
+    # Each triplet: [white, pupil, glint]
+    def _parse_eye(triplet: list[ET.Element]) -> dict:
+        white_el, pupil_el, glint_el = triplet
+        result = {
+            "white_cx": float(white_el.get("cx", "0")),
+            "white_cy": float(white_el.get("cy", "0")),
+            "white_rx": float(white_el.get("rx", white_el.get("r", "0"))),
+            "white_ry": float(white_el.get("ry", white_el.get("r", "0"))),
+            "white_fill": white_el.get("fill", "#fff"),
+            "pupil_cx": float(pupil_el.get("cx", "0")),
+            "pupil_cy": float(pupil_el.get("cy", "0")),
+            "pupil_fill": pupil_el.get("fill", "#2D2D2D"),
+            "glint_cx": float(glint_el.get("cx", "0")),
+            "glint_cy": float(glint_el.get("cy", "0")),
+            "glint_r": float(glint_el.get("r", "0")),
+        }
+        # Pupil size: circle uses r, ellipse uses rx/ry
+        if pupil_el.get("rx") is not None:
+            result["pupil_r"] = float(pupil_el.get("rx"))
+            result["pupil_ry"] = float(pupil_el.get("ry", pupil_el.get("rx")))
+        else:
+            result["pupil_r"] = float(pupil_el.get("r", "0"))
+            result["pupil_ry"] = result["pupil_r"]
+        # Preserve opacity if present
+        if pupil_el.get("opacity"):
+            result["pupil_opacity"] = pupil_el.get("opacity")
+        if glint_el.get("opacity"):
+            result["glint_opacity"] = glint_el.get("opacity")
+        return result
 
-    # The two largest-rx ellipses are the eye whites
-    by_rx = sorted(ellipses, key=lambda e: float(e.get("rx", "0")), reverse=True)
-    pair = sorted(by_rx[:2], key=lambda e: float(e.get("cx", "0")))
-    left_el, right_el = pair
+    left_data = _parse_eye(children[0:3])
+    right_data = _parse_eye(children[3:6])
 
-    left_cx = float(left_el.get("cx", "0"))
-    left_cy = float(left_el.get("cy", "0"))
-    left_rx = float(left_el.get("rx", "0"))
-    left_ry = float(left_el.get("ry", "0"))
-    left_fill = left_el.get("fill", "#fff")
-    left_stroke = left_el.get("stroke", "")
-
-    right_cx = float(right_el.get("cx", "0"))
-    right_cy = float(right_el.get("cy", "0"))
-    right_rx = float(right_el.get("rx", "0"))
-    right_ry = float(right_el.get("ry", "0"))
-
-    rx = (left_rx + right_rx) / 2
-    ry = (left_ry + right_ry) / 2
-    spacing = right_cx - left_cx
+    # Backward-compatible top-level keys
+    rx = (left_data["white_rx"] + right_data["white_rx"]) / 2
+    ry = (left_data["white_ry"] + right_data["white_ry"]) / 2
+    spacing = right_data["white_cx"] - left_data["white_cx"]
 
     return {
-        "left_cx": left_cx,
-        "left_cy": left_cy,
-        "right_cx": right_cx,
-        "right_cy": right_cy,
+        "left_cx": left_data["white_cx"],
+        "left_cy": left_data["white_cy"],
+        "right_cx": right_data["white_cx"],
+        "right_cy": right_data["white_cy"],
         "rx": rx,
         "ry": ry,
         "spacing": spacing,
-        "fill": left_fill,
-        "stroke": left_stroke,
+        "fill": left_data["white_fill"],
+        "stroke": children[0].get("stroke", ""),
+        "left": left_data,
+        "right": right_data,
     }
 
 
@@ -231,6 +248,8 @@ def generate_mouth_element(
             f"Q{_fmt(cx + ox - hw * 0.1)} {_fmt(cy - ch * 0.3)} "
             f"{_fmt(cx + hw * 0.6 + ox)} {_fmt(cy)}"
         )
+    elif shape == "tongue_out":
+        d = f"M{_fmt(cx - hw)} {_fmt(cy)} Q{_fmt(cx)} {_fmt(cy + ch)} {_fmt(cx + hw)} {_fmt(cy)}"
     else:
         d = f"M{_fmt(cx - hw)} {_fmt(cy)} Q{_fmt(cx)} {_fmt(cy + ch)} {_fmt(cx + hw)} {_fmt(cy)}"
 
@@ -243,7 +262,129 @@ def generate_eye_elements(
     expr: dict,
     ns: str,
 ) -> list[ET.Element]:
-    """Generate SVG elements for expression eyes."""
+    """Generate SVG elements for expression eyes (whites + pupils + glints)."""
+    shape = expr.get("shape", "normal")
+
+    # Fall back to legacy behavior if per-eye data is missing
+    if "left" not in base_eyes:
+        return _generate_eye_elements_legacy(base_eyes, expr, ns)
+
+    elements: list[ET.Element] = []
+
+    def _closed_line(cx: float, cy: float, erx: float, stroke: str, sw: float = 4) -> ET.Element:
+        el = ET.Element(f"{{{ns}}}path")
+        el.set("d", f"M{_fmt(cx - erx)} {_fmt(cy)} Q{_fmt(cx)} {_fmt(cy - erx * 0.35)} {_fmt(cx + erx)} {_fmt(cy)}")
+        el.set("fill", "none")
+        el.set("stroke", stroke)
+        el.set("stroke-width", _fmt(sw))
+        el.set("stroke-linecap", "round")
+        return el
+
+    default_ry_ratio = expr.get("ry_ratio", 1.0)
+    closed_stroke = base_eyes.get("stroke") or base_eyes["fill"]
+
+    for side_name, side_data in [("left", base_eyes["left"]), ("right", base_eyes["right"])]:
+        wcx = side_data["white_cx"]
+        wcy = side_data["white_cy"]
+        wrx = side_data["white_rx"]
+        wry = side_data["white_ry"]
+        wfill = side_data["white_fill"]
+        pcx = side_data["pupil_cx"]
+        pcy = side_data["pupil_cy"]
+        pr = side_data["pupil_r"]
+        pry = side_data.get("pupil_ry", pr)
+        pfill = side_data["pupil_fill"]
+        p_opacity = side_data.get("pupil_opacity")
+        gcx = side_data["glint_cx"]
+        gcy = side_data["glint_cy"]
+        gr = side_data["glint_r"]
+        g_opacity = side_data.get("glint_opacity")
+
+        # Determine ry_ratio for this side
+        ry_ratio = default_ry_ratio
+        if shape in ("asymmetric", "asymmetric_size"):
+            if side_name == "left":
+                ry_ratio = expr.get("left_ry_ratio", ry_ratio)
+            else:
+                ry_ratio = expr.get("right_ry_ratio", ry_ratio)
+
+        # Determine rx scale
+        rx_scale = 1.0
+        if shape == "narrow":
+            rx_scale = 0.95
+        elif shape == "asymmetric_size":
+            rx_scale = 1.05 if side_name == "left" else 0.85
+        elif shape == "asymmetric":
+            rx_scale = 1.0 if side_name == "left" else 0.9
+
+        # Determine cy offset
+        cy_shift = 0
+        if shape in ("droopy", "nearly_closed"):
+            cy_shift = 2
+        elif shape == "dreamy":
+            cy_shift = 1
+        elif shape == "look_up":
+            cy_shift = expr.get("pupil_dy", -3)
+
+        is_closed = (shape == "closed") or (shape == "wink" and side_name == "left")
+
+        if is_closed:
+            elements.append(_closed_line(wcx, wcy + cy_shift, wrx * rx_scale, closed_stroke))
+        else:
+            new_ry = wry * ry_ratio
+            actual_cy = wcy + cy_shift
+
+            # White
+            white_el = ET.Element(f"{{{ns}}}ellipse")
+            white_el.set("cx", _fmt(wcx))
+            white_el.set("cy", _fmt(actual_cy))
+            white_el.set("rx", _fmt(wrx * rx_scale))
+            white_el.set("ry", _fmt(new_ry))
+            white_el.set("fill", wfill)
+            elements.append(white_el)
+
+            # Pupil — vertically offset scaled by ry_ratio
+            pupil_offset_y = (pcy - wcy) * ry_ratio
+            pupil_cy = actual_cy + pupil_offset_y
+            if pry != pr:
+                # Ellipse pupil (nick style)
+                pupil_el = ET.Element(f"{{{ns}}}ellipse")
+                pupil_el.set("cx", _fmt(pcx))
+                pupil_el.set("cy", _fmt(pupil_cy))
+                pupil_el.set("rx", _fmt(pr))
+                pupil_el.set("ry", _fmt(pry))
+            else:
+                # Circle pupil (default style)
+                pupil_el = ET.Element(f"{{{ns}}}circle")
+                pupil_el.set("cx", _fmt(pcx))
+                pupil_el.set("cy", _fmt(pupil_cy))
+                pupil_el.set("r", _fmt(pr))
+            pupil_el.set("fill", pfill)
+            if p_opacity:
+                pupil_el.set("opacity", p_opacity)
+            elements.append(pupil_el)
+
+            # Glint
+            glint_offset_y = (gcy - wcy) * ry_ratio
+            glint_cy = actual_cy + glint_offset_y
+            glint_el = ET.Element(f"{{{ns}}}circle")
+            glint_el.set("cx", _fmt(gcx))
+            glint_el.set("cy", _fmt(glint_cy))
+            glint_el.set("r", _fmt(gr))
+            glint_el.set("fill", "white")
+            if g_opacity:
+                glint_el.set("opacity", g_opacity)
+            elements.append(glint_el)
+
+    return elements
+
+
+def _generate_eye_elements_legacy(
+    base_eyes: dict,
+    expr: dict,
+    ns: str,
+) -> list[ET.Element]:
+    """Legacy eye generation (whites only, no pupils/glints)."""
     shape = expr.get("shape", "normal")
     lcx = base_eyes["left_cx"]
     lcy = base_eyes["left_cy"]
@@ -365,7 +506,15 @@ def generate_eyebrow_elements(
 
     brow_y = lcy - ry - 6
     brow_span = rx * 0.9
-    stroke = base_mouth["stroke"]
+    # Derive brow color from pupil fill (dark) instead of mouth stroke
+    pupil_fill = base_eyes.get("left", {}).get("pupil_fill", "")
+    if pupil_fill and pupil_fill.lower() not in ("white", "#fff", "#ffffff"):
+        brow_color = pupil_fill
+    elif base_eyes.get("fill", "white").lower() not in ("white", "#fff", "#ffffff"):
+        brow_color = base_eyes["fill"]
+    else:
+        brow_color = "#333"
+    stroke = brow_color
     sw = base_mouth["stroke_width"] * 0.65
 
     dy = expr.get("dy", 0)
@@ -510,6 +659,142 @@ def generate_eyebrow_elements(
 
 # ── SVG injection ─────────────────────────────────────────────────
 
+def generate_decoration_elements(
+    base_eyes: dict,
+    base_mouth: dict,
+    decorations: list[dict],
+    ns: str,
+) -> list[ET.Element]:
+    """Generate decorative SVG elements (tears, hearts, sparkles, etc.)."""
+    elements: list[ET.Element] = []
+
+    eyes_cy = (base_eyes["left_cy"] + base_eyes["right_cy"]) / 2
+    mouth_cx = base_mouth["cx"]
+    mouth_cy = base_mouth["cy"]
+
+    for deco in decorations:
+        dtype = deco["type"]
+
+        if dtype == "teardrop":
+            side = deco.get("side", "left")
+            if side == "left":
+                ref_cx = base_eyes["left_cx"]
+                ref_cy = base_eyes["left_cy"]
+            else:
+                ref_cx = base_eyes["right_cx"]
+                ref_cy = base_eyes["right_cy"]
+            ox = deco.get("offset_x", 0)
+            oy = deco.get("offset_y", 25)
+            cx = ref_cx + ox
+            cy = ref_cy + base_eyes["ry"] + oy
+            el = ET.Element(f"{{{ns}}}ellipse")
+            el.set("cx", _fmt(cx))
+            el.set("cy", _fmt(cy))
+            el.set("rx", "4")
+            el.set("ry", "7")
+            el.set("fill", deco.get("fill", "#5DADE2"))
+            if "opacity" in deco:
+                el.set("opacity", str(deco["opacity"]))
+            elements.append(el)
+
+        elif dtype == "heart":
+            ox = deco.get("offset_x", 0)
+            oy = deco.get("offset_y", -20)
+            s = deco.get("size", 10)
+            cx = base_eyes["left_cx"] + (base_eyes["right_cx"] - base_eyes["left_cx"]) / 2 + ox
+            cy = eyes_cy + oy
+            d = (f"M{_fmt(cx)} {_fmt(cy + s * 0.3)} "
+                 f"C{_fmt(cx)} {_fmt(cy - s * 0.3)} {_fmt(cx - s)} {_fmt(cy - s * 0.3)} {_fmt(cx - s)} {_fmt(cy + s * 0.1)} "
+                 f"C{_fmt(cx - s)} {_fmt(cy + s * 0.6)} {_fmt(cx)} {_fmt(cy + s)} {_fmt(cx)} {_fmt(cy + s)} "
+                 f"C{_fmt(cx)} {_fmt(cy + s)} {_fmt(cx + s)} {_fmt(cy + s * 0.6)} {_fmt(cx + s)} {_fmt(cy + s * 0.1)} "
+                 f"C{_fmt(cx + s)} {_fmt(cy - s * 0.3)} {_fmt(cx)} {_fmt(cy - s * 0.3)} {_fmt(cx)} {_fmt(cy + s * 0.3)} Z")
+            el = ET.Element(f"{{{ns}}}path")
+            el.set("d", d)
+            el.set("fill", deco.get("fill", "#E74C3C"))
+            if "opacity" in deco:
+                el.set("opacity", str(deco["opacity"]))
+            elements.append(el)
+
+        elif dtype == "sparkle":
+            ox = deco.get("offset_x", 0)
+            oy = deco.get("offset_y", -25)
+            s = deco.get("size", 8)
+            cx = base_eyes["left_cx"] + (base_eyes["right_cx"] - base_eyes["left_cx"]) / 2 + ox
+            cy = eyes_cy + oy
+            d = (f"M{_fmt(cx)} {_fmt(cy - s)} "
+                 f"L{_fmt(cx + s * 0.3)} {_fmt(cy - s * 0.3)} "
+                 f"L{_fmt(cx + s)} {_fmt(cy)} "
+                 f"L{_fmt(cx + s * 0.3)} {_fmt(cy + s * 0.3)} "
+                 f"L{_fmt(cx)} {_fmt(cy + s)} "
+                 f"L{_fmt(cx - s * 0.3)} {_fmt(cy + s * 0.3)} "
+                 f"L{_fmt(cx - s)} {_fmt(cy)} "
+                 f"L{_fmt(cx - s * 0.3)} {_fmt(cy - s * 0.3)} Z")
+            el = ET.Element(f"{{{ns}}}path")
+            el.set("d", d)
+            el.set("fill", deco.get("fill", "#FFD600"))
+            if "opacity" in deco:
+                el.set("opacity", str(deco["opacity"]))
+            elements.append(el)
+
+        elif dtype == "zzz":
+            ox = deco.get("offset_x", 60)
+            oy = deco.get("offset_y", -40)
+            s = deco.get("size", 14)
+            fill = deco.get("fill", "#999")
+            opacity = str(deco.get("opacity", 0.7))
+            cx = base_eyes["right_cx"] + ox
+            cy = eyes_cy + oy
+            for i, scale in enumerate([1.0, 0.7, 0.45]):
+                zx = cx + i * s * 0.6
+                zy = cy - i * s * 0.9
+                sz = s * scale
+                el = ET.Element(f"{{{ns}}}text")
+                el.set("x", _fmt(zx))
+                el.set("y", _fmt(zy))
+                el.set("font-size", _fmt(sz))
+                el.set("font-family", "sans-serif")
+                el.set("font-weight", "bold")
+                el.set("fill", fill)
+                el.set("opacity", opacity)
+                el.text = "z"
+                elements.append(el)
+
+        elif dtype == "tongue":
+            oy = deco.get("offset_y", 15)
+            w = deco.get("width", 20)
+            h = deco.get("height", 15)
+            fill = deco.get("fill", "#E74C6F")
+            cx = mouth_cx
+            cy = mouth_cy + oy
+            el = ET.Element(f"{{{ns}}}ellipse")
+            el.set("cx", _fmt(cx))
+            el.set("cy", _fmt(cy))
+            el.set("rx", _fmt(w / 2))
+            el.set("ry", _fmt(h / 2))
+            el.set("fill", fill)
+            elements.append(el)
+
+        elif dtype == "question_mark":
+            ox = deco.get("offset_x", 50)
+            oy = deco.get("offset_y", -35)
+            s = deco.get("size", 16)
+            fill = deco.get("fill", "#666")
+            opacity = str(deco.get("opacity", 0.7))
+            cx = base_eyes["right_cx"] + ox
+            cy = eyes_cy + oy
+            el = ET.Element(f"{{{ns}}}text")
+            el.set("x", _fmt(cx))
+            el.set("y", _fmt(cy))
+            el.set("font-size", _fmt(s))
+            el.set("font-family", "sans-serif")
+            el.set("font-weight", "bold")
+            el.set("fill", fill)
+            el.set("opacity", opacity)
+            el.text = "?"
+            elements.append(el)
+
+    return elements
+
 def inject_expressions(svg_path: Path) -> int:
     """Read a skin SVG, derive base geometry, inject expression groups.
 
@@ -580,6 +865,11 @@ def inject_expressions(svg_path: Path) -> int:
         if "eyebrows" in expr:
             for brow_el in generate_eyebrow_elements(base_eyes, base_mouth, expr["eyebrows"], ns):
                 g.append(brow_el)
+
+        # Decorations (tears, hearts, sparkles, tongue, etc.)
+        if "decorations" in expr:
+            for deco_el in generate_decoration_elements(base_eyes, base_mouth, expr["decorations"], ns):
+                g.append(deco_el)
 
         # Insert before #blink if possible, else append to root
         if blink_parent is not None and blink_index is not None:
