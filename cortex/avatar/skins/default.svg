@@ -1,232 +1,125 @@
+<?xml version='1.0' encoding='utf-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" id="atlas-avatar-default" data-viseme-bank="cartoon">
-  <!--
-    Atlas Cortex — Default Avatar Skin (Nick Jr. Face style)
-    Viseme bank: cartoon (6 exaggerated mouth shapes)
-    For realistic skins, use data-viseme-bank="realistic" with all 15 shapes.
-    Bright, friendly, expressive cartoon face.
-    15 viseme mouth shapes + 16 expression overlays + base face.
-    All mouth/expression groups hidden by default; client toggles visibility.
-  -->
+  
   <defs>
     <radialGradient id="face-grad" cx="50%" cy="45%" r="50%">
-      <stop offset="0%" stop-color="#FFB347"/>
-      <stop offset="100%" stop-color="#FF8C00"/>
+      <stop offset="0%" stop-color="#FFB347" />
+      <stop offset="100%" stop-color="#FF8C00" />
     </radialGradient>
-    <!-- Tear drop gradient -->
+    
     <linearGradient id="tear-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#87CEFA" stop-opacity="0.8"/>
-      <stop offset="100%" stop-color="#4DA6FF" stop-opacity="0.6"/>
+      <stop offset="0%" stop-color="#87CEFA" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#4DA6FF" stop-opacity="0.6" />
     </linearGradient>
-    <!-- Heart gradient -->
+    
     <linearGradient id="heart-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FF6B8A"/>
-      <stop offset="100%" stop-color="#E91E63"/>
+      <stop offset="0%" stop-color="#FF6B8A" />
+      <stop offset="100%" stop-color="#E91E63" />
     </linearGradient>
-    <!-- Star sparkle -->
+    
     <radialGradient id="sparkle-grad" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#FFF176"/>
-      <stop offset="100%" stop-color="#FFD600" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#FFF176" />
+      <stop offset="100%" stop-color="#FFD600" stop-opacity="0" />
     </radialGradient>
-    <!-- Clip paths for teeth inside mouth shapes -->
-    <clipPath id="clip-teeth"><ellipse cx="200" cy="280" rx="40" ry="14"/></clipPath>
-    <clipPath id="clip-open"><ellipse cx="200" cy="284" rx="40" ry="26"/></clipPath>
-    <clipPath id="clip-fv"><ellipse cx="200" cy="278" rx="36" ry="10"/></clipPath>
+    
+    <clipPath id="clip-teeth"><ellipse cx="200" cy="280" rx="40" ry="14" /></clipPath>
+    <clipPath id="clip-open"><ellipse cx="200" cy="284" rx="40" ry="26" /></clipPath>
+    <clipPath id="clip-fv"><ellipse cx="200" cy="278" rx="36" ry="10" /></clipPath>
   </defs>
 
-  <!-- ── Base face (always visible) ──────────────────────────── -->
+  
   <g id="face-base">
-    <!-- Big round head -->
-    <circle cx="200" cy="200" r="160" fill="url(#face-grad)" stroke="#E07B00" stroke-width="3"/>
-    <!-- Cheeks -->
-    <circle cx="110" cy="230" r="30" fill="#FF6B35" opacity="0.25"/>
-    <circle cx="290" cy="230" r="30" fill="#FF6B35" opacity="0.25"/>
+    
+    <circle cx="200" cy="200" r="160" fill="url(#face-grad)" stroke="#E07B00" stroke-width="3" />
+    
+    <circle cx="110" cy="230" r="30" fill="#FF6B35" opacity="0.25" />
+    <circle cx="290" cy="230" r="30" fill="#FF6B35" opacity="0.25" />
   </g>
 
-  <!-- ── Eyes (base — big friendly cartoon eyes) ─────────────── -->
+  
   <g id="eyes-base">
-    <!-- Left eye -->
-    <ellipse cx="145" cy="170" rx="32" ry="36" fill="white"/>
-    <circle cx="150" cy="175" r="16" fill="#2D2D2D" class="pupil-left"/>
-    <circle cx="156" cy="166" r="6" fill="white" class="glint"/>
-    <!-- Right eye -->
-    <ellipse cx="255" cy="170" rx="32" ry="36" fill="white"/>
-    <circle cx="250" cy="175" r="16" fill="#2D2D2D" class="pupil-right"/>
-    <circle cx="244" cy="166" r="6" fill="white" class="glint"/>
+    
+    <ellipse cx="145" cy="170" rx="32" ry="36" fill="white" />
+    <circle cx="150" cy="175" r="16" fill="#2D2D2D" class="pupil-left" />
+    <circle cx="156" cy="166" r="6" fill="white" class="glint" />
+    
+    <ellipse cx="255" cy="170" rx="32" ry="36" fill="white" />
+    <circle cx="250" cy="175" r="16" fill="#2D2D2D" class="pupil-right" />
+    <circle cx="244" cy="166" r="6" fill="white" class="glint" />
   </g>
 
-  <!-- ── Mouth shapes (visemes) — only one visible at a time ─── -->
-  <!-- Cartoon bank: 6 exaggerated shapes for clear, snappy animation -->
+  
+  
 
-  <!-- IDLE: big friendly smile (resting) -->
+  
   <g id="mouth-IDLE" style="display:none">
-    <path d="M140 268 Q200 310 260 268" fill="none" stroke="#C0392B" stroke-width="6" stroke-linecap="round"/>
+    <path d="M140 268 Q200 310 260 268" fill="none" stroke="#C0392B" stroke-width="6" stroke-linecap="round" />
   </g>
 
-  <!-- IDLE-TALK: smaller smile used between words while speaking -->
+  
   <g id="mouth-IDLE-TALK" style="display:none">
-    <path d="M160 272 Q200 296 240 272" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round"/>
+    <path d="M160 272 Q200 296 240 272" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round" />
   </g>
 
-  <!-- CLOSED: lips pressed together (b, p, m) — firm line -->
+  
   <g id="mouth-CLOSED" style="display:none">
-    <path d="M155 278 Q200 282 245 278" fill="#C0392B" stroke="#A93226" stroke-width="4" stroke-linecap="round"/>
+    <path d="M155 278 Q200 282 245 278" fill="#C0392B" stroke="#A93226" stroke-width="4" stroke-linecap="round" />
   </g>
 
-  <!-- OPEN: big wide mouth (a, ah) — most exaggerated, shows teeth + tongue hint -->
+  
   <g id="mouth-OPEN" style="display:none">
-    <ellipse cx="200" cy="284" rx="42" ry="28" fill="#8B1A1A"/>
-    <rect x="164" y="262" width="72" height="8" rx="3" fill="white" clip-path="url(#clip-open)"/>
-    <ellipse cx="200" cy="298" rx="22" ry="10" fill="#FF8A80" opacity="0.5"/>
+    <ellipse cx="200" cy="284" rx="42" ry="28" fill="#8B1A1A" />
+    <rect x="164" y="262" width="72" height="8" rx="3" fill="white" clip-path="url(#clip-open)" />
+    <ellipse cx="200" cy="298" rx="22" ry="10" fill="#FF8A80" opacity="0.5" />
   </g>
 
-  <!-- ROUND: perfect O shape (o, u, w, oo) — big donut -->
+  
   <g id="mouth-ROUND" style="display:none">
-    <ellipse cx="200" cy="282" rx="22" ry="22" fill="#8B1A1A"/>
-    <ellipse cx="200" cy="281" rx="14" ry="14" fill="#C0392B"/>
+    <ellipse cx="200" cy="282" rx="22" ry="22" fill="#8B1A1A" />
+    <ellipse cx="200" cy="281" rx="14" ry="14" fill="#C0392B" />
   </g>
 
-  <!-- TEETH: wide grin showing teeth (e, i, s, ee) — stretched smile with chompers -->
+  
   <g id="mouth-TEETH" style="display:none">
-    <ellipse cx="200" cy="280" rx="42" ry="16" fill="#C0392B"/>
-    <rect x="168" y="274" width="64" height="8" rx="3" fill="white" clip-path="url(#clip-teeth)"/>
+    <ellipse cx="200" cy="280" rx="42" ry="16" fill="#C0392B" />
+    <rect x="168" y="274" width="64" height="8" rx="3" fill="white" clip-path="url(#clip-teeth)" />
   </g>
 
-  <!-- FV: bottom lip tuck (f, v) — asymmetric lip bite -->
+  
   <g id="mouth-FV" style="display:none">
-    <path d="M160 274 Q200 270 240 274" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round"/>
-    <rect x="176" y="274" width="48" height="5" rx="2" fill="white" opacity="0.8" clip-path="url(#clip-fv)"/>
-    <path d="M172 280 Q200 290 228 280" fill="#E74C3C" opacity="0.5"/>
+    <path d="M160 274 Q200 270 240 274" fill="none" stroke="#C0392B" stroke-width="5" stroke-linecap="round" />
+    <rect x="176" y="274" width="48" height="5" rx="2" fill="white" opacity="0.8" clip-path="url(#clip-fv)" />
+    <path d="M172 280 Q200 290 228 280" fill="#E74C3C" opacity="0.5" />
   </g>
 
-  <!-- Legacy viseme aliases (map old 15-viseme IDs to cartoon shapes for compatibility) -->
-  <!-- These are hidden references — the JS cartoon bank maps to the 6 above -->
-  <g id="mouth-PP" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-FF" style="display:none"><use href="#mouth-FV"/></g>
-  <g id="mouth-TH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-DD" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-KK" style="display:none"><use href="#mouth-OPEN"/></g>
-  <g id="mouth-SS" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-SH" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-RR" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-NN" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-IH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-EH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-AA" style="display:none"><use href="#mouth-OPEN"/></g>
-  <g id="mouth-OH" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND"/></g>
+  
+  
+  <g id="mouth-PP" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-FF" style="display:none"><use href="#mouth-FV" /></g>
+  <g id="mouth-TH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-DD" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-KK" style="display:none"><use href="#mouth-OPEN" /></g>
+  <g id="mouth-SS" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-SH" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-RR" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-NN" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-IH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-EH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-AA" style="display:none"><use href="#mouth-OPEN" /></g>
+  <g id="mouth-OH" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND" /></g>
 
-  <!-- ── Expression overlays — only one visible at a time ────── -->
-  <!--   Eyes, eyebrows, and mouth shapes injected from shared expressions.json   -->
+  
+  
 
-  <!-- Anchor points: tell the expression loader where features live in this skin -->
-  <g id="mouth-anchor" data-cx="200" data-cy="280" style="display:none"/>
-  <g id="eyes-anchor" data-cx="200" data-cy="172" style="display:none"/>
-  <g id="eyebrows-anchor" data-cx="200" data-cy="148" style="display:none"/>
+  
+  <g id="mouth-anchor" data-cx="200" data-cy="280" style="display:none" />
+  <g id="eyes-anchor" data-cx="200" data-cy="172" style="display:none" />
+  <g id="eyebrows-anchor" data-cx="200" data-cy="148" style="display:none" />
 
-  <!-- neutral: no overlay (base face + eyes show through) -->
-  <g id="expr-neutral" style="display:none"></g>
-
-  <!-- happy: extra blush (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-happy" style="display:none">
-    <circle cx="110" cy="230" r="35" fill="#FF6B35" opacity="0.35"/>
-    <circle cx="290" cy="230" r="35" fill="#FF6B35" opacity="0.35"/>
+  
+  <g id="expr-happy" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -30,0 Q 0,25 30,0" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-5 Q -25,-18 -12,-5" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M 12,-5 Q 25,-18 38,-5" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -40,-18 Q -25,-25 -10,-18" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-18 Q 25,-25 40,-18" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-sad" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,8 Q 0,-12 25,8" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="175.0" cy="132.0" rx="14" ry="10" fill="#333" /><ellipse cx="225.0" cy="132.0" rx="14" ry="10" fill="#333" /><path d="M -38,-48 Q -30,-56 -18,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-52 Q 30,-56 38,-48" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-angry" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,5 Q 0,-8 20,5" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4.5" stroke-linecap="round" /><ellipse cx="175.0" cy="134.0" rx="13" ry="8" fill="#333" /><ellipse cx="225.0" cy="134.0" rx="13" ry="8" fill="#333" /><path d="M -38,-44 Q -25,-56 -12,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round" /><path d="M 12,-50 Q 25,-56 38,-44" transform="translate(200.0,148.0)" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round" /></g><g id="expr-surprised" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="280.0" rx="12" ry="16" fill="#333" opacity="0.85" /><ellipse cx="175.0" cy="130.0" rx="16" ry="20" fill="#333" /><ellipse cx="225.0" cy="130.0" rx="16" ry="20" fill="#333" /><path d="M -40,-56 Q -25,-68 -10,-56" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /><path d="M 10,-56 Q 25,-68 40,-56" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /></g><g id="expr-thinking" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,2 Q -5,-5 10,0 Q 15,2 20,5" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="178.0" cy="128.0" rx="13" ry="15" fill="#333" /><ellipse cx="228.0" cy="130.0" rx="13" ry="13" fill="#333" /><path d="M -38,-52 Q -25,-56 -12,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-50 Q 25,-62 40,-54" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-confused" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,0 Q -10,-8 0,2 Q 10,10 22,-2" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="173.0" cy="130.0" rx="14" ry="16" fill="#333" /><ellipse cx="227.0" cy="130.0" rx="12" ry="13" fill="#333" /><path d="M -40,-52 Q -25,-56 -12,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-52 Q 25,-62 40,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-excited" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -28,-2 Q 0,30 28,-2 Z" transform="translate(200.0,280.0)" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" /><ellipse cx="175.0" cy="128.0" rx="16" ry="19" fill="#333" /><ellipse cx="225.0" cy="128.0" rx="16" ry="19" fill="#333" /><path d="M -40,-58 Q -25,-68 -10,-58" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-58 Q 25,-68 40,-58" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-scared" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,10 Q 0,-15 20,10 Q 0,20 -20,10 Z" transform="translate(200.0,280.0)" fill="#333" stroke="#333" stroke-width="3" opacity="0.7" /><ellipse cx="175.0" cy="128.0" rx="17" ry="22" fill="#333" /><ellipse cx="225.0" cy="128.0" rx="17" ry="22" fill="#333" /><path d="M -40,-58 Q -25,-72 -10,-60" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /><path d="M 10,-60 Q 25,-72 40,-58" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /></g><g id="expr-concerned" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,5 Q 0,-5 22,5" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="175.0" cy="130.0" rx="14" ry="16" fill="#333" /><ellipse cx="225.0" cy="130.0" rx="14" ry="16" fill="#333" /><path d="M -38,-50 Q -30,-56 -18,-54" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-54 Q 30,-56 38,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-proud" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,3 Q -5,0 5,-5 Q 20,-8 28,-2" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-38 Q -25,-48 -12,-38" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M 12,-38 Q 25,-48 38,-38" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-50 Q -25,-54 -12,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-48 Q 25,-58 40,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-love" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="280.0" rx="8" ry="10" fill="#e74c6f" opacity="0.8" /><ellipse cx="175.0" cy="130.0" rx="13" ry="11" fill="#333" /><ellipse cx="225.0" cy="130.0" rx="13" ry="11" fill="#333" /><path d="M -38,-52 Q -25,-58 -12,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /><path d="M 12,-52 Q 25,-58 38,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /></g><g id="expr-crying" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,12 Q 0,-18 22,12 Q 0,22 -22,12 Z" transform="translate(200.0,280.0)" fill="#333" stroke="#333" stroke-width="3" opacity="0.6" /><ellipse cx="175.0" cy="132.0" rx="12" ry="8" fill="#333" /><ellipse cx="225.0" cy="132.0" rx="12" ry="8" fill="#333" /><path d="M -38,-46 Q -30,-55 -18,-52" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-52 Q 30,-55 38,-46" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-sleepy" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="280.0" rx="8" ry="6" fill="#333" opacity="0.5" /><ellipse cx="175.0" cy="134.0" rx="14" ry="5" fill="#333" /><ellipse cx="225.0" cy="134.0" rx="14" ry="5" fill="#333" /><path d="M -36,-44 Q -25,-47 -14,-44" transform="translate(200.0,148.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /><path d="M 14,-44 Q 25,-47 36,-44" transform="translate(200.0,148.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /></g><g id="expr-winking" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -28,0 Q 0,22 28,0" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-38 Q -25,-48 -12,-38" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="225.0" cy="130.0" rx="15" ry="18" fill="#333" /><path d="M -38,-50 Q -25,-54 -12,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-54 Q 25,-62 40,-54" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-laughing" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -30,-5 Q 0,35 30,-5 Z" transform="translate(200.0,280.0)" fill="#fff" stroke="#333" stroke-width="3" /><path d="M -38,-38 Q -25,-50 -12,-38" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="5" stroke-linecap="round" /><path d="M 12,-38 Q 25,-50 38,-38" transform="translate(200.0,172.0)" fill="none" stroke="#333" stroke-width="5" stroke-linecap="round" /><path d="M -40,-50 Q -25,-60 -10,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-50 Q 25,-60 40,-50" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-silly" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,0 Q -15,20 0,10 Q 15,20 25,0" transform="translate(200.0,280.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="175.0" cy="128.0" rx="18" ry="20" fill="#333" /><ellipse cx="225.0" cy="132.0" rx="11" ry="12" fill="#333" /><path d="M -40,-58 Q -30,-66 -15,-56" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 14,-48 Q 25,-52 38,-46" transform="translate(200.0,148.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="blink" style="display:none">
+    <path d="M113 175 Q145 185 177 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round" />
+    <path d="M223 175 Q255 185 287 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round" />
   </g>
-
-  <!-- thinking: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-thinking" style="display:none">
-  </g>
-
-  <!-- surprised: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-surprised" style="display:none">
-  </g>
-
-  <!-- sad: tear (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-sad" style="display:none">
-    <ellipse cx="170" cy="210" rx="4" ry="6" fill="url(#tear-grad)"/>
-  </g>
-
-  <!-- excited: blush + sparkles (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-excited" style="display:none">
-    <circle cx="105" cy="228" r="38" fill="#FF6B35" opacity="0.4"/>
-    <circle cx="295" cy="228" r="38" fill="#FF6B35" opacity="0.4"/>
-    <circle cx="90" cy="130" r="8" fill="url(#sparkle-grad)"/>
-    <circle cx="310" cy="140" r="6" fill="url(#sparkle-grad)"/>
-  </g>
-
-  <!-- concerned: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-concerned" style="display:none">
-  </g>
-
-  <!-- listening: attentive, slightly wider eyes (keeps base eyes) -->
-  <g id="expr-listening" style="display:none"></g>
-
-  <!-- laughing: tears of joy + blush (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-laughing" style="display:none">
-    <ellipse cx="178" cy="182" rx="4" ry="6" fill="url(#tear-grad)"/>
-    <ellipse cx="222" cy="184" rx="3.5" ry="5.5" fill="url(#tear-grad)"/>
-    <circle cx="108" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
-    <circle cx="292" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
-  </g>
-
-  <!-- crying: tear streams (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-crying" style="display:none">
-    <ellipse cx="168" cy="210" rx="4" ry="7" fill="url(#tear-grad)"/>
-    <ellipse cx="164" cy="228" rx="3" ry="5" fill="url(#tear-grad)"/>
-    <ellipse cx="234" cy="212" rx="4" ry="7" fill="url(#tear-grad)"/>
-    <ellipse cx="238" cy="232" rx="3" ry="5" fill="url(#tear-grad)"/>
-  </g>
-
-  <!-- silly: rosy cheeks (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-silly" style="display:none">
-    <circle cx="112" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
-    <circle cx="288" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
-  </g>
-
-  <!-- winking: blush (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-winking" style="display:none">
-    <circle cx="108" cy="228" r="32" fill="#FF6B35" opacity="0.4"/>
-  </g>
-
-  <!-- angry: blush (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-angry" style="display:none">
-    <circle cx="108" cy="228" r="30" fill="#E74C3C" opacity="0.2"/>
-    <circle cx="292" cy="228" r="30" fill="#E74C3C" opacity="0.2"/>
-  </g>
-
-  <!-- confused: question mark (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-confused" style="display:none">
-    <text x="310" y="130" font-family="sans-serif" font-size="36" font-weight="bold" fill="#E07B00" opacity="0.5">?</text>
-  </g>
-
-  <!-- love: floating hearts (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-love" style="display:none">
-    <circle cx="108" cy="228" r="36" fill="#FF69B4" opacity="0.35"/>
-    <circle cx="292" cy="228" r="36" fill="#FF69B4" opacity="0.35"/>
-    <path d="M85 110 C85 103,93 100,93 107 C93 100,101 103,101 110 L93 120 Z" fill="#FF69B4" opacity="0.5"/>
-    <path d="M305 95 C305 89,312 86,312 92 C312 86,319 89,319 95 L312 104 Z" fill="#FF69B4" opacity="0.4"/>
-  </g>
-
-  <!-- sleepy: zzz (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-sleepy" style="display:none">
-    <text x="300" y="120" font-family="sans-serif" font-size="24" font-weight="bold" fill="#6C63FF" opacity="0.5">z</text>
-    <text x="318" y="100" font-family="sans-serif" font-size="20" font-weight="bold" fill="#6C63FF" opacity="0.35">z</text>
-    <text x="332" y="84" font-family="sans-serif" font-size="16" font-weight="bold" fill="#6C63FF" opacity="0.2">z</text>
-  </g>
-
-  <!-- proud: blush + sparkle (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-proud" style="display:none">
-    <circle cx="110" cy="228" r="34" fill="#FF6B35" opacity="0.35"/>
-    <circle cx="290" cy="228" r="34" fill="#FF6B35" opacity="0.35"/>
-    <circle cx="320" cy="120" r="10" fill="url(#sparkle-grad)"/>
-  </g>
-
-  <!-- scared: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-scared" style="display:none">
-  </g>
-
-  <!-- ── Blink overlay (toggled by client animation) ──────────── -->
-  <g id="blink" style="display:none">
-    <path d="M113 175 Q145 185 177 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round"/>
-    <path d="M223 175 Q255 185 287 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round"/>
-  </g>
-</svg>
+<g id="expr-listening" style="display:none" /><g id="expr-neutral" style="display:none" /></svg>

@@ -1,207 +1,118 @@
+<?xml version='1.0' encoding='utf-8'?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" id="atlas-avatar-nick" data-viseme-bank="cartoon">
-  <!--
-    Atlas Cortex — "Nick" Avatar Skin
-    Inspired by Nick Jr.'s Face: NO face outline or body — just eyes and mouth
-    floating on the page background. Change background color = change "face".
-    Viseme bank: cartoon (6 exaggerated mouth shapes)
-  -->
+  
   <defs>
-    <!-- Tear gradient -->
+    
     <linearGradient id="n-tear" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#87CEFA" stop-opacity="0.85"/>
-      <stop offset="100%" stop-color="#4DA6FF" stop-opacity="0.6"/>
+      <stop offset="0%" stop-color="#87CEFA" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#4DA6FF" stop-opacity="0.6" />
     </linearGradient>
-    <!-- Heart gradient -->
+    
     <linearGradient id="n-heart" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FF6B8A"/>
-      <stop offset="100%" stop-color="#E91E63"/>
+      <stop offset="0%" stop-color="#FF6B8A" />
+      <stop offset="100%" stop-color="#E91E63" />
     </linearGradient>
-    <!-- Sparkle -->
+    
     <radialGradient id="n-sparkle" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#FFF176"/>
-      <stop offset="100%" stop-color="#FFD600" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#FFF176" />
+      <stop offset="100%" stop-color="#FFD600" stop-opacity="0" />
     </radialGradient>
-    <!-- Mouth interior -->
+    
     <radialGradient id="n-mouth-fill" cx="50%" cy="40%" r="60%">
-      <stop offset="0%" stop-color="#1A1A1A"/>
-      <stop offset="100%" stop-color="#0A0A0A"/>
+      <stop offset="0%" stop-color="#1A1A1A" />
+      <stop offset="100%" stop-color="#0A0A0A" />
     </radialGradient>
-    <!-- Clip paths for teeth -->
-    <clipPath id="clip-teeth"><ellipse cx="200" cy="290" rx="48" ry="18"/></clipPath>
-    <clipPath id="clip-open"><ellipse cx="200" cy="296" rx="48" ry="32"/></clipPath>
-    <clipPath id="clip-fv"><ellipse cx="200" cy="286" rx="42" ry="12"/></clipPath>
+    
+    <clipPath id="clip-teeth"><ellipse cx="200" cy="290" rx="48" ry="18" /></clipPath>
+    <clipPath id="clip-open"><ellipse cx="200" cy="296" rx="48" ry="32" /></clipPath>
+    <clipPath id="clip-fv"><ellipse cx="200" cy="286" rx="42" ry="12" /></clipPath>
   </defs>
 
-  <!-- ── Base face — empty, background IS the face ───────────── -->
+  
   <g id="face-base">
-    <!-- No shape — the page background color is the face -->
+    
   </g>
 
-  <!-- ── Eyes — big bold black ovals with white glint ────────── -->
+  
   <g id="eyes-base">
-    <ellipse cx="148" cy="150" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="157" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-left"/>
-    <circle cx="152" cy="131" r="5" fill="white" opacity="0.7" class="glint"/>
-    <ellipse cx="252" cy="150" rx="40" ry="46" fill="#111"/>
-    <ellipse cx="243" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-right"/>
-    <circle cx="248" cy="131" r="5" fill="white" opacity="0.7" class="glint"/>
+    <ellipse cx="148" cy="150" rx="40" ry="46" fill="#111" />
+    <ellipse cx="157" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-left" />
+    <circle cx="152" cy="131" r="5" fill="white" opacity="0.7" class="glint" />
+    <ellipse cx="252" cy="150" rx="40" ry="46" fill="#111" />
+    <ellipse cx="243" cy="136" rx="11" ry="13" fill="white" opacity="0.9" class="pupil-right" />
+    <circle cx="248" cy="131" r="5" fill="white" opacity="0.7" class="glint" />
   </g>
 
-  <!-- ── Mouth shapes (visemes) ─────────────────────────────── -->
+  
 
-  <!-- IDLE: big friendly curve smile (resting) -->
+  
   <g id="mouth-IDLE" style="display:none">
-    <path d="M110 290 Q200 355 290 290" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
+    <path d="M110 290 Q200 355 290 290" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round" />
   </g>
 
-  <!-- IDLE-TALK: smaller smile used between words while speaking -->
+  
   <g id="mouth-IDLE-TALK" style="display:none">
-    <path d="M148 294 Q200 330 252 294" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+    <path d="M148 294 Q200 330 252 294" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round" />
   </g>
 
-  <!-- CLOSED: lips pressed (b, p, m) -->
+  
   <g id="mouth-CLOSED" style="display:none">
-    <path d="M130 300 Q200 310 270 300" fill="#111" stroke="#111" stroke-width="7" stroke-linecap="round"/>
+    <path d="M130 300 Q200 310 270 300" fill="#111" stroke="#111" stroke-width="7" stroke-linecap="round" />
   </g>
 
-  <!-- OPEN: big wide mouth (a, ah) -->
+  
   <g id="mouth-OPEN" style="display:none">
-    <ellipse cx="200" cy="304" rx="56" ry="38" fill="url(#n-mouth-fill)"/>
-    <rect x="152" y="274" width="96" height="12" rx="5" fill="white" clip-path="url(#clip-open)"/>
-    <ellipse cx="200" cy="324" rx="26" ry="14" fill="#C0392B" opacity="0.45"/>
+    <ellipse cx="200" cy="304" rx="56" ry="38" fill="url(#n-mouth-fill)" />
+    <rect x="152" y="274" width="96" height="12" rx="5" fill="white" clip-path="url(#clip-open)" />
+    <ellipse cx="200" cy="324" rx="26" ry="14" fill="#C0392B" opacity="0.45" />
   </g>
 
-  <!-- ROUND: O shape (o, u, w) -->
+  
   <g id="mouth-ROUND" style="display:none">
-    <ellipse cx="200" cy="300" rx="30" ry="32" fill="url(#n-mouth-fill)"/>
+    <ellipse cx="200" cy="300" rx="30" ry="32" fill="url(#n-mouth-fill)" />
   </g>
 
-  <!-- TEETH: wide grin showing teeth (e, i, s) -->
+  
   <g id="mouth-TEETH" style="display:none">
-    <ellipse cx="200" cy="298" rx="54" ry="24" fill="url(#n-mouth-fill)"/>
-    <rect x="156" y="288" width="88" height="12" rx="5" fill="white" clip-path="url(#clip-teeth)"/>
+    <ellipse cx="200" cy="298" rx="54" ry="24" fill="url(#n-mouth-fill)" />
+    <rect x="156" y="288" width="88" height="12" rx="5" fill="white" clip-path="url(#clip-teeth)" />
   </g>
 
-  <!-- FV: lip bite (f, v) -->
+  
   <g id="mouth-FV" style="display:none">
-    <path d="M140 292 Q200 284 260 292" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
-    <rect x="168" y="294" width="64" height="7" rx="3" fill="white" opacity="0.85" clip-path="url(#clip-fv)"/>
-    <path d="M154 300 Q200 316 246 300" fill="#111" opacity="0.35"/>
+    <path d="M140 292 Q200 284 260 292" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round" />
+    <rect x="168" y="294" width="64" height="7" rx="3" fill="white" opacity="0.85" clip-path="url(#clip-fv)" />
+    <path d="M154 300 Q200 316 246 300" fill="#111" opacity="0.35" />
   </g>
 
-  <!-- Legacy viseme aliases -->
-  <g id="mouth-PP" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-FF" style="display:none"><use href="#mouth-FV"/></g>
-  <g id="mouth-TH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-DD" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-KK" style="display:none"><use href="#mouth-OPEN"/></g>
-  <g id="mouth-SS" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-SH" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-RR" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-NN" style="display:none"><use href="#mouth-CLOSED"/></g>
-  <g id="mouth-IH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-EH" style="display:none"><use href="#mouth-TEETH"/></g>
-  <g id="mouth-AA" style="display:none"><use href="#mouth-OPEN"/></g>
-  <g id="mouth-OH" style="display:none"><use href="#mouth-ROUND"/></g>
-  <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND"/></g>
+  
+  <g id="mouth-PP" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-FF" style="display:none"><use href="#mouth-FV" /></g>
+  <g id="mouth-TH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-DD" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-KK" style="display:none"><use href="#mouth-OPEN" /></g>
+  <g id="mouth-SS" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-SH" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-RR" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-NN" style="display:none"><use href="#mouth-CLOSED" /></g>
+  <g id="mouth-IH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-EH" style="display:none"><use href="#mouth-TEETH" /></g>
+  <g id="mouth-AA" style="display:none"><use href="#mouth-OPEN" /></g>
+  <g id="mouth-OH" style="display:none"><use href="#mouth-ROUND" /></g>
+  <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND" /></g>
 
-  <!-- ── Expression overlays ────────────────────────────────── -->
+  
 
-  <!-- Anchor points: tell the expression loader where features live in this skin -->
-  <g id="mouth-anchor" data-cx="200" data-cy="304" style="display:none"/>
-  <g id="eyes-anchor" data-cx="200" data-cy="150" style="display:none"/>
-  <g id="eyebrows-anchor" data-cx="200" data-cy="118" style="display:none"/>
+  
+  <g id="mouth-anchor" data-cx="200" data-cy="304" style="display:none" />
+  <g id="eyes-anchor" data-cx="200" data-cy="150" style="display:none" />
+  <g id="eyebrows-anchor" data-cx="200" data-cy="118" style="display:none" />
 
-  <g id="expr-neutral" style="display:none"></g>
-
-  <!-- happy: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-happy" style="display:none">
+  <g id="expr-happy" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -30,0 Q 0,25 30,0" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-5 Q -25,-18 -12,-5" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M 12,-5 Q 25,-18 38,-5" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -40,-18 Q -25,-25 -10,-18" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-18 Q 25,-25 40,-18" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-sad" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,8 Q 0,-12 25,8" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="175.0" cy="110.0" rx="14" ry="10" fill="#333" /><ellipse cx="225.0" cy="110.0" rx="14" ry="10" fill="#333" /><path d="M -38,-48 Q -30,-56 -18,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-52 Q 30,-56 38,-48" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-angry" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,5 Q 0,-8 20,5" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4.5" stroke-linecap="round" /><ellipse cx="175.0" cy="112.0" rx="13" ry="8" fill="#333" /><ellipse cx="225.0" cy="112.0" rx="13" ry="8" fill="#333" /><path d="M -38,-44 Q -25,-56 -12,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round" /><path d="M 12,-50 Q 25,-56 38,-44" transform="translate(200.0,118.0)" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round" /></g><g id="expr-surprised" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="304.0" rx="12" ry="16" fill="#333" opacity="0.85" /><ellipse cx="175.0" cy="108.0" rx="16" ry="20" fill="#333" /><ellipse cx="225.0" cy="108.0" rx="16" ry="20" fill="#333" /><path d="M -40,-56 Q -25,-68 -10,-56" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /><path d="M 10,-56 Q 25,-68 40,-56" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /></g><g id="expr-thinking" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,2 Q -5,-5 10,0 Q 15,2 20,5" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="178.0" cy="106.0" rx="13" ry="15" fill="#333" /><ellipse cx="228.0" cy="108.0" rx="13" ry="13" fill="#333" /><path d="M -38,-52 Q -25,-56 -12,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-50 Q 25,-62 40,-54" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-confused" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,0 Q -10,-8 0,2 Q 10,10 22,-2" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="173.0" cy="108.0" rx="14" ry="16" fill="#333" /><ellipse cx="227.0" cy="108.0" rx="12" ry="13" fill="#333" /><path d="M -40,-52 Q -25,-56 -12,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-52 Q 25,-62 40,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-excited" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -28,-2 Q 0,30 28,-2 Z" transform="translate(200.0,304.0)" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" /><ellipse cx="175.0" cy="106.0" rx="16" ry="19" fill="#333" /><ellipse cx="225.0" cy="106.0" rx="16" ry="19" fill="#333" /><path d="M -40,-58 Q -25,-68 -10,-58" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-58 Q 25,-68 40,-58" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-scared" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -20,10 Q 0,-15 20,10 Q 0,20 -20,10 Z" transform="translate(200.0,304.0)" fill="#333" stroke="#333" stroke-width="3" opacity="0.7" /><ellipse cx="175.0" cy="106.0" rx="17" ry="22" fill="#333" /><ellipse cx="225.0" cy="106.0" rx="17" ry="22" fill="#333" /><path d="M -40,-58 Q -25,-72 -10,-60" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /><path d="M 10,-60 Q 25,-72 40,-58" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3.5" fill="none" stroke-linecap="round" /></g><g id="expr-concerned" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,5 Q 0,-5 22,5" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="3.5" stroke-linecap="round" /><ellipse cx="175.0" cy="108.0" rx="14" ry="16" fill="#333" /><ellipse cx="225.0" cy="108.0" rx="14" ry="16" fill="#333" /><path d="M -38,-50 Q -30,-56 -18,-54" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-54 Q 30,-56 38,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-proud" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,3 Q -5,0 5,-5 Q 20,-8 28,-2" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-38 Q -25,-48 -12,-38" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M 12,-38 Q 25,-48 38,-38" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-50 Q -25,-54 -12,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 12,-48 Q 25,-58 40,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-love" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="304.0" rx="8" ry="10" fill="#e74c6f" opacity="0.8" /><ellipse cx="175.0" cy="108.0" rx="13" ry="11" fill="#333" /><ellipse cx="225.0" cy="108.0" rx="13" ry="11" fill="#333" /><path d="M -38,-52 Q -25,-58 -12,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /><path d="M 12,-52 Q 25,-58 38,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /></g><g id="expr-crying" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -22,12 Q 0,-18 22,12 Q 0,22 -22,12 Z" transform="translate(200.0,304.0)" fill="#333" stroke="#333" stroke-width="3" opacity="0.6" /><ellipse cx="175.0" cy="110.0" rx="12" ry="8" fill="#333" /><ellipse cx="225.0" cy="110.0" rx="12" ry="8" fill="#333" /><path d="M -38,-46 Q -30,-55 -18,-52" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 18,-52 Q 30,-55 38,-46" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-sleepy" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><ellipse cx="200.0" cy="304.0" rx="8" ry="6" fill="#333" opacity="0.5" /><ellipse cx="175.0" cy="112.0" rx="14" ry="5" fill="#333" /><ellipse cx="225.0" cy="112.0" rx="14" ry="5" fill="#333" /><path d="M -36,-44 Q -25,-47 -14,-44" transform="translate(200.0,118.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /><path d="M 14,-44 Q 25,-47 36,-44" transform="translate(200.0,118.0)" stroke="#333" stroke-width="2.5" fill="none" stroke-linecap="round" /></g><g id="expr-winking" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -28,0 Q 0,22 28,0" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><path d="M -38,-38 Q -25,-48 -12,-38" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="225.0" cy="108.0" rx="15" ry="18" fill="#333" /><path d="M -38,-50 Q -25,-54 -12,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-54 Q 25,-62 40,-54" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-laughing" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -30,-5 Q 0,35 30,-5 Z" transform="translate(200.0,304.0)" fill="#fff" stroke="#333" stroke-width="3" /><path d="M -38,-38 Q -25,-50 -12,-38" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="5" stroke-linecap="round" /><path d="M 12,-38 Q 25,-50 38,-38" transform="translate(200.0,150.0)" fill="none" stroke="#333" stroke-width="5" stroke-linecap="round" /><path d="M -40,-50 Q -25,-60 -10,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 10,-50 Q 25,-60 40,-50" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="expr-silly" style="display:none" data-replace-mouth="true" data-replace-eyes="true"><path d="M -25,0 Q -15,20 0,10 Q 15,20 25,0" transform="translate(200.0,304.0)" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" /><ellipse cx="175.0" cy="106.0" rx="18" ry="20" fill="#333" /><ellipse cx="225.0" cy="110.0" rx="11" ry="12" fill="#333" /><path d="M -40,-58 Q -30,-66 -15,-56" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /><path d="M 14,-48 Q 25,-52 38,-46" transform="translate(200.0,118.0)" stroke="#333" stroke-width="3" fill="none" stroke-linecap="round" /></g><g id="blink" style="display:none">
+    
+    <rect x="108" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill" />
+    <path d="M108 154 Q148 170 188 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" />
+    <rect x="212" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill" />
+    <path d="M212 154 Q252 170 292 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" />
   </g>
-
-  <!-- thinking: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-thinking" style="display:none">
-  </g>
-
-  <!-- surprised: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-surprised" style="display:none">
-  </g>
-
-  <!-- sad: tear (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-sad" style="display:none">
-    <ellipse cx="178" cy="200" rx="6" ry="9" fill="url(#n-tear)"/>
-  </g>
-
-  <!-- excited: sparkles (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-excited" style="display:none">
-    <circle cx="70" cy="80" r="12" fill="url(#n-sparkle)"/>
-    <circle cx="336" cy="90" r="9" fill="url(#n-sparkle)"/>
-  </g>
-
-  <!-- concerned: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-concerned" style="display:none">
-  </g>
-
-  <g id="expr-listening" style="display:none"></g>
-
-  <!-- laughing: tears of joy (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-laughing" style="display:none">
-    <ellipse cx="184" cy="168" rx="6" ry="8" fill="url(#n-tear)"/>
-    <ellipse cx="216" cy="170" rx="5" ry="7" fill="url(#n-tear)"/>
-  </g>
-
-  <!-- crying: tear streams (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-crying" style="display:none">
-    <ellipse cx="176" cy="202" rx="6" ry="9" fill="url(#n-tear)"/>
-    <ellipse cx="172" cy="226" rx="5" ry="7" fill="url(#n-tear)"/>
-    <ellipse cx="230" cy="204" rx="6" ry="9" fill="url(#n-tear)"/>
-    <ellipse cx="234" cy="228" rx="5" ry="7" fill="url(#n-tear)"/>
-  </g>
-
-  <!-- silly: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-silly" style="display:none">
-  </g>
-
-  <!-- winking: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-winking" style="display:none">
-  </g>
-
-  <!-- angry: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-angry" style="display:none">
-  </g>
-
-  <!-- confused: question mark (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-confused" style="display:none">
-    <text x="320" y="110" font-family="sans-serif" font-size="52" font-weight="bold" fill="#111" opacity="0.45">?</text>
-  </g>
-
-  <!-- love: floating hearts (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-love" style="display:none">
-    <path d="M65 70 C65 58,82 52,82 64 C82 52,99 58,99 70 L82 86 Z" fill="#FF69B4" opacity="0.5"/>
-    <path d="M310 60 C310 49,326 44,326 55 C326 44,342 49,342 60 L326 74 Z" fill="#FF69B4" opacity="0.4"/>
-  </g>
-
-  <!-- sleepy: zzz (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-sleepy" style="display:none">
-    <text x="310" y="100" font-family="sans-serif" font-size="32" font-weight="bold" fill="#6C63FF" opacity="0.5">z</text>
-    <text x="332" y="76" font-family="sans-serif" font-size="26" font-weight="bold" fill="#6C63FF" opacity="0.35">z</text>
-    <text x="350" y="56" font-family="sans-serif" font-size="20" font-weight="bold" fill="#6C63FF" opacity="0.2">z</text>
-  </g>
-
-  <!-- proud: sparkle (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-proud" style="display:none">
-    <circle cx="338" cy="80" r="14" fill="url(#n-sparkle)"/>
-  </g>
-
-  <!-- scared: (eyes/eyebrows/mouth from shared library) -->
-  <g id="expr-scared" style="display:none">
-  </g>
-
-  <!-- ── Blink overlay ──────────────────────────────────────── -->
-  <g id="blink" style="display:none">
-    <!-- Blink lids match background color -->
-    <rect x="108" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
-    <path d="M108 154 Q148 170 188 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
-    <rect x="212" y="104" width="80" height="100" rx="4" fill="var(--face-bg, #FF9E1B)" class="lid-fill"/>
-    <path d="M212 154 Q252 170 292 154" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
-  </g>
-</svg>
+<g id="expr-listening" style="display:none" /><g id="expr-neutral" style="display:none" /></svg>
