@@ -898,6 +898,9 @@
             const bg = getComputedStyle(document.body).backgroundColor;
             svg.style.setProperty('--face-bg', bg);
           }
+
+          // Load shared expression mouths from library
+          await loadExpressions(svg);
         }
         showViseme('IDLE');
         showExpression('neutral');
@@ -909,6 +912,76 @@
         console.error('Failed to load skin:', err);
         statusEl.textContent = 'skin load failed';
         statusEl.className = 'error';
+      }
+    }
+
+    async function loadExpressions(svg) {
+      try {
+        const resp = await fetch('/avatar/skin/expressions.json');
+        if (!resp.ok) return;
+        const lib = await resp.json();
+
+        // Mouth center from skin anchor (skins declare where their mouth sits)
+        const anchor = svg.querySelector('#mouth-anchor');
+        const cx = anchor ? parseFloat(anchor.getAttribute('data-cx') || '150') : 150;
+        const cy = anchor ? parseFloat(anchor.getAttribute('data-cy') || '230') : 230;
+
+        for (const [name, expr] of Object.entries(lib.expressions)) {
+          if (!expr.replace_mouth) continue;
+
+          // Find or create expression group
+          let g = svg.querySelector(`#expr-${name}`);
+          if (!g) {
+            g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.id = `expr-${name}`;
+            g.style.display = 'none';
+            // Insert before blink overlay so expressions render under it
+            const blink = svg.querySelector('#blink');
+            if (blink) svg.insertBefore(g, blink);
+            else svg.appendChild(g);
+          }
+
+          // Set replace flags (preserve skin's replace-eyes if already set)
+          g.setAttribute('data-replace-mouth', 'true');
+          if (expr.replace_eyes && !g.hasAttribute('data-replace-eyes')) {
+            g.setAttribute('data-replace-eyes', 'true');
+          }
+
+          // Remove any previously injected mouth
+          const oldMouth = g.querySelector('[data-expr-mouth]');
+          if (oldMouth) oldMouth.remove();
+
+          // Inject mouth shape from shared library
+          if (expr.mouth) {
+            const mouth = expr.mouth;
+            let el;
+
+            if (mouth.type === 'path') {
+              el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+              el.setAttribute('d', mouth.d);
+              el.setAttribute('transform', `translate(${cx}, ${cy})`);
+            } else if (mouth.type === 'ellipse') {
+              el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+              el.setAttribute('cx', cx);
+              el.setAttribute('cy', cy);
+              el.setAttribute('rx', mouth.rx);
+              el.setAttribute('ry', mouth.ry);
+            }
+
+            if (el) {
+              if (mouth.fill) el.setAttribute('fill', mouth.fill);
+              if (mouth.stroke) el.setAttribute('stroke', mouth.stroke);
+              if (mouth.stroke_width) el.setAttribute('stroke-width', mouth.stroke_width);
+              if (mouth.stroke_linecap) el.setAttribute('stroke-linecap', mouth.stroke_linecap);
+              if (mouth.opacity) el.setAttribute('opacity', mouth.opacity);
+              el.setAttribute('data-expr-mouth', 'true');
+              g.appendChild(el);
+            }
+          }
+        }
+        console.log('Shared expressions loaded:', Object.keys(lib.expressions).length);
+      } catch (err) {
+        console.warn('Failed to load shared expressions:', err);
       }
     }
 

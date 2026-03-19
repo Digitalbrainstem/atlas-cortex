@@ -571,6 +571,19 @@ async def get_avatar_config_endpoint(user: str = ""):
     return get_avatar_config(user)
 
 
+@app.get("/avatar/skin/expressions.json")
+async def serve_expressions_json():
+    """Serve the shared expression mouth library."""
+    _json = Path(__file__).resolve().parent / "avatar" / "skins" / "expressions.json"
+    if not _json.is_file():
+        raise HTTPException(status_code=404, detail="expressions.json not found")
+    return FileResponse(
+        _json,
+        media_type="application/json",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 @app.get("/avatar/skin/{skin_id}.svg")
 async def serve_avatar_skin(skin_id: str):
     """Serve an avatar skin SVG file by skin ID."""

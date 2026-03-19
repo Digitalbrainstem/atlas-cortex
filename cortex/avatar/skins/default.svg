@@ -117,7 +117,10 @@
 
   <!-- ── Expression overlays — only one visible at a time ────── -->
   <!--   data-replace-eyes="true" → client hides eyes-base when this is active    -->
-  <!--   data-replace-mouth="true" → client hides mouth visemes (expr has own)    -->
+  <!--   Mouth shapes injected at load time from shared expressions.json          -->
+
+  <!-- Mouth anchor: tells the expression loader where this skin's mouth lives -->
+  <g id="mouth-anchor" data-cx="200" data-cy="280" style="display:none"/>
 
   <!-- neutral: no overlay (base face + eyes show through) -->
   <g id="expr-neutral" style="display:none"></g>
@@ -192,8 +195,8 @@
   <!-- listening: attentive, slightly wider eyes (keeps base eyes) -->
   <g id="expr-listening" style="display:none"></g>
 
-  <!-- laughing: eyes squeezed shut, tears of joy, BIG TOOTHY GRIN -->
-  <g id="expr-laughing" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
+  <!-- laughing: eyes squeezed shut, tears of joy -->
+  <g id="expr-laughing" style="display:none" data-replace-eyes="true">
     <!-- Both eyes squinted shut -->
     <path d="M113 170 Q145 150 177 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
     <path d="M223 170 Q255 150 287 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
@@ -206,8 +209,6 @@
     <!-- Big rosy cheeks -->
     <circle cx="108" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
     <circle cx="292" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
-    <!-- BIG TOOTHY GRIN — plain white, cartoony -->
-    <path d="M140 260 Q200 310 260 260" fill="white" stroke="#2D2D2D" stroke-width="3" stroke-linecap="round"/>
   </g>
 
   <!-- crying: big teary eyes, tear streams -->
@@ -226,16 +227,14 @@
     <ellipse cx="238" cy="232" rx="3" ry="5" fill="url(#tear-grad)"/>
   </g>
 
-  <!-- silly: one eye big, one winking, goofy TOOTHY GRIN + tongue -->
-  <g id="expr-silly" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
+  <!-- silly: one eye big, one winking, goofy grin -->
+  <g id="expr-silly" style="display:none" data-replace-eyes="true">
     <!-- Both eyes squinted shut (big cheesy grin) -->
     <path d="M113 172 Q145 155 177 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
     <path d="M223 172 Q255 155 287 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
     <!-- Rosy cheeks -->
     <circle cx="112" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
     <circle cx="288" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
-    <!-- BIG TOOTHY GRIN — plain white, cartoony -->
-    <path d="M145 262 Q200 305 255 262" fill="white" stroke="#2D2D2D" stroke-width="3" stroke-linecap="round"/>
   </g>
 
   <!-- winking: left eye closed, right eye open -->

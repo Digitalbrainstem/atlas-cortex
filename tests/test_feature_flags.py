@@ -218,3 +218,85 @@ class TestAdminFlagEndpoints:
         resp = client.get("/api/avatar/config")
         for v in resp.json().values():
             assert v is False
+
+
+# ── SVG expression mouth tests ──────────────────────────────────
+
+import re
+from pathlib import Path
+
+_SKINS_DIR = Path(__file__).resolve().parent.parent / "cortex" / "avatar" / "skins"
+
+_NEED_MOUTH = [
+    "happy", "sad", "angry", "surprised", "thinking", "confused",
+    "excited", "scared", "concerned", "proud", "love", "crying",
+    "sleepy", "winking", "laughing", "silly",
+]
+
+_ALL_EXPRESSIONS = [
+    "neutral", "happy", "sad", "angry", "surprised", "thinking",
+    "confused", "excited", "scared", "concerned", "listening",
+    "proud", "love", "crying", "sleepy", "winking", "laughing", "silly",
+]
+
+
+def _expr_groups(svg_text: str) -> dict[str, str]:
+    """Return a dict mapping expression name to its full <g>...</g> block."""
+    groups = {}
+    for m in re.finditer(
+        r'<g\s+id="expr-(\w+)"[^>]*>.*?</g>', svg_text, re.DOTALL,
+    ):
+        groups[m.group(1)] = m.group(0)
+    return groups
+
+
+@pytest.mark.parametrize("skin", ["default.svg", "nick.svg"])
+class TestSvgExpressionMouths:
+    """Every expression that needs a custom mouth must have one."""
+
+    def _load(self, skin: str) -> str:
+        return (_SKINS_DIR / skin).read_text()
+
+    def test_all_expression_ids_exist(self, skin):
+        svg = self._load(skin)
+        for expr in _ALL_EXPRESSIONS:
+            assert f'id="expr-{expr}"' in svg, f"Missing expr-{expr} in {skin}"
+
+    def test_mouth_idle_exists(self, skin):
+        svg = self._load(skin)
+        assert 'id="mouth-IDLE"' in svg, f"Missing mouth-IDLE in {skin}"
+
+    def test_expressions_have_replace_mouth(self, skin):
+        """With shared expression library, mouths are injected at load time.
+        Verify that expressions.json defines mouths for all _NEED_MOUTH entries."""
+        import json
+        lib_path = _SKINS_DIR / "expressions.json"
+        lib = json.loads(lib_path.read_text())
+        for expr in _NEED_MOUTH:
+            entry = lib["expressions"].get(expr)
+            assert entry is not None, f"expression {expr} missing from expressions.json"
+            assert entry.get("replace_mouth"), (
+                f"{expr} should have replace_mouth=true in expressions.json"
+            )
+
+    def test_expressions_have_mouth_child(self, skin):
+        """With shared expression library, mouth shapes are in expressions.json,
+        not hardcoded in skin SVGs."""
+        import json
+        lib_path = _SKINS_DIR / "expressions.json"
+        lib = json.loads(lib_path.read_text())
+        for expr in _NEED_MOUTH:
+            entry = lib["expressions"].get(expr, {})
+            mouth = entry.get("mouth", {})
+            assert mouth.get("type") in ("path", "ellipse"), (
+                f"{expr} has no valid mouth in expressions.json"
+            )
+
+    def test_neutral_and_listening_no_replace_mouth(self, skin):
+        svg = self._load(skin)
+        groups = _expr_groups(svg)
+        for expr in ("neutral", "listening"):
+            g = groups.get(expr, "")
+            assert 'data-replace-mouth="true"' not in g, (
+                f"expr-{expr} should NOT have data-replace-mouth in {skin}"
+            )

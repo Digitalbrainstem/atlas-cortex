@@ -107,6 +107,9 @@
 
   <!-- ── Expression overlays ────────────────────────────────── -->
 
+  <!-- Mouth anchor: tells the expression loader where this skin's mouth lives -->
+  <g id="mouth-anchor" data-cx="200" data-cy="304" style="display:none"/>
+
   <g id="expr-neutral" style="display:none"></g>
 
   <!-- happy: crescent eyes -->
@@ -162,13 +165,12 @@
 
   <g id="expr-listening" style="display:none"></g>
 
-  <!-- laughing: crescents + huge toothy grin -->
-  <g id="expr-laughing" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
+  <!-- laughing: crescents + tears of joy -->
+  <g id="expr-laughing" style="display:none" data-replace-eyes="true">
     <path d="M108 150 Q148 118 188 150" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
     <path d="M212 150 Q252 118 292 150" fill="none" stroke="#111" stroke-width="9" stroke-linecap="round"/>
     <ellipse cx="184" cy="168" rx="6" ry="8" fill="url(#n-tear)"/>
     <ellipse cx="216" cy="170" rx="5" ry="7" fill="url(#n-tear)"/>
-    <path d="M108 278 Q200 365 292 278" fill="white" stroke="#111" stroke-width="5" stroke-linecap="round"/>
   </g>
 
   <!-- crying: teary eyes -->
@@ -185,11 +187,10 @@
     <ellipse cx="234" cy="228" rx="5" ry="7" fill="url(#n-tear)"/>
   </g>
 
-  <!-- silly: crescents + toothy grin -->
-  <g id="expr-silly" style="display:none" data-replace-eyes="true" data-replace-mouth="true">
+  <!-- silly: crescents -->
+  <g id="expr-silly" style="display:none" data-replace-eyes="true">
     <path d="M108 152 Q148 126 188 152" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
     <path d="M212 152 Q252 126 292 152" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
-    <path d="M116 280 Q200 358 284 280" fill="white" stroke="#111" stroke-width="5" stroke-linecap="round"/>
   </g>
 
   <!-- winking -->
