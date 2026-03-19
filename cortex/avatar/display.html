@@ -146,9 +146,17 @@
         <button onclick="showExpression('neutral')">😐 Neutral</button>
         <button onclick="showExpression('excited')">🤩 Excited</button>
         <button onclick="showExpression('laughing')">😆 Laughing</button>
+        <button onclick="showExpression('rofl')">🤣 ROFL</button>
         <button onclick="showExpression('angry')">😠 Angry</button>
         <button onclick="showExpression('confused')">😕 Confused</button>
         <button onclick="showExpression('silly')">🤪 Silly</button>
+        <button onclick="showExpression('crying')">😭 Crying</button>
+        <button onclick="showExpression('love')">😍 Love</button>
+        <button onclick="showExpression('scared')">😨 Scared</button>
+        <button onclick="showExpression('proud')">😤 Proud</button>
+        <button onclick="showExpression('sleepy')">😴 Sleepy</button>
+        <button onclick="showExpression('winking')">😉 Wink</button>
+        <button onclick="showExpression('concerned')">😟 Concerned</button>
       </div>
       <div class="dev-section">
         <strong>Viseme Test:</strong>
@@ -174,7 +182,7 @@
     ];
     const EXPRESSIONS = [
       'neutral','happy','thinking','surprised','sad','excited','concerned','listening',
-      'laughing','crying','silly','winking','angry','confused','love','sleepy','proud','scared'
+      'laughing','rofl','crying','silly','winking','angry','confused','love','sleepy','proud','scared'
     ];
 
     // Expression-to-animation mapping (Nick Jr. style movement behaviors)
@@ -189,6 +197,7 @@
       concerned: { drift: false, scale: 0.97, squash: false, shake: false, bounce: false, spin: false, tilt: 5 },
       listening: { drift: false, scale: 1.02, squash: false, shake: false, bounce: false, spin: false, tilt: -5 },
       laughing:  { drift: true,  scale: 1.08, squash: true,  shake: true,  bounce: true,  spin: false, tilt: 0 },
+      rofl:      { drift: true,  scale: 1.1,  squash: true,  shake: true,  bounce: true,  spin: true,  tilt: 15 },
       crying:    { drift: false, scale: 0.88, squash: false, shake: true,  bounce: false, spin: false, tilt: -6 },
       silly:     { drift: true,  scale: 1.1,  squash: true,  shake: false, bounce: true,  spin: true,  tilt: 15 },
       winking:   { drift: true,  scale: 1.05, squash: false, shake: false, bounce: false, spin: false, tilt: 8 },
