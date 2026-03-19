@@ -396,6 +396,7 @@ def _generate_eye_elements_legacy(
     stroke_col = base_eyes["stroke"] or fill
 
     default_ry_ratio = expr.get("ry_ratio", 1.0)
+    default_rx_ratio = expr.get("rx_ratio", 1.0)
     elements: list[ET.Element] = []
 
     def _ellipse(cx: float, cy: float, erx: float, ery: float, efill: str = fill) -> ET.Element:
@@ -416,7 +417,17 @@ def _generate_eye_elements_legacy(
         el.set("stroke-linecap", "round")
         return el
 
-    if shape == "squint":
+    # For shapes that scale both rx and ry (smaller eyes, not just squished)
+    def _scaled_eyes(rx_r: float, ry_r: float):
+        erx = rx * rx_r
+        ery = ry * ry_r
+        elements.append(_ellipse(lcx, lcy, erx, ery))
+        elements.append(_ellipse(rcx, rcy, erx, ery))
+
+    if shape in ("small_intense", "joy", "droopy_small", "dreamy", "crying", "confident"):
+        _scaled_eyes(default_rx_ratio, default_ry_ratio)
+
+    elif shape == "squint":
         ery = ry * default_ry_ratio
         min_ry = rx * 0.25  # prevent pointy look — minimum height is 25% of width
         ery = max(ery, min_ry)
