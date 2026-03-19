@@ -431,6 +431,7 @@
     // Dev tools
     function testVisemeSequence() {
       showExpression('neutral');
+      _isSpeaking = true;  // Enable speaking mode so visemes work with expressions
       // Only show the 7 DISTINCT mouth shapes (cartoon bank maps many sounds to these)
       const seq = [
         'IDLE', 'IDLE-TALK', 'CLOSED', 'OPEN', 'ROUND', 'TEETH', 'FV',
@@ -448,6 +449,8 @@
           if (el) el.textContent = labels[i] || v;
         }, i * 500);  // 500ms per shape — slower so you can see each one
       });
+      // Reset speaking flag after sequence
+      setTimeout(() => { _isSpeaking = false; }, seq.length * 500 + 100);
     }
 
     function testAudioPlayback() {
@@ -936,8 +939,14 @@
 
     // ── Viseme rendering ──────────────────────────────────────
     function showViseme(viseme) {
-      if (_exprReplacesMouth) {
-        console.log('viseme BLOCKED:', viseme, '(expr has own mouth)');
+      // When speaking with an emotional expression:
+      // Temporarily hide the expression's mouth group and show viseme mouths
+      if (_exprReplacesMouth && _isSpeaking) {
+        // Hide expression mouth children (they're inside the expr group)
+        _hideExpressionMouth();
+        // Show viseme mouth
+      } else if (_exprReplacesMouth && !_isSpeaking) {
+        // Not speaking + expression has mouth = show expression mouth, block visemes
         return;
       }
       // Use smaller talk-smile between words while speaking
@@ -955,6 +964,32 @@
         if (m) m.style.display = (v === viseme) ? 'inline' : 'none';
       });
       currentViseme = viseme;
+    }
+
+    function _hideExpressionMouth() {
+      // Hide mouth elements inside the current expression group
+      const exprEl = document.getElementById(`expr-${currentExpr}`);
+      if (!exprEl) return;
+      // The first child is typically the mouth path/ellipse
+      const firstChild = exprEl.querySelector('path, ellipse');
+      if (firstChild && !firstChild.getAttribute('class')) {
+        firstChild.style.opacity = '0';
+      }
+    }
+
+    function _restoreExpressionMouth() {
+      // Restore mouth elements inside the current expression group
+      const exprEl = document.getElementById(`expr-${currentExpr}`);
+      if (!exprEl) return;
+      const firstChild = exprEl.querySelector('path, ellipse');
+      if (firstChild && !firstChild.getAttribute('class')) {
+        firstChild.style.opacity = '1';
+      }
+      // Hide all viseme mouths
+      VISEMES.forEach(v => {
+        const m = document.getElementById(`mouth-${v}`);
+        if (m) m.style.display = 'none';
+      });
     }
 
     function setViseme(viseme, durationMs, intensity) {
@@ -1018,6 +1053,7 @@
       if (shakeTimeout) { clearTimeout(shakeTimeout); shakeTimeout = null; }
       if (bounceInterval) { clearInterval(bounceInterval); bounceInterval = null; }
       if (expressionAnimFrame) { cancelAnimationFrame(expressionAnimFrame); expressionAnimFrame = null; }
+      if (_laughInterval) { clearInterval(_laughInterval); _laughInterval = null; }
 
       // Scale with squash/stretch
       if (anim.squash) {
@@ -1045,10 +1081,43 @@
         startBounce(expr === 'excited' ? 300 : 500);
       }
 
-      // Spin (silly)
+      // Spin (silly, rofl)
       if (anim.spin) {
         doSpin();
       }
+
+      // Ha-ha-ha mouth animation (laughing, rofl)
+      if (_laughInterval) { clearInterval(_laughInterval); _laughInterval = null; }
+      if (expr === 'laughing' || expr === 'rofl') {
+        startLaughMouth();
+      }
+    }
+
+    let _laughInterval = null;
+
+    function startLaughMouth() {
+      // Oscillate the expression mouth between big and small for ha-ha-ha effect
+      const exprEl = document.getElementById(`expr-${currentExpr}`);
+      if (!exprEl) return;
+      // Find the mouth element (first path child in the expression group)
+      const mouthEl = exprEl.querySelector('path[fill="#fff"], path[fill="white"], ellipse[fill="#fff"]');
+      if (!mouthEl) return;
+      
+      let open = true;
+      _laughInterval = setInterval(() => {
+        if (mouthEl.tagName === 'path') {
+          // Scale the mouth by adjusting transform
+          mouthEl.style.transform = open ? 'scaleY(1)' : 'scaleY(0.4)';
+          mouthEl.style.transformOrigin = 'center';
+          mouthEl.style.transformBox = 'fill-box';
+        } else {
+          // Ellipse: toggle ry
+          const baseRy = parseFloat(mouthEl.getAttribute('data-base-ry') || mouthEl.getAttribute('ry'));
+          if (!mouthEl.getAttribute('data-base-ry')) mouthEl.setAttribute('data-base-ry', baseRy);
+          mouthEl.setAttribute('ry', open ? baseRy : baseRy * 0.3);
+        }
+        open = !open;
+      }, 200);  // Toggle every 200ms = 5 ha's per second
     }
 
     // ── Squash & Stretch ──────────────────────────────────────

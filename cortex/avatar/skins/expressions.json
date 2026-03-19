@@ -3,7 +3,7 @@
   "description": "Ratio-based expression library \u2014 shapes derived from each skin's base face geometry",
   "expressions": {
     "happy": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
@@ -11,8 +11,9 @@
         "curve_ratio": 0.45
       },
       "eyes": {
-        "shape": "squint",
-        "ry_ratio": 0.8
+        "shape": "joy",
+        "rx_ratio": 0.95,
+        "ry_ratio": 0.75
       },
       "eyebrows": {
         "shape": "raised",
@@ -22,7 +23,7 @@
       "description": "Wide smile arc curving upward"
     },
     "sad": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -30,8 +31,9 @@
         "curve_ratio": 0.25
       },
       "eyes": {
-        "shape": "droopy",
-        "ry_ratio": 0.7
+        "shape": "droopy_small",
+        "rx_ratio": 0.95,
+        "ry_ratio": 0.75
       },
       "eyebrows": {
         "shape": "worry",
@@ -41,7 +43,7 @@
       "description": "Downturned mouth, droopy half-lidded eyes"
     },
     "angry": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -49,8 +51,9 @@
         "curve_ratio": 0.2
       },
       "eyes": {
-        "shape": "narrow",
-        "ry_ratio": 0.5
+        "shape": "small_intense",
+        "rx_ratio": 0.7,
+        "ry_ratio": 0.6
       },
       "eyebrows": {
         "shape": "v_furrowed"
@@ -58,7 +61,7 @@
       "description": "Tight frown, narrowed eyes, V-shaped eyebrows"
     },
     "surprised": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_o",
@@ -76,7 +79,7 @@
       "description": "Round open mouth, wide eyes, high eyebrows"
     },
     "thinking": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "side",
@@ -95,7 +98,7 @@
       "description": "Offset small mouth, upward gaze, one brow raised"
     },
     "confused": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "wavy",
@@ -123,7 +126,7 @@
       "description": "Wavy S-curve mouth, asymmetric eyes and brows"
     },
     "excited": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "big_grin",
@@ -160,7 +163,7 @@
       "description": "Big open grin, wide eyes, raised eyebrows"
     },
     "scared": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
@@ -178,7 +181,7 @@
       "description": "Open frown, very wide eyes, high eyebrows"
     },
     "concerned": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -195,7 +198,7 @@
       "description": "Slight frown, slightly wide eyes, gentle furrow"
     },
     "proud": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "smirk",
@@ -204,6 +207,7 @@
       },
       "eyes": {
         "shape": "confident",
+        "rx_ratio": 0.95,
         "ry_ratio": 0.8
       },
       "eyebrows": {
@@ -222,7 +226,8 @@
       },
       "eyes": {
         "shape": "dreamy",
-        "ry_ratio": 0.75
+        "rx_ratio": 0.9,
+        "ry_ratio": 0.65
       },
       "eyebrows": {
         "shape": "soft"
@@ -248,7 +253,7 @@
       "description": "Small pucker mouth, dreamy half-closed eyes"
     },
     "crying": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
@@ -256,8 +261,9 @@
         "curve_ratio": 0.45
       },
       "eyes": {
-        "shape": "squint",
-        "ry_ratio": 0.5
+        "shape": "crying",
+        "rx_ratio": 0.9,
+        "ry_ratio": 0.6
       },
       "eyebrows": {
         "shape": "worry",
@@ -313,7 +319,7 @@
       "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
     },
     "winking": {
-      "replace_mouth": false,
+      "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
