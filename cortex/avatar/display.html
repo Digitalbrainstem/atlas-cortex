@@ -899,7 +899,7 @@
             svg.style.setProperty('--face-bg', bg);
           }
 
-          // Load shared expression mouths from library
+          // Load shared expressions (mouth, eyes, eyebrows) from library
           await loadExpressions(svg);
         }
         showViseme('IDLE');
@@ -921,13 +921,21 @@
         if (!resp.ok) return;
         const lib = await resp.json();
 
-        // Mouth center from skin anchor (skins declare where their mouth sits)
-        const anchor = svg.querySelector('#mouth-anchor');
-        const cx = anchor ? parseFloat(anchor.getAttribute('data-cx') || '150') : 150;
-        const cy = anchor ? parseFloat(anchor.getAttribute('data-cy') || '230') : 230;
+        // Anchor positions from skin (skins declare where features live)
+        const mouthA = svg.querySelector('#mouth-anchor');
+        const mCx = mouthA ? parseFloat(mouthA.getAttribute('data-cx') || '200') : 200;
+        const mCy = mouthA ? parseFloat(mouthA.getAttribute('data-cy') || '280') : 280;
+
+        const eyesA = svg.querySelector('#eyes-anchor');
+        const eCx = eyesA ? parseFloat(eyesA.getAttribute('data-cx') || '200') : 200;
+        const eCy = eyesA ? parseFloat(eyesA.getAttribute('data-cy') || '170') : 170;
+
+        const browsA = svg.querySelector('#eyebrows-anchor');
+        const bCx = browsA ? parseFloat(browsA.getAttribute('data-cx') || '200') : 200;
+        const bCy = browsA ? parseFloat(browsA.getAttribute('data-cy') || '148') : 148;
 
         for (const [name, expr] of Object.entries(lib.expressions)) {
-          if (!expr.replace_mouth) continue;
+          if (!expr.replace_mouth && !expr.replace_eyes) continue;
 
           // Find or create expression group
           let g = svg.querySelector(`#expr-${name}`);
@@ -935,47 +943,43 @@
             g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
             g.id = `expr-${name}`;
             g.style.display = 'none';
-            // Insert before blink overlay so expressions render under it
             const blink = svg.querySelector('#blink');
             if (blink) svg.insertBefore(g, blink);
             else svg.appendChild(g);
           }
 
-          // Set replace flags (preserve skin's replace-eyes if already set)
-          g.setAttribute('data-replace-mouth', 'true');
-          if (expr.replace_eyes && !g.hasAttribute('data-replace-eyes')) {
-            g.setAttribute('data-replace-eyes', 'true');
+          // Set replace flags
+          if (expr.replace_mouth) g.setAttribute('data-replace-mouth', 'true');
+          if (expr.replace_eyes) g.setAttribute('data-replace-eyes', 'true');
+
+          // Remove previously injected elements
+          g.querySelectorAll('[data-expr-mouth]').forEach(el => el.remove());
+          g.querySelectorAll('[data-expr-eye]').forEach(el => el.remove());
+          g.querySelectorAll('[data-expr-brow]').forEach(el => el.remove());
+
+          // Inject mouth
+          if (expr.replace_mouth && expr.mouth) {
+            const mel = _createFeatureElement(expr.mouth, mCx, mCy);
+            if (mel) { mel.setAttribute('data-expr-mouth', 'true'); g.appendChild(mel); }
           }
 
-          // Remove any previously injected mouth
-          const oldMouth = g.querySelector('[data-expr-mouth]');
-          if (oldMouth) oldMouth.remove();
-
-          // Inject mouth shape from shared library
-          if (expr.mouth) {
-            const mouth = expr.mouth;
-            let el;
-
-            if (mouth.type === 'path') {
-              el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-              el.setAttribute('d', mouth.d);
-              el.setAttribute('transform', `translate(${cx}, ${cy})`);
-            } else if (mouth.type === 'ellipse') {
-              el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-              el.setAttribute('cx', cx);
-              el.setAttribute('cy', cy);
-              el.setAttribute('rx', mouth.rx);
-              el.setAttribute('ry', mouth.ry);
+          // Inject eyes
+          if (expr.replace_eyes && expr.eyes) {
+            for (const side of ['left', 'right']) {
+              const eyeDef = expr.eyes[side];
+              if (!eyeDef) continue;
+              const eel = _createFeatureElement(eyeDef, eCx, eCy);
+              if (eel) { eel.setAttribute('data-expr-eye', side); g.appendChild(eel); }
             }
+          }
 
-            if (el) {
-              if (mouth.fill) el.setAttribute('fill', mouth.fill);
-              if (mouth.stroke) el.setAttribute('stroke', mouth.stroke);
-              if (mouth.stroke_width) el.setAttribute('stroke-width', mouth.stroke_width);
-              if (mouth.stroke_linecap) el.setAttribute('stroke-linecap', mouth.stroke_linecap);
-              if (mouth.opacity) el.setAttribute('opacity', mouth.opacity);
-              el.setAttribute('data-expr-mouth', 'true');
-              g.appendChild(el);
+          // Inject eyebrows
+          if (expr.replace_eyes && expr.eyebrows) {
+            for (const side of ['left', 'right']) {
+              const browDef = expr.eyebrows[side];
+              if (!browDef) continue;
+              const bel = _createFeatureElement(browDef, bCx, bCy);
+              if (bel) { bel.setAttribute('data-expr-brow', side); g.appendChild(bel); }
             }
           }
         }
@@ -983,6 +987,30 @@
       } catch (err) {
         console.warn('Failed to load shared expressions:', err);
       }
+    }
+
+    function _createFeatureElement(def, anchorCx, anchorCy) {
+      const NS = 'http://www.w3.org/2000/svg';
+      let el;
+      if (def.type === 'path') {
+        el = document.createElementNS(NS, 'path');
+        el.setAttribute('d', def.d);
+        el.setAttribute('transform', `translate(${anchorCx}, ${anchorCy})`);
+      } else if (def.type === 'ellipse') {
+        el = document.createElementNS(NS, 'ellipse');
+        el.setAttribute('cx', anchorCx + (def.cx_offset || 0));
+        el.setAttribute('cy', anchorCy + (def.cy_offset || 0));
+        el.setAttribute('rx', def.rx);
+        el.setAttribute('ry', def.ry);
+      }
+      if (el) {
+        if (def.fill) el.setAttribute('fill', def.fill);
+        if (def.stroke) el.setAttribute('stroke', def.stroke);
+        if (def.stroke_width) el.setAttribute('stroke-width', def.stroke_width);
+        if (def.stroke_linecap) el.setAttribute('stroke-linecap', def.stroke_linecap);
+        if (def.opacity) el.setAttribute('opacity', def.opacity);
+      }
+      return el;
     }
 
     // ── Viseme rendering ──────────────────────────────────────
@@ -1030,8 +1058,10 @@
 
       // Use data attributes to control base element visibility
       const baseEyes = document.getElementById('eyes-base');
+      const baseBrows = document.getElementById('eyebrows-base');
       const replaceEyes = el && el.getAttribute('data-replace-eyes') === 'true';
       if (baseEyes) baseEyes.style.display = replaceEyes ? 'none' : 'inline';
+      if (baseBrows) baseBrows.style.display = replaceEyes ? 'none' : 'inline';
 
       // Some expressions have their own mouth (toothy grins) — hide viseme mouths
       const replaceMouth = el && el.getAttribute('data-replace-mouth') === 'true';
