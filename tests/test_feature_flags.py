@@ -285,15 +285,15 @@ class TestSvgExpressionMouths:
             )
 
     def test_expressions_have_mouth_child(self, skin):
-        """Mouth shapes are in expressions.json, not hardcoded in skin SVGs."""
+        """Mouth shapes are in expressions.json with a valid shape name."""
         import json
         lib_path = _SKINS_DIR / "expressions.json"
         lib = json.loads(lib_path.read_text())
         for expr in _NEED_MOUTH:
             entry = lib["expressions"].get(expr, {})
             mouth = entry.get("mouth", {})
-            assert mouth.get("type") in ("path", "ellipse"), (
-                f"{expr} has no valid mouth in expressions.json"
+            assert "shape" in mouth, (
+                f"{expr} has no valid mouth shape in expressions.json"
             )
 
     def test_expressions_have_eyes(self, skin):
@@ -307,8 +307,8 @@ class TestSvgExpressionMouths:
                 f"{expr} should have replace_eyes=true in expressions.json"
             )
             eyes = entry.get("eyes", {})
-            assert "left" in eyes and "right" in eyes, (
-                f"{expr} missing left/right eyes in expressions.json"
+            assert "shape" in eyes, (
+                f"{expr} missing eyes shape in expressions.json"
             )
 
     def test_expressions_have_eyebrows(self, skin):
@@ -319,8 +319,8 @@ class TestSvgExpressionMouths:
         for expr in _NEED_MOUTH:
             entry = lib["expressions"].get(expr, {})
             brows = entry.get("eyebrows", {})
-            assert "left" in brows and "right" in brows, (
-                f"{expr} missing left/right eyebrows in expressions.json"
+            assert "shape" in brows, (
+                f"{expr} missing eyebrows shape in expressions.json"
             )
 
     def test_neutral_and_listening_no_replace_mouth(self, skin):
