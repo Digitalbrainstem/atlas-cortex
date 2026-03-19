@@ -518,25 +518,21 @@ class TestExpressionsJson:
         for name, expr in lib["expressions"].items():
             if expr.get("replace_mouth"):
                 assert "mouth" in expr, f"{name}: replace_mouth=true but no mouth definition"
-                assert "type" in expr["mouth"], f"{name}: mouth missing type"
+                assert "shape" in expr["mouth"], f"{name}: mouth missing shape"
 
     def test_replace_eyes_true_has_eyes_definition(self):
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if expr.get("replace_eyes"):
                 assert "eyes" in expr, f"{name}: replace_eyes=true but no eyes definition"
-                assert "left" in expr["eyes"], f"{name}: eyes missing left"
-                assert "right" in expr["eyes"], f"{name}: eyes missing right"
-                assert "type" in expr["eyes"]["left"], f"{name}: left eye missing type"
-                assert "type" in expr["eyes"]["right"], f"{name}: right eye missing type"
+                assert "shape" in expr["eyes"], f"{name}: eyes missing shape"
 
     def test_replace_eyes_true_has_eyebrows_definition(self):
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if expr.get("replace_eyes"):
                 assert "eyebrows" in expr, f"{name}: replace_eyes=true but no eyebrows"
-                assert "left" in expr["eyebrows"], f"{name}: eyebrows missing left"
-                assert "right" in expr["eyebrows"], f"{name}: eyebrows missing right"
+                assert "shape" in expr["eyebrows"], f"{name}: eyebrows missing shape"
 
     def test_neutral_and_listening_no_replace(self):
         lib = self._load()
@@ -551,67 +547,62 @@ class TestExpressionsJson:
             expr = lib["expressions"][name]
             assert expr["replace_eyes"], f"{name} should have replace_eyes=true"
 
-    def test_mouth_types_valid(self):
+    def test_mouth_shapes_valid(self):
+        from cortex.avatar.skins.generate_expressions import _MOUTH_SHAPES, _ELLIPSE_MOUTH_SHAPES
+        all_shapes = _MOUTH_SHAPES | _ELLIPSE_MOUTH_SHAPES
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if expr.get("replace_mouth") and "mouth" in expr:
-                assert expr["mouth"]["type"] in ("path", "ellipse"), \
-                    f"{name}: invalid mouth type {expr['mouth']['type']}"
+                assert expr["mouth"]["shape"] in all_shapes, \
+                    f"{name}: invalid mouth shape {expr['mouth']['shape']!r}"
 
-    def test_eye_types_valid(self):
+    def test_eye_shapes_valid(self):
+        from cortex.avatar.skins.generate_expressions import _EYE_SHAPES
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if "eyes" in expr:
-                for side in ("left", "right"):
-                    eye = expr["eyes"][side]
-                    assert eye["type"] in ("path", "ellipse"), \
-                        f"{name}: invalid {side} eye type {eye['type']}"
+                assert expr["eyes"]["shape"] in _EYE_SHAPES, \
+                    f"{name}: invalid eye shape {expr['eyes']['shape']!r}"
 
-    def test_eyebrow_types_valid(self):
+    def test_eyebrow_shapes_valid(self):
+        from cortex.avatar.skins.generate_expressions import _BROW_SHAPES
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if "eyebrows" in expr:
-                for side in ("left", "right"):
-                    brow = expr["eyebrows"][side]
-                    assert brow["type"] in ("path", "ellipse"), \
-                        f"{name}: invalid {side} eyebrow type {brow['type']}"
+                assert expr["eyebrows"]["shape"] in _BROW_SHAPES, \
+                    f"{name}: invalid eyebrow shape {expr['eyebrows']['shape']!r}"
 
-    def test_path_mouths_have_d_attribute(self):
+    def test_ellipse_mouths_have_ratio_keys(self):
+        from cortex.avatar.skins.generate_expressions import _ELLIPSE_MOUTH_SHAPES
         lib = self._load()
         for name, expr in lib["expressions"].items():
-            if expr.get("mouth", {}).get("type") == "path":
-                assert "d" in expr["mouth"], f"{name}: path mouth missing 'd'"
-
-    def test_ellipse_mouths_have_radii(self):
-        lib = self._load()
-        for name, expr in lib["expressions"].items():
-            if expr.get("mouth", {}).get("type") == "ellipse":
-                assert "rx" in expr["mouth"], f"{name}: ellipse mouth missing 'rx'"
-                assert "ry" in expr["mouth"], f"{name}: ellipse mouth missing 'ry'"
-
-    def test_path_eyes_have_d_attribute(self):
-        lib = self._load()
-        for name, expr in lib["expressions"].items():
-            if "eyes" in expr:
-                for side in ("left", "right"):
-                    eye = expr["eyes"][side]
-                    if eye["type"] == "path":
-                        assert "d" in eye, f"{name}: {side} path eye missing 'd'"
-
-    def test_ellipse_eyes_have_offsets_and_radii(self):
-        lib = self._load()
-        for name, expr in lib["expressions"].items():
-            if "eyes" in expr:
-                for side in ("left", "right"):
-                    eye = expr["eyes"][side]
-                    if eye["type"] == "ellipse":
-                        assert "rx" in eye, f"{name}: {side} ellipse eye missing 'rx'"
-                        assert "ry" in eye, f"{name}: {side} ellipse eye missing 'ry'"
+            mouth = expr.get("mouth", {})
+            if mouth.get("shape") in _ELLIPSE_MOUTH_SHAPES:
+                assert "rx_ratio" in mouth, f"{name}: ellipse mouth missing 'rx_ratio'"
+                assert "ry_ratio" in mouth, f"{name}: ellipse mouth missing 'ry_ratio'"
 
     def test_each_expression_has_description(self):
         lib = self._load()
         for name, expr in lib["expressions"].items():
             assert "description" in expr, f"{name}: missing description"
+
+    def test_version_is_3(self):
+        lib = self._load()
+        assert lib["version"] == 3, "expressions.json should be version 3 (ratio-based)"
+
+    def test_generated_svgs_differ_between_skins(self):
+        """Expressions derived from base geometry should differ across skins."""
+        default_tree = ET.parse(_DEFAULT_SVG_PATH)
+        nick_tree = ET.parse(_NICK_SVG_PATH)
+        default_happy = default_tree.getroot().find(".//*[@id='expr-happy']")
+        nick_happy = nick_tree.getroot().find(".//*[@id='expr-happy']")
+        assert default_happy is not None and nick_happy is not None
+        d_mouth = list(default_happy)[0]
+        n_mouth = list(nick_happy)[0]
+        assert d_mouth.get("d") != n_mouth.get("d"), \
+            "Happy mouth path should differ between default and nick skins"
+        assert d_mouth.get("stroke") != n_mouth.get("stroke"), \
+            "Stroke color should match each skin's base mouth color"
 
 
 class TestSkinSVGAnchors:

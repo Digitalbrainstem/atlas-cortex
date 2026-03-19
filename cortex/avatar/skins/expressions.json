@@ -1,56 +1,23 @@
 {
-    "version": 2,
-    "description": "Shared expression library for cartoon-style Atlas avatars — mouth, eyes, and eyebrows",
+    "version": 3,
+    "description": "Ratio-based expression library — shapes derived from each skin's base face geometry",
     "expressions": {
         "happy": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -30,0 Q 0,25 30,0",
-                "stroke": "#333",
-                "stroke_width": 4,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "smile",
+                "width_ratio": 1.0,
+                "curve_ratio": 0.6
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-5 Q -25,-18 -12,-5",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Squinted crescent (joy)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-5 Q 25,-18 38,-5",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "squint",
+                "ry_ratio": 0.5
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-18 Q -25,-25 -10,-18",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Relaxed, slightly raised"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-18 Q 25,-25 40,-18",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "raised",
+                "dy": -5,
+                "curve": 0.15
             },
             "description": "Wide smile arc curving upward"
         },
@@ -58,789 +25,280 @@
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -25,8 Q 0,-12 25,8",
-                "stroke": "#333",
-                "stroke_width": 4,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "frown",
+                "width_ratio": 0.8,
+                "curve_ratio": 0.25
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -40,
-                    "rx": 14,
-                    "ry": 10,
-                    "fill": "#333",
-                    "description": "Droopy, half-lidded"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -40,
-                    "rx": 14,
-                    "ry": 10,
-                    "fill": "#333"
-                }
+                "shape": "droopy",
+                "ry_ratio": 0.55
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-48 Q -30,-56 -18,-52",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Inner corners raised (worry)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 18,-52 Q 30,-56 38,-48",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "worry",
+                "inner_dy": -8,
+                "outer_dy": 3
             },
-            "description": "Downward frown"
+            "description": "Downturned mouth, droopy half-lidded eyes"
         },
         "angry": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -20,5 Q 0,-8 20,5",
-                "stroke": "#333",
-                "stroke_width": 4.5,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "frown",
+                "width_ratio": 0.6,
+                "curve_ratio": 0.2
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -38,
-                    "rx": 13,
-                    "ry": 8,
-                    "fill": "#333",
-                    "description": "Narrowed, angled"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -38,
-                    "rx": 13,
-                    "ry": 8,
-                    "fill": "#333"
-                }
+                "shape": "narrow",
+                "ry_ratio": 0.35
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-44 Q -25,-56 -12,-50",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "V-shaped, furrowed downward"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-50 Q 25,-56 38,-44",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "v_furrowed"
             },
-            "description": "Tight narrow frown"
+            "description": "Tight frown, narrowed eyes, V-shaped eyebrows"
         },
         "surprised": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "ellipse",
-                "rx": 12,
-                "ry": 16,
-                "fill": "#333",
-                "opacity": 0.85
+                "shape": "open_o",
+                "rx_ratio": 0.2,
+                "ry_ratio": 0.25
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -42,
-                    "rx": 16,
-                    "ry": 20,
-                    "fill": "#333",
-                    "description": "Wide open"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -42,
-                    "rx": 16,
-                    "ry": 20,
-                    "fill": "#333"
-                }
+                "shape": "wide",
+                "ry_ratio": 1.3
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-56 Q -25,-68 -10,-56",
-                    "stroke": "#333",
-                    "stroke_width": 3.5,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Raised high arcs"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-56 Q 25,-68 40,-56",
-                    "stroke": "#333",
-                    "stroke_width": 3.5,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "raised_high",
+                "dy": -12
             },
-            "description": "Open O shape"
+            "description": "Round open mouth, wide eyes, high eyebrows"
         },
         "thinking": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -20,2 Q -5,-5 10,0 Q 15,2 20,5",
-                "stroke": "#333",
-                "stroke_width": 3.5,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "side",
+                "width_ratio": 0.5,
+                "offset_x": 0.15
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -22,
-                    "cy_offset": -44,
-                    "rx": 13,
-                    "ry": 15,
-                    "fill": "#333",
-                    "description": "Looking up-right (pupil offset)"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 28,
-                    "cy_offset": -42,
-                    "rx": 13,
-                    "ry": 13,
-                    "fill": "#333"
-                }
+                "shape": "look_up",
+                "ry_ratio": 0.85,
+                "pupil_dy": -3
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-52 Q -25,-56 -12,-52",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "One raised, one neutral (asymmetric)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-50 Q 25,-62 40,-54",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "asymmetric"
             },
-            "description": "Asymmetric side curve"
+            "description": "Offset small mouth, upward gaze, one brow raised"
         },
         "confused": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -22,0 Q -10,-8 0,2 Q 10,10 22,-2",
-                "stroke": "#333",
-                "stroke_width": 3.5,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "wavy",
+                "width_ratio": 0.7,
+                "curve_ratio": 0.3
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -27,
-                    "cy_offset": -42,
-                    "rx": 14,
-                    "ry": 16,
-                    "fill": "#333",
-                    "description": "Asymmetric sizes"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 27,
-                    "cy_offset": -42,
-                    "rx": 12,
-                    "ry": 13,
-                    "fill": "#333"
-                }
+                "shape": "asymmetric",
+                "left_ry_ratio": 0.9,
+                "right_ry_ratio": 0.7
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-52 Q -25,-56 -12,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "One raised, one lowered"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-52 Q 25,-62 40,-52",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "asymmetric_brow"
             },
-            "description": "Wavy S-curve"
+            "description": "Wavy S-curve mouth, asymmetric eyes and brows"
         },
         "excited": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -28,-2 Q 0,30 28,-2 Z",
-                "stroke": "#333",
-                "stroke_width": 3,
-                "fill": "#fff",
-                "stroke_linecap": "round"
+                "shape": "big_grin",
+                "width_ratio": 1.2,
+                "curve_ratio": 0.5,
+                "fill": "#fff"
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -44,
-                    "rx": 16,
-                    "ry": 19,
-                    "fill": "#333",
-                    "description": "Wide, large"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -44,
-                    "rx": 16,
-                    "ry": 19,
-                    "fill": "#333"
-                }
+                "shape": "wide",
+                "ry_ratio": 1.2
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-58 Q -25,-68 -10,-58",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Raised high"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-58 Q 25,-68 40,-58",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "raised_high",
+                "dy": -10
             },
-            "description": "Big open grin with white fill"
+            "description": "Big open grin, wide eyes, raised eyebrows"
         },
         "scared": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -20,10 Q 0,-15 20,10 Q 0,20 -20,10 Z",
-                "stroke": "#333",
-                "stroke_width": 3,
-                "fill": "#333",
-                "opacity": 0.7
+                "shape": "open_frown",
+                "width_ratio": 0.7,
+                "curve_ratio": 0.4
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -44,
-                    "rx": 17,
-                    "ry": 22,
-                    "fill": "#333",
-                    "description": "Wide open, small pupils"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -44,
-                    "rx": 17,
-                    "ry": 22,
-                    "fill": "#333"
-                }
+                "shape": "wide",
+                "ry_ratio": 1.4
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-58 Q -25,-72 -10,-60",
-                    "stroke": "#333",
-                    "stroke_width": 3.5,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Raised and curved high"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-60 Q 25,-72 40,-58",
-                    "stroke": "#333",
-                    "stroke_width": 3.5,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "raised_high",
+                "dy": -15
             },
-            "description": "Open frown lens shape"
+            "description": "Open frown, very wide eyes, high eyebrows"
         },
         "concerned": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -22,5 Q 0,-5 22,5",
-                "stroke": "#333",
-                "stroke_width": 3.5,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "frown",
+                "width_ratio": 0.7,
+                "curve_ratio": 0.15
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -42,
-                    "rx": 14,
-                    "ry": 16,
-                    "fill": "#333",
-                    "description": "Slightly wide"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -42,
-                    "rx": 14,
-                    "ry": 16,
-                    "fill": "#333"
-                }
+                "shape": "slightly_wide",
+                "ry_ratio": 1.05
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-50 Q -30,-56 -18,-54",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Slightly furrowed"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 18,-54 Q 30,-56 38,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "slight_furrow"
             },
-            "description": "Gentle downward curve"
+            "description": "Slight frown, slightly wide eyes, gentle furrow"
         },
         "proud": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -25,3 Q -5,0 5,-5 Q 20,-8 28,-2",
-                "stroke": "#333",
-                "stroke_width": 4,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "smirk",
+                "width_ratio": 0.9,
+                "curve_ratio": 0.3
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-38 Q -25,-48 -12,-38",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Confident, slightly narrowed"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-38 Q 25,-48 38,-38",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "confident",
+                "ry_ratio": 0.7
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-50 Q -25,-54 -12,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "One slightly raised (smug)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-48 Q 25,-58 40,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "one_raised"
             },
-            "description": "Asymmetric smirk"
+            "description": "Asymmetric smirk, relaxed eyes, one brow raised"
         },
         "love": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "ellipse",
-                "rx": 8,
-                "ry": 10,
-                "fill": "#e74c6f",
-                "opacity": 0.8
+                "shape": "pucker",
+                "rx_ratio": 0.13,
+                "ry_ratio": 0.16,
+                "fill": "#e74c6f"
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -42,
-                    "rx": 13,
-                    "ry": 11,
-                    "fill": "#333",
-                    "description": "Half-lidded, dreamy"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -42,
-                    "rx": 13,
-                    "ry": 11,
-                    "fill": "#333"
-                }
+                "shape": "dreamy",
+                "ry_ratio": 0.6
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-52 Q -25,-58 -12,-52",
-                    "stroke": "#333",
-                    "stroke_width": 2.5,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Soft gentle arcs"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-52 Q 25,-58 38,-52",
-                    "stroke": "#333",
-                    "stroke_width": 2.5,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "soft"
             },
-            "description": "Small puckered kiss shape"
+            "description": "Small pucker mouth, dreamy half-closed eyes"
         },
         "crying": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -22,12 Q 0,-18 22,12 Q 0,22 -22,12 Z",
-                "stroke": "#333",
-                "stroke_width": 3,
-                "fill": "#333",
-                "opacity": 0.6
+                "shape": "open_frown",
+                "width_ratio": 0.8,
+                "curve_ratio": 0.45
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -40,
-                    "rx": 12,
-                    "ry": 8,
-                    "fill": "#333",
-                    "description": "Squinted with tears"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -40,
-                    "rx": 12,
-                    "ry": 8,
-                    "fill": "#333"
-                }
+                "shape": "squint",
+                "ry_ratio": 0.3
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-46 Q -30,-55 -18,-52",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Worry brows (inner up)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 18,-52 Q 30,-55 38,-46",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "worry",
+                "inner_dy": -6,
+                "outer_dy": 4
             },
-            "description": "Wide open frown"
+            "description": "Open frown, tightly squinted eyes, worried brows"
         },
         "sleepy": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "ellipse",
-                "rx": 8,
-                "ry": 6,
-                "fill": "#333",
-                "opacity": 0.5
+                "shape": "small_o",
+                "rx_ratio": 0.13,
+                "ry_ratio": 0.1
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -38,
-                    "rx": 14,
-                    "ry": 5,
-                    "fill": "#333",
-                    "description": "Mostly closed, droopy"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -38,
-                    "rx": 14,
-                    "ry": 5,
-                    "fill": "#333"
-                }
+                "shape": "nearly_closed",
+                "ry_ratio": 0.15
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -36,-44 Q -25,-47 -14,-44",
-                    "stroke": "#333",
-                    "stroke_width": 2.5,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Relaxed, very low"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 14,-44 Q 25,-47 36,-44",
-                    "stroke": "#333",
-                    "stroke_width": 2.5,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "relaxed_low",
+                "dy": 2
             },
-            "description": "Small droopy O"
+            "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
         },
         "winking": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -28,0 Q 0,22 28,0",
-                "stroke": "#333",
-                "stroke_width": 4,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "smile",
+                "width_ratio": 1.0,
+                "curve_ratio": 0.5
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-38 Q -25,-48 -12,-38",
-                    "stroke": "#333",
-                    "stroke_width": 4,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Left closed line"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -42,
-                    "rx": 15,
-                    "ry": 18,
-                    "fill": "#333",
-                    "description": "Right open"
-                }
+                "shape": "wink"
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-50 Q -25,-54 -12,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Matching asymmetric"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-54 Q 25,-62 40,-54",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "asymmetric"
             },
-            "description": "Wide smile (same as happy)"
+            "description": "Smile with left eye winking"
         },
         "laughing": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -30,-5 Q 0,35 30,-5 Z",
-                "stroke": "#333",
-                "stroke_width": 3,
+                "shape": "big_grin",
+                "width_ratio": 1.3,
+                "curve_ratio": 0.6,
                 "fill": "#fff"
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "path",
-                    "d": "M -38,-38 Q -25,-50 -12,-38",
-                    "stroke": "#333",
-                    "stroke_width": 5,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Closed lines (squeezed)"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 12,-38 Q 25,-50 38,-38",
-                    "stroke": "#333",
-                    "stroke_width": 5,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "closed"
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-50 Q -25,-60 -10,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Raised arcs"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 10,-50 Q 25,-60 40,-50",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "raised",
+                "dy": -6,
+                "curve": 0.18
             },
-            "description": "Wide open laugh"
+            "description": "Wide open grin, eyes closed with joy"
         },
         "silly": {
             "replace_mouth": true,
             "replace_eyes": true,
             "mouth": {
-                "type": "path",
-                "d": "M -25,0 Q -15,20 0,10 Q 15,20 25,0",
-                "stroke": "#333",
-                "stroke_width": 4,
-                "fill": "none",
-                "stroke_linecap": "round"
+                "shape": "wavy",
+                "width_ratio": 1.0,
+                "curve_ratio": 0.35
             },
             "eyes": {
-                "type": "group",
-                "left": {
-                    "type": "ellipse",
-                    "cx_offset": -25,
-                    "cy_offset": -44,
-                    "rx": 18,
-                    "ry": 20,
-                    "fill": "#333",
-                    "description": "Asymmetric — one big"
-                },
-                "right": {
-                    "type": "ellipse",
-                    "cx_offset": 25,
-                    "cy_offset": -40,
-                    "rx": 11,
-                    "ry": 12,
-                    "fill": "#333",
-                    "description": "one small"
-                }
+                "shape": "asymmetric_size",
+                "left_ry_ratio": 1.2,
+                "right_ry_ratio": 0.65
             },
             "eyebrows": {
-                "left": {
-                    "type": "path",
-                    "d": "M -40,-58 Q -30,-66 -15,-56",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round",
-                    "description": "Wavy/uneven"
-                },
-                "right": {
-                    "type": "path",
-                    "d": "M 14,-48 Q 25,-52 38,-46",
-                    "stroke": "#333",
-                    "stroke_width": 3,
-                    "fill": "none",
-                    "stroke_linecap": "round"
-                }
+                "shape": "wavy_brow"
             },
-            "description": "Wavy tongue-out style"
+            "description": "Wavy mouth, mismatched eye sizes, wavy brows"
         },
         "listening": {
             "replace_mouth": false,
             "replace_eyes": false,
-            "description": "Uses default IDLE mouth"
+            "description": "Default face — attentive listening"
         },
         "neutral": {
             "replace_mouth": false,
             "replace_eyes": false,
-            "description": "Uses default IDLE mouth"
+            "description": "Default face — resting neutral"
         }
     }
 }
