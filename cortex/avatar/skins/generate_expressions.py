@@ -418,16 +418,18 @@ def _generate_eye_elements_legacy(
 
     if shape == "squint":
         ery = ry * default_ry_ratio
-        elements.append(_ellipse(lcx, lcy, rx, ery))
-        elements.append(_ellipse(rcx, rcy, rx, ery))
+        min_ry = rx * 0.25  # prevent pointy look — minimum height is 25% of width
+        ery = max(ery, min_ry)
+        elements.append(_ellipse(lcx, lcy, rx * 0.92, ery))
+        elements.append(_ellipse(rcx, rcy, rx * 0.92, ery))
 
     elif shape == "narrow":
-        ery = ry * default_ry_ratio
+        ery = max(ry * default_ry_ratio, rx * 0.25)
         elements.append(_ellipse(lcx, lcy, rx * 0.95, ery))
         elements.append(_ellipse(rcx, rcy, rx * 0.95, ery))
 
     elif shape == "droopy":
-        ery = ry * default_ry_ratio
+        ery = max(ry * default_ry_ratio, rx * 0.25)
         elements.append(_ellipse(lcx, lcy + 2, rx, ery))
         elements.append(_ellipse(rcx, rcy + 2, rx, ery))
 

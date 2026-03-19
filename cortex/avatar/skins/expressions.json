@@ -3,7 +3,7 @@
   "description": "Ratio-based expression library \u2014 shapes derived from each skin's base face geometry",
   "expressions": {
     "happy": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
@@ -22,7 +22,7 @@
       "description": "Wide smile arc curving upward"
     },
     "sad": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -41,7 +41,7 @@
       "description": "Downturned mouth, droopy half-lidded eyes"
     },
     "angry": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -58,7 +58,7 @@
       "description": "Tight frown, narrowed eyes, V-shaped eyebrows"
     },
     "surprised": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_o",
@@ -76,7 +76,7 @@
       "description": "Round open mouth, wide eyes, high eyebrows"
     },
     "thinking": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "side",
@@ -95,7 +95,7 @@
       "description": "Offset small mouth, upward gaze, one brow raised"
     },
     "confused": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "wavy",
@@ -123,7 +123,7 @@
       "description": "Wavy S-curve mouth, asymmetric eyes and brows"
     },
     "excited": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "big_grin",
@@ -160,7 +160,7 @@
       "description": "Big open grin, wide eyes, raised eyebrows"
     },
     "scared": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
@@ -178,7 +178,7 @@
       "description": "Open frown, very wide eyes, high eyebrows"
     },
     "concerned": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
@@ -195,7 +195,7 @@
       "description": "Slight frown, slightly wide eyes, gentle furrow"
     },
     "proud": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "smirk",
@@ -248,7 +248,7 @@
       "description": "Small pucker mouth, dreamy half-closed eyes"
     },
     "crying": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
@@ -313,7 +313,7 @@
       "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
     },
     "winking": {
-      "replace_mouth": true,
+      "replace_mouth": false,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
@@ -361,7 +361,8 @@
         "right_ry_ratio": 0.45
       },
       "eyebrows": {
-        "shape": "wavy_brow"
+        "shape": "wavy_brow",
+        "dy": -12
       },
       "decorations": [
         {
@@ -383,6 +384,42 @@
       "replace_mouth": false,
       "replace_eyes": false,
       "description": "Default face \u2014 resting neutral"
+    },
+    "rofl": {
+      "replace_mouth": true,
+      "replace_eyes": true,
+      "mouth": {
+        "shape": "big_grin",
+        "width_ratio": 1.6,
+        "curve_ratio": 0.9,
+        "fill": "#fff"
+      },
+      "eyes": {
+        "shape": "closed",
+        "ry_ratio": 1.0
+      },
+      "eyebrows": {
+        "shape": "raised",
+        "dy": -10
+      },
+      "decorations": [
+        {
+          "type": "teardrop",
+          "side": "left",
+          "offset_x": -5,
+          "offset_y": 20,
+          "fill": "#5DADE2",
+          "opacity": 0.6
+        },
+        {
+          "type": "teardrop",
+          "side": "right",
+          "offset_x": 5,
+          "offset_y": 20,
+          "fill": "#5DADE2",
+          "opacity": 0.6
+        }
+      ]
     }
   }
 }
