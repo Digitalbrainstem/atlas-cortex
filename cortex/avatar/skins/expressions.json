@@ -8,7 +8,7 @@
       "mouth": {
         "shape": "smile",
         "width_ratio": 1.0,
-        "curve_ratio": 0.45
+        "curve_ratio": 1.3
       },
       "eyes": {
         "shape": "joy",
@@ -28,7 +28,7 @@
       "mouth": {
         "shape": "frown",
         "width_ratio": 0.8,
-        "curve_ratio": 0.25
+        "curve_ratio": 0.6
       },
       "eyes": {
         "shape": "droopy_small",
@@ -48,7 +48,7 @@
       "mouth": {
         "shape": "frown",
         "width_ratio": 0.6,
-        "curve_ratio": 0.2
+        "curve_ratio": 0.5
       },
       "eyes": {
         "shape": "small_intense",
@@ -131,7 +131,7 @@
       "mouth": {
         "shape": "big_grin",
         "width_ratio": 1.2,
-        "curve_ratio": 0.5,
+        "curve_ratio": 1.5,
         "fill": "#fff"
       },
       "eyes": {
@@ -168,7 +168,7 @@
       "mouth": {
         "shape": "open_frown",
         "width_ratio": 0.7,
-        "curve_ratio": 0.4
+        "curve_ratio": 0.8
       },
       "eyes": {
         "shape": "wide",
@@ -186,7 +186,7 @@
       "mouth": {
         "shape": "frown",
         "width_ratio": 0.7,
-        "curve_ratio": 0.15
+        "curve_ratio": 0.4
       },
       "eyes": {
         "shape": "slightly_wide",
@@ -258,7 +258,7 @@
       "mouth": {
         "shape": "open_frown",
         "width_ratio": 0.8,
-        "curve_ratio": 0.45
+        "curve_ratio": 0.7
       },
       "eyes": {
         "shape": "crying",
@@ -324,7 +324,7 @@
       "mouth": {
         "shape": "smile",
         "width_ratio": 1.0,
-        "curve_ratio": 0.5
+        "curve_ratio": 1.2
       },
       "eyes": {
         "shape": "wink"

@@ -343,34 +343,43 @@ def generate_eye_elements(
             white_el.set("fill", wfill)
             elements.append(white_el)
 
-            # Pupil — vertically offset scaled by ry_ratio
+            # Pupil — scale proportionally with eye size
             pupil_offset_y = (pcy - wcy) * ry_ratio
             pupil_cy = actual_cy + pupil_offset_y
+            # Scale pupil radius so it fits inside the eye white
+            pupil_scale = min(ry_ratio, rx_scale)  # shrink pupil with eye
+            scaled_pr = pr * max(pupil_scale, 0.3)  # minimum 30% of original
+            scaled_pry = pry * max(pupil_scale, 0.3)
+            # Ensure pupil fits inside eye white
+            max_pupil = min(new_ry * 0.85, wrx * rx_scale * 0.7)
+            scaled_pr = min(scaled_pr, max_pupil)
+            scaled_pry = min(scaled_pry, max_pupil)
             if pry != pr:
                 # Ellipse pupil (nick style)
                 pupil_el = ET.Element(f"{{{ns}}}ellipse")
                 pupil_el.set("cx", _fmt(pcx))
                 pupil_el.set("cy", _fmt(pupil_cy))
-                pupil_el.set("rx", _fmt(pr))
-                pupil_el.set("ry", _fmt(pry))
+                pupil_el.set("rx", _fmt(scaled_pr))
+                pupil_el.set("ry", _fmt(scaled_pry))
             else:
                 # Circle pupil (default style)
                 pupil_el = ET.Element(f"{{{ns}}}circle")
                 pupil_el.set("cx", _fmt(pcx))
                 pupil_el.set("cy", _fmt(pupil_cy))
-                pupil_el.set("r", _fmt(pr))
+                pupil_el.set("r", _fmt(scaled_pr))
             pupil_el.set("fill", pfill)
             if p_opacity:
                 pupil_el.set("opacity", p_opacity)
             elements.append(pupil_el)
 
-            # Glint
+            # Glint — scale with eye
             glint_offset_y = (gcy - wcy) * ry_ratio
             glint_cy = actual_cy + glint_offset_y
+            scaled_gr = gr * max(pupil_scale, 0.4)
             glint_el = ET.Element(f"{{{ns}}}circle")
             glint_el.set("cx", _fmt(gcx))
             glint_el.set("cy", _fmt(glint_cy))
-            glint_el.set("r", _fmt(gr))
+            glint_el.set("r", _fmt(scaled_gr))
             glint_el.set("fill", "white")
             if g_opacity:
                 glint_el.set("opacity", g_opacity)
