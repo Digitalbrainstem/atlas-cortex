@@ -680,24 +680,28 @@ class TestSkinSVGAnchors:
         idle = root.find(".//*[@id='mouth-IDLE']")
         assert idle is not None, "nick.svg missing mouth-IDLE"
 
-    def test_default_svg_no_hardcoded_expr_eyes_or_mouth(self):
-        """Expression groups should not contain hardcoded data-replace-* attrs
-        (set dynamically from expressions.json at load time)."""
+    def test_default_svg_has_baked_expr_attributes(self):
+        """Expression groups should have data-replace-* attrs baked in by
+        generate_expressions (build-time, not runtime injection)."""
         root = self._parse_svg(_DEFAULT_SVG_PATH)
         for expr_name in _ALL_EXPRESSION_NAMES - {"neutral", "listening"}:
             group = root.find(f".//*[@id='expr-{expr_name}']")
-            if group is not None:
-                assert group.get("data-replace-mouth") is None, \
-                    f"default.svg expr-{expr_name} still has data-replace-mouth"
-                assert group.get("data-replace-eyes") is None, \
-                    f"default.svg expr-{expr_name} still has data-replace-eyes"
+            assert group is not None, \
+                f"default.svg missing expr-{expr_name} group"
+            assert group.get("data-replace-mouth") == "true", \
+                f"default.svg expr-{expr_name} missing data-replace-mouth"
+            assert group.get("data-replace-eyes") == "true", \
+                f"default.svg expr-{expr_name} missing data-replace-eyes"
 
-    def test_nick_svg_no_hardcoded_expr_eyes_or_mouth(self):
+    def test_nick_svg_has_baked_expr_attributes(self):
+        """Expression groups should have data-replace-* attrs baked in by
+        generate_expressions (build-time, not runtime injection)."""
         root = self._parse_svg(_NICK_SVG_PATH)
         for expr_name in _ALL_EXPRESSION_NAMES - {"neutral", "listening"}:
             group = root.find(f".//*[@id='expr-{expr_name}']")
-            if group is not None:
-                assert group.get("data-replace-mouth") is None, \
-                    f"nick.svg expr-{expr_name} still has data-replace-mouth"
-                assert group.get("data-replace-eyes") is None, \
-                    f"nick.svg expr-{expr_name} still has data-replace-eyes"
+            assert group is not None, \
+                f"nick.svg missing expr-{expr_name} group"
+            assert group.get("data-replace-mouth") == "true", \
+                f"nick.svg expr-{expr_name} missing data-replace-mouth"
+            assert group.get("data-replace-eyes") == "true", \
+                f"nick.svg expr-{expr_name} missing data-replace-eyes"
