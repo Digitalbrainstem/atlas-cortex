@@ -421,7 +421,8 @@
 
     // Dev tools
     function testVisemeSequence() {
-      const seq = ['PP', 'AA', 'DD', 'OH', 'SS', 'IDLE'];
+      showExpression('neutral');
+      const seq = ['IDLE', 'PP', 'AA', 'DD', 'OH', 'SS', 'RR', 'OPEN', 'ROUND', 'TEETH', 'FV', 'IDLE'];
       const el = document.getElementById('dev-viseme-current');
       seq.forEach((v, i) => {
         setTimeout(() => {
