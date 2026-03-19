@@ -252,7 +252,7 @@ def _expr_groups(svg_text: str) -> dict[str, str]:
 
 @pytest.mark.parametrize("skin", ["default.svg", "nick.svg"])
 class TestSvgExpressionMouths:
-    """Every expression that needs a custom mouth must have one."""
+    """Shared expression library provides mouth + eyes + eyebrows."""
 
     def _load(self, skin: str) -> str:
         return (_SKINS_DIR / skin).read_text()
@@ -266,9 +266,14 @@ class TestSvgExpressionMouths:
         svg = self._load(skin)
         assert 'id="mouth-IDLE"' in svg, f"Missing mouth-IDLE in {skin}"
 
+    def test_anchors_exist(self, skin):
+        svg = self._load(skin)
+        assert 'id="mouth-anchor"' in svg, f"Missing mouth-anchor in {skin}"
+        assert 'id="eyes-anchor"' in svg, f"Missing eyes-anchor in {skin}"
+        assert 'id="eyebrows-anchor"' in svg, f"Missing eyebrows-anchor in {skin}"
+
     def test_expressions_have_replace_mouth(self, skin):
-        """With shared expression library, mouths are injected at load time.
-        Verify that expressions.json defines mouths for all _NEED_MOUTH entries."""
+        """Verify that expressions.json defines mouths for all _NEED_MOUTH entries."""
         import json
         lib_path = _SKINS_DIR / "expressions.json"
         lib = json.loads(lib_path.read_text())
@@ -280,8 +285,7 @@ class TestSvgExpressionMouths:
             )
 
     def test_expressions_have_mouth_child(self, skin):
-        """With shared expression library, mouth shapes are in expressions.json,
-        not hardcoded in skin SVGs."""
+        """Mouth shapes are in expressions.json, not hardcoded in skin SVGs."""
         import json
         lib_path = _SKINS_DIR / "expressions.json"
         lib = json.loads(lib_path.read_text())
@@ -290,6 +294,33 @@ class TestSvgExpressionMouths:
             mouth = entry.get("mouth", {})
             assert mouth.get("type") in ("path", "ellipse"), (
                 f"{expr} has no valid mouth in expressions.json"
+            )
+
+    def test_expressions_have_eyes(self, skin):
+        """Every non-neutral expression should have eyes in expressions.json."""
+        import json
+        lib_path = _SKINS_DIR / "expressions.json"
+        lib = json.loads(lib_path.read_text())
+        for expr in _NEED_MOUTH:
+            entry = lib["expressions"].get(expr, {})
+            assert entry.get("replace_eyes"), (
+                f"{expr} should have replace_eyes=true in expressions.json"
+            )
+            eyes = entry.get("eyes", {})
+            assert "left" in eyes and "right" in eyes, (
+                f"{expr} missing left/right eyes in expressions.json"
+            )
+
+    def test_expressions_have_eyebrows(self, skin):
+        """Every non-neutral expression should have eyebrows in expressions.json."""
+        import json
+        lib_path = _SKINS_DIR / "expressions.json"
+        lib = json.loads(lib_path.read_text())
+        for expr in _NEED_MOUTH:
+            entry = lib["expressions"].get(expr, {})
+            brows = entry.get("eyebrows", {})
+            assert "left" in brows and "right" in brows, (
+                f"{expr} missing left/right eyebrows in expressions.json"
             )
 
     def test_neutral_and_listening_no_replace_mouth(self, skin):

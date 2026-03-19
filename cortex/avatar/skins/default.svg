@@ -116,208 +116,112 @@
   <g id="mouth-OU" style="display:none"><use href="#mouth-ROUND"/></g>
 
   <!-- ── Expression overlays — only one visible at a time ────── -->
-  <!--   data-replace-eyes="true" → client hides eyes-base when this is active    -->
-  <!--   Mouth shapes injected at load time from shared expressions.json          -->
+  <!--   Eyes, eyebrows, and mouth shapes injected from shared expressions.json   -->
 
-  <!-- Mouth anchor: tells the expression loader where this skin's mouth lives -->
+  <!-- Anchor points: tell the expression loader where features live in this skin -->
   <g id="mouth-anchor" data-cx="200" data-cy="280" style="display:none"/>
+  <g id="eyes-anchor" data-cx="200" data-cy="172" style="display:none"/>
+  <g id="eyebrows-anchor" data-cx="200" data-cy="148" style="display:none"/>
 
   <!-- neutral: no overlay (base face + eyes show through) -->
   <g id="expr-neutral" style="display:none"></g>
 
-  <!-- happy: squinty smile eyes, extra blush -->
-  <g id="expr-happy" style="display:none" data-replace-eyes="true">
-    <path d="M113 175 Q145 155 177 175" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <path d="M223 175 Q255 155 287 175" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
+  <!-- happy: extra blush (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-happy" style="display:none">
     <circle cx="110" cy="230" r="35" fill="#FF6B35" opacity="0.35"/>
     <circle cx="290" cy="230" r="35" fill="#FF6B35" opacity="0.35"/>
   </g>
 
-  <!-- thinking: eyes look up-right, one brow raised -->
-  <g id="expr-thinking" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="170" rx="32" ry="36" fill="white"/>
-    <circle cx="155" cy="162" r="16" fill="#2D2D2D"/>
-    <circle cx="160" cy="155" r="6" fill="white"/>
-    <ellipse cx="255" cy="172" rx="32" ry="30" fill="white"/>
-    <circle cx="260" cy="162" r="16" fill="#2D2D2D"/>
-    <circle cx="264" cy="155" r="6" fill="white"/>
-    <!-- One raised brow -->
-    <path d="M112 140 Q145 128 178 144" fill="none" stroke="#E07B00" stroke-width="4" stroke-linecap="round"/>
+  <!-- thinking: (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-thinking" style="display:none">
   </g>
 
-  <!-- surprised: huge round eyes -->
-  <g id="expr-surprised" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="170" rx="36" ry="42" fill="white"/>
-    <circle cx="148" cy="175" r="18" fill="#2D2D2D"/>
-    <circle cx="155" cy="165" r="7" fill="white"/>
-    <ellipse cx="255" cy="170" rx="36" ry="42" fill="white"/>
-    <circle cx="252" cy="175" r="18" fill="#2D2D2D"/>
-    <circle cx="245" cy="165" r="7" fill="white"/>
+  <!-- surprised: (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-surprised" style="display:none">
   </g>
 
-  <!-- sad: droopy eyes with tear -->
-  <g id="expr-sad" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="175" rx="30" ry="28" fill="white"/>
-    <circle cx="143" cy="180" r="14" fill="#2D2D2D"/>
-    <circle cx="148" cy="173" r="5" fill="white"/>
-    <ellipse cx="255" cy="175" rx="30" ry="28" fill="white"/>
-    <circle cx="257" cy="180" r="14" fill="#2D2D2D"/>
-    <circle cx="252" cy="173" r="5" fill="white"/>
+  <!-- sad: tear (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-sad" style="display:none">
     <ellipse cx="170" cy="210" rx="4" ry="6" fill="url(#tear-grad)"/>
   </g>
 
-  <!-- excited: sparkly big eyes, huge blush -->
-  <g id="expr-excited" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="170" rx="36" ry="40" fill="white"/>
-    <circle cx="150" cy="174" r="18" fill="#2D2D2D"/>
-    <circle cx="156" cy="165" r="7" fill="white"/>
-    <circle cx="142" cy="172" r="3" fill="white" opacity="0.7"/>
-    <ellipse cx="255" cy="170" rx="36" ry="40" fill="white"/>
-    <circle cx="250" cy="174" r="18" fill="#2D2D2D"/>
-    <circle cx="244" cy="165" r="7" fill="white"/>
-    <circle cx="258" cy="172" r="3" fill="white" opacity="0.7"/>
+  <!-- excited: blush + sparkles (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-excited" style="display:none">
     <circle cx="105" cy="228" r="38" fill="#FF6B35" opacity="0.4"/>
     <circle cx="295" cy="228" r="38" fill="#FF6B35" opacity="0.4"/>
     <circle cx="90" cy="130" r="8" fill="url(#sparkle-grad)"/>
     <circle cx="310" cy="140" r="6" fill="url(#sparkle-grad)"/>
   </g>
 
-  <!-- concerned: slightly smaller eyes -->
-  <g id="expr-concerned" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="172" rx="30" ry="32" fill="white"/>
-    <circle cx="148" cy="176" r="15" fill="#2D2D2D"/>
-    <circle cx="154" cy="168" r="5.5" fill="white"/>
-    <ellipse cx="255" cy="172" rx="30" ry="32" fill="white"/>
-    <circle cx="252" cy="176" r="15" fill="#2D2D2D"/>
-    <circle cx="246" cy="168" r="5.5" fill="white"/>
+  <!-- concerned: (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-concerned" style="display:none">
   </g>
 
   <!-- listening: attentive, slightly wider eyes (keeps base eyes) -->
   <g id="expr-listening" style="display:none"></g>
 
-  <!-- laughing: eyes squeezed shut, tears of joy -->
-  <g id="expr-laughing" style="display:none" data-replace-eyes="true">
-    <!-- Both eyes squinted shut -->
-    <path d="M113 170 Q145 150 177 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
-    <path d="M223 170 Q255 150 287 170" fill="none" stroke="#2D2D2D" stroke-width="6" stroke-linecap="round"/>
-    <!-- Crinkle lines under eyes -->
-    <path d="M118 180 Q145 186 172 180" fill="none" stroke="#E07B00" stroke-width="2" opacity="0.4"/>
-    <path d="M228 180 Q255 186 282 180" fill="none" stroke="#E07B00" stroke-width="2" opacity="0.4"/>
-    <!-- Happy tears -->
+  <!-- laughing: tears of joy + blush (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-laughing" style="display:none">
     <ellipse cx="178" cy="182" rx="4" ry="6" fill="url(#tear-grad)"/>
     <ellipse cx="222" cy="184" rx="3.5" ry="5.5" fill="url(#tear-grad)"/>
-    <!-- Big rosy cheeks -->
     <circle cx="108" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
     <circle cx="292" cy="225" r="38" fill="#FF6B35" opacity="0.4"/>
   </g>
 
-  <!-- crying: big teary eyes, tear streams -->
-  <g id="expr-crying" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="175" rx="30" ry="32" fill="white"/>
-    <circle cx="143" cy="180" r="16" fill="#2D2D2D"/>
-    <circle cx="148" cy="172" r="5" fill="white"/>
-    <ellipse cx="145" cy="175" rx="30" ry="32" fill="#87CEFA" opacity="0.15"/>
-    <ellipse cx="255" cy="175" rx="30" ry="32" fill="white"/>
-    <circle cx="257" cy="180" r="16" fill="#2D2D2D"/>
-    <circle cx="252" cy="172" r="5" fill="white"/>
-    <ellipse cx="255" cy="175" rx="30" ry="32" fill="#87CEFA" opacity="0.15"/>
+  <!-- crying: tear streams (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-crying" style="display:none">
     <ellipse cx="168" cy="210" rx="4" ry="7" fill="url(#tear-grad)"/>
     <ellipse cx="164" cy="228" rx="3" ry="5" fill="url(#tear-grad)"/>
     <ellipse cx="234" cy="212" rx="4" ry="7" fill="url(#tear-grad)"/>
     <ellipse cx="238" cy="232" rx="3" ry="5" fill="url(#tear-grad)"/>
   </g>
 
-  <!-- silly: one eye big, one winking, goofy grin -->
-  <g id="expr-silly" style="display:none" data-replace-eyes="true">
-    <!-- Both eyes squinted shut (big cheesy grin) -->
-    <path d="M113 172 Q145 155 177 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <path d="M223 172 Q255 155 287 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <!-- Rosy cheeks -->
+  <!-- silly: rosy cheeks (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-silly" style="display:none">
     <circle cx="112" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
     <circle cx="288" cy="225" r="30" fill="#FF6B35" opacity="0.35"/>
   </g>
 
-  <!-- winking: left eye closed, right eye open -->
-  <g id="expr-winking" style="display:none" data-replace-eyes="true">
-    <path d="M113 175 Q145 158 177 175" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <ellipse cx="255" cy="170" rx="34" ry="38" fill="white"/>
-    <circle cx="250" cy="175" r="17" fill="#2D2D2D"/>
-    <circle cx="244" cy="166" r="6" fill="white"/>
-    <circle cx="258" cy="170" r="3" fill="white" opacity="0.7"/>
+  <!-- winking: blush (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-winking" style="display:none">
     <circle cx="108" cy="228" r="32" fill="#FF6B35" opacity="0.4"/>
   </g>
 
-  <!-- angry: squished eyes, V brows -->
-  <g id="expr-angry" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="174" rx="28" ry="28" fill="white"/>
-    <circle cx="148" cy="178" r="14" fill="#2D2D2D"/>
-    <circle cx="153" cy="171" r="5" fill="white"/>
-    <ellipse cx="255" cy="174" rx="28" ry="28" fill="white"/>
-    <circle cx="252" cy="178" r="14" fill="#2D2D2D"/>
-    <circle cx="247" cy="171" r="5" fill="white"/>
-    <!-- Angry V brows (ONLY shown for angry) -->
-    <path d="M120 165 Q145 150 170 160" fill="none" stroke="#D35400" stroke-width="5" stroke-linecap="round"/>
-    <path d="M230 160 Q255 150 280 165" fill="none" stroke="#D35400" stroke-width="5" stroke-linecap="round"/>
+  <!-- angry: blush (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-angry" style="display:none">
     <circle cx="108" cy="228" r="30" fill="#E74C3C" opacity="0.2"/>
     <circle cx="292" cy="228" r="30" fill="#E74C3C" opacity="0.2"/>
   </g>
 
-  <!-- confused: eyes looking opposite ways, question mark -->
-  <g id="expr-confused" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="172" rx="30" ry="34" fill="white"/>
-    <circle cx="138" cy="176" r="15" fill="#2D2D2D"/>
-    <circle cx="143" cy="168" r="5.5" fill="white"/>
-    <ellipse cx="255" cy="172" rx="30" ry="34" fill="white"/>
-    <circle cx="264" cy="176" r="15" fill="#2D2D2D"/>
-    <circle cx="259" cy="168" r="5.5" fill="white"/>
-    <!-- One raised brow -->
-    <path d="M222 142 Q255 132 288 148" fill="none" stroke="#E07B00" stroke-width="4" stroke-linecap="round"/>
+  <!-- confused: question mark (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-confused" style="display:none">
     <text x="310" y="130" font-family="sans-serif" font-size="36" font-weight="bold" fill="#E07B00" opacity="0.5">?</text>
   </g>
 
-  <!-- love: heart-shaped eyes -->
-  <g id="expr-love" style="display:none" data-replace-eyes="true">
-    <path d="M130 168 C130 155,145 148,145 162 C145 148,160 155,160 168 L145 188 Z" fill="url(#heart-grad)"/>
-    <path d="M240 168 C240 155,255 148,255 162 C255 148,270 155,270 168 L255 188 Z" fill="url(#heart-grad)"/>
+  <!-- love: floating hearts (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-love" style="display:none">
     <circle cx="108" cy="228" r="36" fill="#FF69B4" opacity="0.35"/>
     <circle cx="292" cy="228" r="36" fill="#FF69B4" opacity="0.35"/>
     <path d="M85 110 C85 103,93 100,93 107 C93 100,101 103,101 110 L93 120 Z" fill="#FF69B4" opacity="0.5"/>
     <path d="M305 95 C305 89,312 86,312 92 C312 86,319 89,319 95 L312 104 Z" fill="#FF69B4" opacity="0.4"/>
   </g>
 
-  <!-- sleepy: half-lidded droopy eyes, zzz -->
-  <g id="expr-sleepy" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="178" rx="30" ry="20" fill="white"/>
-    <circle cx="143" cy="182" r="12" fill="#2D2D2D"/>
-    <circle cx="148" cy="177" r="4" fill="white"/>
-    <path d="M113 168 Q145 162 177 168" fill="#FF8C00" stroke="#E07B00" stroke-width="2"/>
-    <ellipse cx="255" cy="178" rx="30" ry="20" fill="white"/>
-    <circle cx="257" cy="182" r="12" fill="#2D2D2D"/>
-    <circle cx="252" cy="177" r="4" fill="white"/>
-    <path d="M223 168 Q255 162 287 168" fill="#FF8C00" stroke="#E07B00" stroke-width="2"/>
+  <!-- sleepy: zzz (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-sleepy" style="display:none">
     <text x="300" y="120" font-family="sans-serif" font-size="24" font-weight="bold" fill="#6C63FF" opacity="0.5">z</text>
     <text x="318" y="100" font-family="sans-serif" font-size="20" font-weight="bold" fill="#6C63FF" opacity="0.35">z</text>
     <text x="332" y="84" font-family="sans-serif" font-size="16" font-weight="bold" fill="#6C63FF" opacity="0.2">z</text>
   </g>
 
-  <!-- proud: eyes closed confidently -->
-  <g id="expr-proud" style="display:none" data-replace-eyes="true">
-    <path d="M113 172 Q145 158 177 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
-    <path d="M223 172 Q255 158 287 172" fill="none" stroke="#2D2D2D" stroke-width="5" stroke-linecap="round"/>
+  <!-- proud: blush + sparkle (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-proud" style="display:none">
     <circle cx="110" cy="228" r="34" fill="#FF6B35" opacity="0.35"/>
     <circle cx="290" cy="228" r="34" fill="#FF6B35" opacity="0.35"/>
     <circle cx="320" cy="120" r="10" fill="url(#sparkle-grad)"/>
   </g>
 
-  <!-- scared: wide eyes, tiny pupils -->
-  <g id="expr-scared" style="display:none" data-replace-eyes="true">
-    <ellipse cx="145" cy="172" rx="34" ry="40" fill="white"/>
-    <circle cx="145" cy="176" r="8" fill="#2D2D2D"/>
-    <circle cx="148" cy="172" r="3" fill="white"/>
-    <ellipse cx="255" cy="172" rx="34" ry="40" fill="white"/>
-    <circle cx="255" cy="176" r="8" fill="#2D2D2D"/>
-    <circle cx="252" cy="172" r="3" fill="white"/>
-    <circle cx="200" cy="200" r="158" fill="#FFF" opacity="0.08"/>
+  <!-- scared: (eyes/eyebrows/mouth from shared library) -->
+  <g id="expr-scared" style="display:none">
   </g>
 
   <!-- ── Blink overlay (toggled by client animation) ──────────── -->
