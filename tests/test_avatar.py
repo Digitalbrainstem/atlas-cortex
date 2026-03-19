@@ -477,7 +477,7 @@ class TestAvatarWebSocketMessages:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Shared expression mouth library (expressions.json)
+# Shared expression library (expressions.json)
 # ──────────────────────────────────────────────────────────────────
 
 import json
@@ -498,7 +498,7 @@ _ALL_EXPRESSION_NAMES = {
 
 
 class TestExpressionsJson:
-    """Validate the shared expression mouth library."""
+    """Validate the shared expression library (mouth + eyes + eyebrows)."""
 
     def _load(self):
         with open(_EXPR_JSON_PATH) as f:
@@ -520,6 +520,24 @@ class TestExpressionsJson:
                 assert "mouth" in expr, f"{name}: replace_mouth=true but no mouth definition"
                 assert "type" in expr["mouth"], f"{name}: mouth missing type"
 
+    def test_replace_eyes_true_has_eyes_definition(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if expr.get("replace_eyes"):
+                assert "eyes" in expr, f"{name}: replace_eyes=true but no eyes definition"
+                assert "left" in expr["eyes"], f"{name}: eyes missing left"
+                assert "right" in expr["eyes"], f"{name}: eyes missing right"
+                assert "type" in expr["eyes"]["left"], f"{name}: left eye missing type"
+                assert "type" in expr["eyes"]["right"], f"{name}: right eye missing type"
+
+    def test_replace_eyes_true_has_eyebrows_definition(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if expr.get("replace_eyes"):
+                assert "eyebrows" in expr, f"{name}: replace_eyes=true but no eyebrows"
+                assert "left" in expr["eyebrows"], f"{name}: eyebrows missing left"
+                assert "right" in expr["eyebrows"], f"{name}: eyebrows missing right"
+
     def test_neutral_and_listening_no_replace(self):
         lib = self._load()
         for name in ("neutral", "listening"):
@@ -527,12 +545,36 @@ class TestExpressionsJson:
             assert not expr["replace_mouth"], f"{name} should not replace mouth"
             assert not expr["replace_eyes"], f"{name} should not replace eyes"
 
+    def test_all_non_neutral_have_replace_eyes_true(self):
+        lib = self._load()
+        for name in _ALL_EXPRESSION_NAMES - {"neutral", "listening"}:
+            expr = lib["expressions"][name]
+            assert expr["replace_eyes"], f"{name} should have replace_eyes=true"
+
     def test_mouth_types_valid(self):
         lib = self._load()
         for name, expr in lib["expressions"].items():
             if expr.get("replace_mouth") and "mouth" in expr:
                 assert expr["mouth"]["type"] in ("path", "ellipse"), \
                     f"{name}: invalid mouth type {expr['mouth']['type']}"
+
+    def test_eye_types_valid(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if "eyes" in expr:
+                for side in ("left", "right"):
+                    eye = expr["eyes"][side]
+                    assert eye["type"] in ("path", "ellipse"), \
+                        f"{name}: invalid {side} eye type {eye['type']}"
+
+    def test_eyebrow_types_valid(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if "eyebrows" in expr:
+                for side in ("left", "right"):
+                    brow = expr["eyebrows"][side]
+                    assert brow["type"] in ("path", "ellipse"), \
+                        f"{name}: invalid {side} eyebrow type {brow['type']}"
 
     def test_path_mouths_have_d_attribute(self):
         lib = self._load()
@@ -547,38 +589,86 @@ class TestExpressionsJson:
                 assert "rx" in expr["mouth"], f"{name}: ellipse mouth missing 'rx'"
                 assert "ry" in expr["mouth"], f"{name}: ellipse mouth missing 'ry'"
 
+    def test_path_eyes_have_d_attribute(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if "eyes" in expr:
+                for side in ("left", "right"):
+                    eye = expr["eyes"][side]
+                    if eye["type"] == "path":
+                        assert "d" in eye, f"{name}: {side} path eye missing 'd'"
+
+    def test_ellipse_eyes_have_offsets_and_radii(self):
+        lib = self._load()
+        for name, expr in lib["expressions"].items():
+            if "eyes" in expr:
+                for side in ("left", "right"):
+                    eye = expr["eyes"][side]
+                    if eye["type"] == "ellipse":
+                        assert "rx" in eye, f"{name}: {side} ellipse eye missing 'rx'"
+                        assert "ry" in eye, f"{name}: {side} ellipse eye missing 'ry'"
+
     def test_each_expression_has_description(self):
         lib = self._load()
         for name, expr in lib["expressions"].items():
             assert "description" in expr, f"{name}: missing description"
 
 
-class TestSkinSVGMouthAnchor:
-    """Validate skin SVGs have mouth-anchor and mouth-IDLE."""
+class TestSkinSVGAnchors:
+    """Validate skin SVGs have all anchors and mouth-IDLE."""
 
     def _parse_svg(self, path):
         tree = ET.parse(path)
         return tree.getroot()
 
+    def _find_el(self, root, element_id):
+        el = root.find(f".//*[@id='{element_id}']")
+        if el is None:
+            ns = {"svg": "http://www.w3.org/2000/svg"}
+            el = root.find(f".//svg:g[@id='{element_id}']", ns)
+        return el
+
     def test_default_svg_has_mouth_anchor(self):
         root = self._parse_svg(_DEFAULT_SVG_PATH)
-        ns = {"svg": "http://www.w3.org/2000/svg"}
-        anchor = root.find(".//*[@id='mouth-anchor']")
-        if anchor is None:
-            anchor = root.find(".//svg:g[@id='mouth-anchor']", ns)
+        anchor = self._find_el(root, 'mouth-anchor')
         assert anchor is not None, "default.svg missing mouth-anchor"
         assert anchor.get("data-cx"), "mouth-anchor missing data-cx"
         assert anchor.get("data-cy"), "mouth-anchor missing data-cy"
 
     def test_nick_svg_has_mouth_anchor(self):
         root = self._parse_svg(_NICK_SVG_PATH)
-        ns = {"svg": "http://www.w3.org/2000/svg"}
-        anchor = root.find(".//*[@id='mouth-anchor']")
-        if anchor is None:
-            anchor = root.find(".//svg:g[@id='mouth-anchor']", ns)
+        anchor = self._find_el(root, 'mouth-anchor')
         assert anchor is not None, "nick.svg missing mouth-anchor"
         assert anchor.get("data-cx"), "mouth-anchor missing data-cx"
         assert anchor.get("data-cy"), "mouth-anchor missing data-cy"
+
+    def test_default_svg_has_eyes_anchor(self):
+        root = self._parse_svg(_DEFAULT_SVG_PATH)
+        anchor = self._find_el(root, 'eyes-anchor')
+        assert anchor is not None, "default.svg missing eyes-anchor"
+        assert anchor.get("data-cx"), "eyes-anchor missing data-cx"
+        assert anchor.get("data-cy"), "eyes-anchor missing data-cy"
+
+    def test_nick_svg_has_eyes_anchor(self):
+        root = self._parse_svg(_NICK_SVG_PATH)
+        anchor = self._find_el(root, 'eyes-anchor')
+        assert anchor is not None, "nick.svg missing eyes-anchor"
+        assert anchor.get("data-cx"), "eyes-anchor missing data-cx"
+        assert anchor.get("data-cy"), "eyes-anchor missing data-cy"
+
+    def test_default_svg_has_eyebrows_anchor(self):
+        root = self._parse_svg(_DEFAULT_SVG_PATH)
+        anchor = self._find_el(root, 'eyebrows-anchor')
+        assert anchor is not None, "default.svg missing eyebrows-anchor"
+        assert anchor.get("data-cx"), "eyebrows-anchor missing data-cx"
+        assert anchor.get("data-cy"), "eyebrows-anchor missing data-cy"
+
+    def test_nick_svg_has_eyebrows_anchor(self):
+        root = self._parse_svg(_NICK_SVG_PATH)
+        anchor = self._find_el(root, 'eyebrows-anchor')
+        assert anchor is not None, "nick.svg missing eyebrows-anchor"
+        assert anchor.get("data-cx"), "eyebrows-anchor missing data-cx"
+        assert anchor.get("data-cy"), "eyebrows-anchor missing data-cy"
 
     def test_default_svg_has_mouth_idle(self):
         root = self._parse_svg(_DEFAULT_SVG_PATH)
@@ -590,20 +680,24 @@ class TestSkinSVGMouthAnchor:
         idle = root.find(".//*[@id='mouth-IDLE']")
         assert idle is not None, "nick.svg missing mouth-IDLE"
 
-    def test_default_svg_no_hardcoded_expr_mouths(self):
-        """Expression groups should not contain hardcoded mouth elements
-        (mouths are injected from expressions.json at load time)."""
+    def test_default_svg_no_hardcoded_expr_eyes_or_mouth(self):
+        """Expression groups should not contain hardcoded data-replace-* attrs
+        (set dynamically from expressions.json at load time)."""
         root = self._parse_svg(_DEFAULT_SVG_PATH)
         for expr_name in _ALL_EXPRESSION_NAMES - {"neutral", "listening"}:
             group = root.find(f".//*[@id='expr-{expr_name}']")
             if group is not None:
                 assert group.get("data-replace-mouth") is None, \
-                    f"default.svg expr-{expr_name} still has data-replace-mouth (should be set by JS)"
+                    f"default.svg expr-{expr_name} still has data-replace-mouth"
+                assert group.get("data-replace-eyes") is None, \
+                    f"default.svg expr-{expr_name} still has data-replace-eyes"
 
-    def test_nick_svg_no_hardcoded_expr_mouths(self):
+    def test_nick_svg_no_hardcoded_expr_eyes_or_mouth(self):
         root = self._parse_svg(_NICK_SVG_PATH)
         for expr_name in _ALL_EXPRESSION_NAMES - {"neutral", "listening"}:
             group = root.find(f".//*[@id='expr-{expr_name}']")
             if group is not None:
                 assert group.get("data-replace-mouth") is None, \
-                    f"nick.svg expr-{expr_name} still has data-replace-mouth (should be set by JS)"
+                    f"nick.svg expr-{expr_name} still has data-replace-mouth"
+                assert group.get("data-replace-eyes") is None, \
+                    f"nick.svg expr-{expr_name} still has data-replace-eyes"
