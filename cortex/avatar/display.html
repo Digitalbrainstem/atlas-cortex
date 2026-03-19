@@ -450,7 +450,7 @@
         }, i * 500);  // 500ms per shape — slower so you can see each one
       });
       // Reset speaking flag after sequence
-      setTimeout(() => { _isSpeaking = false; }, seq.length * 500 + 100);
+      setTimeout(() => { _isSpeaking = false; _restoreExpressionMouth(); }, seq.length * 500 + 100);
     }
 
     function testAudioPlayback() {
