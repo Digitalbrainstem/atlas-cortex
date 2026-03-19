@@ -422,13 +422,22 @@
     // Dev tools
     function testVisemeSequence() {
       showExpression('neutral');
-      const seq = ['IDLE', 'PP', 'AA', 'DD', 'OH', 'SS', 'RR', 'OPEN', 'ROUND', 'TEETH', 'FV', 'IDLE'];
+      // Only show the 7 DISTINCT mouth shapes (cartoon bank maps many sounds to these)
+      const seq = [
+        'IDLE', 'IDLE-TALK', 'CLOSED', 'OPEN', 'ROUND', 'TEETH', 'FV',
+        'IDLE-TALK', 'OPEN', 'ROUND', 'CLOSED', 'IDLE'
+      ];
+      const labels = [
+        'IDLE (rest)', 'TALK (between words)', 'CLOSED (P/B/M)', 'OPEN (A/K)',
+        'ROUND (O/SH)', 'TEETH (S/TH)', 'FV (F/V)',
+        'TALK', 'OPEN', 'ROUND', 'CLOSED', 'IDLE (done)'
+      ];
       const el = document.getElementById('dev-viseme-current');
       seq.forEach((v, i) => {
         setTimeout(() => {
           showViseme(v);
-          if (el) el.textContent = v;
-        }, i * 300);
+          if (el) el.textContent = labels[i] || v;
+        }, i * 500);  // 500ms per shape — slower so you can see each one
       });
     }
 
