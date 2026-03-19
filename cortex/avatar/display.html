@@ -83,6 +83,28 @@
       font-weight: bold !important;
     }
     #joke-ctrl-btn:hover { background: #fbbf24 !important; }
+    /* Dev overlay */
+    #dev-overlay {
+      display: none;
+      position: fixed; top: 12px; right: 12px; z-index: 200;
+      width: 320px; max-height: 90vh; overflow-y: auto;
+    }
+    #dev-overlay .dev-panel {
+      background: rgba(15,23,42,0.92); border: 1px solid #334155;
+      border-radius: 0.75rem; padding: 1rem;
+      backdrop-filter: blur(10px); color: #e2e8f0;
+      font: 13px/1.5 system-ui, sans-serif;
+    }
+    #dev-overlay h4 { margin-bottom: 0.75rem; font-size: 1rem; }
+    #dev-overlay .dev-section { margin-bottom: 0.75rem; }
+    #dev-overlay .dev-section strong { display: block; margin-bottom: 0.3rem; font-size: 0.8rem; color: #94a3b8; }
+    #dev-overlay button {
+      background: #334155; color: #e2e8f0; border: 1px solid #475569;
+      border-radius: 0.4rem; padding: 0.25rem 0.6rem; margin: 0.15rem;
+      font-size: 0.75rem; cursor: pointer; transition: background 0.15s;
+    }
+    #dev-overlay button:hover { background: #475569; }
+    #dev-ws-log { background: #0f172a; border: 1px solid #1e293b; border-radius: 0.3rem; padding: 0.3rem; margin-top: 0.3rem; color: #64748b; }
   </style>
 </head>
 <body>
@@ -109,9 +131,41 @@
     width: 40px; height: 40px; border-radius: 50%;
     border: 2px solid #334155; background: rgba(30,41,59,0.6);
     color: #94a3b8; font-size: 1.1rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
+    display: none; align-items: center; justify-content: center;
     backdrop-filter: blur(4px); transition: all 0.3s;
   ">🎤</button>
+  <div id="dev-overlay">
+    <div class="dev-panel">
+      <h4>🔧 Dev Mode</h4>
+      <div class="dev-section">
+        <strong>Expressions:</strong>
+        <button onclick="showExpression('happy')">😊 Happy</button>
+        <button onclick="showExpression('sad')">😢 Sad</button>
+        <button onclick="showExpression('thinking')">🤔 Think</button>
+        <button onclick="showExpression('surprised')">😲 Surprise</button>
+        <button onclick="showExpression('neutral')">😐 Neutral</button>
+        <button onclick="showExpression('excited')">🤩 Excited</button>
+        <button onclick="showExpression('laughing')">😆 Laughing</button>
+        <button onclick="showExpression('angry')">😠 Angry</button>
+        <button onclick="showExpression('confused')">😕 Confused</button>
+        <button onclick="showExpression('silly')">🤪 Silly</button>
+      </div>
+      <div class="dev-section">
+        <strong>Viseme Test:</strong>
+        <button onclick="testVisemeSequence()">▶ Play Test</button>
+        <span id="dev-viseme-current">-</span>
+      </div>
+      <div class="dev-section">
+        <strong>Audio:</strong>
+        <button onclick="testAudioPlayback()">🔊 Test Sound</button>
+      </div>
+      <div class="dev-section">
+        <strong>WebSocket:</strong>
+        <span id="dev-ws-status">disconnected</span>
+        <pre id="dev-ws-log" style="max-height:100px;overflow:auto;font-size:10px;"></pre>
+      </div>
+    </div>
+  </div>
 
   <script>
     const VISEMES = [
@@ -263,37 +317,146 @@
     const mover = document.getElementById('avatar-mover');
     const scaler = document.getElementById('avatar-scaler');
 
-    // Parse URL hash for controls: #show-controls, #show-joke-button, #skin=nick
-    const _hash = location.hash.toLowerCase();
-    const _showControls = _hash.includes('show-controls') || _hash.includes('show-joke-button');
+    // Backward-compat: skin and bg from URL hash
     let _initialSkin = 'default';
-    const _skinMatch = _hash.match(/skin=([a-z0-9_-]+)/);
+    const _skinMatch = location.hash.match(/skin=([a-z0-9_-]+)/i);
     if (_skinMatch) _initialSkin = _skinMatch[1];
-    // Background color from hash: #bg=FF9E1B
     const _bgMatch = location.hash.match(/bg=([0-9a-fA-F]{3,8})/);
     if (_bgMatch) {
       document.body.style.background = '#' + _bgMatch[1];
       document.getElementById('avatar-container').style.background = '#' + _bgMatch[1];
     }
 
-    if (_showControls) {
-      document.getElementById('controls-bar').classList.add('visible');
-    }
-    // Legacy: standalone joke button for #show-joke-button without controls
-    if (_hash.includes('show-joke-button') && !_hash.includes('show-controls')) {
-      document.getElementById('joke-btn').style.display = 'block';
+    // Server-driven feature flags
+    let _avatarConfig = {};
+
+    async function loadConfig() {
+      try {
+        const params = new URLSearchParams(location.search);
+        const user = params.get('user') || '';
+        const r = await fetch('/api/avatar/config' + (user ? '?user=' + encodeURIComponent(user) : ''));
+        const config = await r.json();
+        _avatarConfig = config;
+        applyConfig(config);
+      } catch (e) {
+        console.warn('Failed to load avatar config, using clean mode:', e);
+        _avatarConfig = {};
+        applyConfig({});
+      }
     }
 
-    // Mic hint button — visible by default, hidden when satellite mode is active
+    function applyConfig(config) {
+      // Mic button
+      const mic = document.getElementById('mic-hint');
+      if (mic) {
+        mic.style.display = config.show_mic ? 'flex' : 'none';
+      }
+
+      // Controls bar (skins + joke)
+      const controls = document.getElementById('controls-bar');
+      if (controls) {
+        if (config.show_controls || config.show_skin_switcher) {
+          controls.classList.add('visible');
+        } else {
+          controls.classList.remove('visible');
+        }
+      }
+
+      // Joke button (standalone, outside controls bar)
+      const joke = document.getElementById('joke-btn');
+      if (joke) {
+        joke.style.display = config.show_joke_button ? 'block' : 'none';
+      }
+
+      // Satellite mode
+      if (config.satellite_mode) {
+        initSatelliteMode();
+      }
+
+      // Dev/debug overlay
+      if (config.dev_mode || config.show_debug) {
+        showDevOverlay();
+      } else {
+        hideDevOverlay();
+      }
+    }
+
+    function initSatelliteMode() {
+      // Hide mic button in satellite mode — satellite handles its own mic
+      const mic = document.getElementById('mic-hint');
+      if (mic) mic.style.display = 'none';
+    }
+
+    function showDevOverlay() {
+      const overlay = document.getElementById('dev-overlay');
+      if (overlay) overlay.style.display = 'block';
+    }
+
+    function hideDevOverlay() {
+      const overlay = document.getElementById('dev-overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
+
+    function toggleDevOverlay() {
+      const overlay = document.getElementById('dev-overlay');
+      if (overlay) {
+        overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
+    // Secret dev toggle: press D five times quickly
+    let _devKeyCount = 0;
+    let _devKeyTimer = null;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'd' || e.key === 'D') {
+        _devKeyCount++;
+        clearTimeout(_devKeyTimer);
+        _devKeyTimer = setTimeout(() => { _devKeyCount = 0; }, 1000);
+        if (_devKeyCount >= 5) {
+          _devKeyCount = 0;
+          toggleDevOverlay();
+        }
+      }
+    });
+
+    // Dev tools
+    function testVisemeSequence() {
+      const seq = ['PP', 'AA', 'DD', 'OH', 'SS', 'IDLE'];
+      const el = document.getElementById('dev-viseme-current');
+      seq.forEach((v, i) => {
+        setTimeout(() => {
+          showViseme(v);
+          if (el) el.textContent = v;
+        }, i * 300);
+      });
+    }
+
+    function testAudioPlayback() {
+      const ctx = ensureAudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 440;
+      gain.gain.value = 0.15;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    }
+
+    function devLogWs(msg) {
+      const log = document.getElementById('dev-ws-log');
+      if (!log) return;
+      const line = typeof msg === 'string' ? msg : JSON.stringify(msg).substring(0, 120);
+      log.textContent = line + '\n' + log.textContent.substring(0, 500);
+    }
+
+    // Mic hint — opens satellite mode
     const micHint = document.getElementById('mic-hint');
     if (micHint) {
-      if (_hash.includes('satellite')) {
-        micHint.style.display = 'none';
-      }
       micHint.addEventListener('click', () => {
-        const hash = location.hash ? location.hash + ',satellite' : '#satellite';
-        location.hash = hash;
-        location.reload();
+        const params = new URLSearchParams(location.search);
+        params.set('satellite', '1');
+        location.search = params.toString();
       });
     }
 
@@ -573,6 +736,8 @@
       ws.onopen = () => {
         statusEl.textContent = 'connected';
         statusEl.className = 'active';
+        const wsStatus = document.getElementById('dev-ws-status');
+        if (wsStatus) wsStatus.textContent = 'connected';
         ws.send(JSON.stringify({type: 'HELLO', room: room || 'default'}));
         setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -580,10 +745,16 @@
           }
         }, 30000);
       };
-      ws.onmessage = (e) => handleMessage(JSON.parse(e.data));
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        devLogWs(msg);
+        handleMessage(msg);
+      };
       ws.onclose = () => {
         statusEl.textContent = 'disconnected — reconnecting…';
         statusEl.className = 'error';
+        const wsStatus = document.getElementById('dev-ws-status');
+        if (wsStatus) wsStatus.textContent = 'disconnected';
         setTimeout(connect, 3000);
       };
       ws.onerror = () => ws.close();
@@ -1166,6 +1337,7 @@
     window.addEventListener('resize', initPosition);
     initPosition();
     loadSkin('/avatar/skin/' + _initialSkin + '.svg');
+    loadConfig();
     connect();
   </script>
   <script src="/avatar/web-satellite.js"></script>

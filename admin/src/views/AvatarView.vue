@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import AppLayout from '../components/AppLayout.vue'
 import AvatarPreview from '../components/AvatarPreview.vue'
 import { api } from '../api.js'
@@ -11,12 +11,49 @@ const skins = ref([])
 const assignments = ref([])
 const users = ref([])
 
+// Feature flags
+const flags = ref({})
+const flagsLoading = ref(false)
+
+const FLAG_LABELS = {
+  show_mic: '🎤 Microphone button',
+  show_skin_switcher: '🎨 Skin switcher',
+  show_joke_button: '😂 Joke button',
+  show_controls: '🎛️ Control bar',
+  show_debug: '🔍 Debug info',
+  satellite_mode: '🛰️ Satellite mode',
+  dev_mode: '🔧 Developer mode (shows everything)',
+}
+
+const globalFlags = computed(() => {
+  const g = flags.value['global'] || {}
+  return Object.keys(FLAG_LABELS)
+    .filter(k => k !== 'dev_mode')
+    .map(k => ({ name: k, label: FLAG_LABELS[k], enabled: !!g[k] }))
+})
+
+const devMode = computed(() => !!(flags.value['global'] || {}).dev_mode)
+
+const userScopes = computed(() => {
+  return Object.keys(flags.value).filter(k => k !== 'global').map(scope => ({
+    scope,
+    flags: Object.entries(flags.value[scope] || {}).map(([name, enabled]) => ({
+      name, label: FLAG_LABELS[name] || name, enabled: !!enabled
+    }))
+  }))
+})
+
 // New skin form
 const showNewSkin = ref(false)
 const newSkin = ref({ id: '', name: '', type: 'svg', path: '' })
 
+// Per-user override form
+const overrideUserId = ref('')
+const overrideFlag = ref('show_mic')
+const overrideEnabled = ref(true)
+
 onMounted(async () => {
-  await Promise.all([fetchSkins(), fetchAssignments(), fetchUsers()])
+  await Promise.all([fetchSkins(), fetchAssignments(), fetchUsers(), fetchFlags()])
   loading.value = false
 })
 
@@ -42,6 +79,77 @@ async function fetchUsers() {
     users.value = data.users || data.items || data || []
   } catch (e) {
     // Users endpoint may not return expected format
+  }
+}
+
+async function fetchFlags() {
+  try {
+    flagsLoading.value = true
+    flags.value = await api.get('/admin/avatar/flags')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    flagsLoading.value = false
+  }
+}
+
+async function toggleFlag(scope, flagName, event) {
+  error.value = ''
+  success.value = ''
+  try {
+    await api.patch('/admin/avatar/flags', {
+      scope,
+      flag_name: flagName,
+      enabled: event.target.checked
+    })
+    await fetchFlags()
+    success.value = `Flag "${flagName}" updated`
+  } catch (e) {
+    error.value = e.message
+    await fetchFlags()
+  }
+}
+
+async function toggleDevMode(event) {
+  error.value = ''
+  success.value = ''
+  try {
+    await api.post('/admin/avatar/flags/dev-mode', { enabled: event.target.checked })
+    await fetchFlags()
+    success.value = event.target.checked ? 'Dev mode enabled' : 'Dev mode disabled'
+  } catch (e) {
+    error.value = e.message
+    await fetchFlags()
+  }
+}
+
+async function addUserOverride() {
+  if (!overrideUserId.value) return
+  error.value = ''
+  success.value = ''
+  try {
+    await api.patch('/admin/avatar/flags', {
+      scope: overrideUserId.value,
+      flag_name: overrideFlag.value,
+      enabled: overrideEnabled.value
+    })
+    await fetchFlags()
+    success.value = `Override added for ${overrideUserId.value}`
+    overrideUserId.value = ''
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function resetFlags(scope) {
+  error.value = ''
+  success.value = ''
+  try {
+    await api.post(`/admin/avatar/flags/reset?scope=${encodeURIComponent(scope)}`)
+    await fetchFlags()
+    success.value = `Flags reset for ${scope}`
+  } catch (e) {
+    error.value = e.message
   }
 }
 
@@ -117,6 +225,61 @@ function getUserSkin(userId) {
 
       <div v-if="error" class="alert alert-error">{{ error }}</div>
       <div v-if="success" class="alert alert-success">{{ success }}</div>
+
+      <!-- Feature Flags -->
+      <div class="section flags-section">
+        <h2>🚩 Feature Flags</h2>
+        <p class="hint">Control which UI elements are visible on the avatar display page.</p>
+
+        <h3>Global Defaults</h3>
+        <div class="flag-row" v-for="flag in globalFlags" :key="flag.name">
+          <label class="toggle">
+            <input type="checkbox" :checked="flag.enabled" @change="toggleFlag('global', flag.name, $event)">
+            <span>{{ flag.label }}</span>
+          </label>
+        </div>
+
+        <h3>Dev Mode</h3>
+        <div class="flag-row">
+          <label class="toggle">
+            <input type="checkbox" :checked="devMode" @change="toggleDevMode">
+            <span>🔧 Developer Debug Mode (shows all controls + debug overlay)</span>
+          </label>
+        </div>
+        <button class="btn btn-sm" @click="resetFlags('global')" style="margin-top:0.5rem">Reset Global Defaults</button>
+
+        <h3>Per-User Overrides</h3>
+        <div v-if="userScopes.length" class="user-overrides">
+          <div v-for="us in userScopes" :key="us.scope" class="user-override-group">
+            <div class="user-override-header">
+              <strong>{{ us.scope }}</strong>
+              <button class="btn btn-sm btn-danger" @click="resetFlags(us.scope)">Remove</button>
+            </div>
+            <div class="flag-row" v-for="f in us.flags" :key="f.name">
+              <label class="toggle">
+                <input type="checkbox" :checked="f.enabled" @change="toggleFlag(us.scope, f.name, $event)">
+                <span>{{ f.label }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div v-else class="hint">No per-user overrides configured.</div>
+        <div class="add-override">
+          <select v-model="overrideUserId">
+            <option value="">Select user…</option>
+            <option v-for="u in users" :key="u.id || u.user_id" :value="u.id || u.user_id">
+              {{ u.display_name || u.name || u.user_id || u.id }}
+            </option>
+          </select>
+          <select v-model="overrideFlag">
+            <option v-for="(label, key) in FLAG_LABELS" :key="key" :value="key">{{ label }}</option>
+          </select>
+          <label class="toggle inline-toggle">
+            <input type="checkbox" v-model="overrideEnabled"> <span>Enabled</span>
+          </label>
+          <button class="btn btn-sm btn-primary" @click="addUserOverride" :disabled="!overrideUserId">Add Override</button>
+        </div>
+      </div>
 
       <!-- New skin form -->
       <div v-if="showNewSkin" class="card new-skin-form">
@@ -306,6 +469,44 @@ export default {
 .section { margin-top: 2rem; }
 .section h2 { font-size: 1.2rem; color: var(--text-primary); margin-bottom: 0.5rem; }
 .hint { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; }
+
+/* Feature flags */
+.flags-section { margin-bottom: 2rem; }
+.flags-section h3 {
+  font-size: 0.95rem; color: var(--text-primary);
+  margin: 1rem 0 0.5rem; padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.flags-section h3:first-of-type { border-top: none; padding-top: 0; }
+.flag-row {
+  padding: 0.4rem 0;
+}
+.toggle {
+  display: flex; align-items: center; gap: 0.6rem;
+  cursor: pointer; font-size: 0.875rem; color: var(--text-primary);
+}
+.toggle input[type="checkbox"] {
+  width: 1.1rem; height: 1.1rem; accent-color: #3b82f6; cursor: pointer;
+}
+.user-overrides { margin-bottom: 1rem; }
+.user-override-group {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.75rem; margin-bottom: 0.5rem;
+}
+.user-override-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+.user-override-header strong { color: var(--text-primary); font-size: 0.85rem; }
+.add-override {
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.add-override select {
+  padding: 0.4rem; background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary); font-size: 0.8rem;
+}
+.inline-toggle { gap: 0.3rem; font-size: 0.8rem; }
 
 .assign-table {
   width: 100%;

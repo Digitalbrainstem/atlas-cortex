@@ -564,6 +564,13 @@ if _ADMIN_DIST.is_dir():
 # Avatar skin file serving
 # ──────────────────────────────────────────────────────────────────
 
+@app.get("/api/avatar/config")
+async def get_avatar_config_endpoint(user: str = ""):
+    """Return resolved feature flags for the avatar page."""
+    from cortex.avatar.flags import get_avatar_config
+    return get_avatar_config(user)
+
+
 @app.get("/avatar/skin/{skin_id}.svg")
 async def serve_avatar_skin(skin_id: str):
     """Serve an avatar skin SVG file by skin ID."""

@@ -1098,6 +1098,15 @@ CREATE TABLE IF NOT EXISTS active_calls (
     started_at TEXT DEFAULT CURRENT_TIMESTAMP,
     ended_at TEXT
 );
+
+-- Avatar Feature Flags
+CREATE TABLE IF NOT EXISTS avatar_feature_flags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL DEFAULT 'global',
+    flag_name TEXT NOT NULL,
+    enabled INTEGER DEFAULT 0,
+    UNIQUE(scope, flag_name)
+);
 """
 
 
@@ -1115,6 +1124,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "jailbreak_patterns", "active", "BOOLEAN DEFAULT TRUE")
     _seed_default_avatar_skin(conn)
+    _seed_default_avatar_flags(conn)
 
 
 def _seed_default_avatar_skin(conn: sqlite3.Connection) -> None:
@@ -1130,6 +1140,26 @@ def _seed_default_avatar_skin(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO avatar_skins (id, name, type, path, is_default, metadata) "
         "VALUES ('nick', 'Nick Jr. Style', 'svg', 'cortex/avatar/skins/nick.svg', FALSE, '{}')",
     )
+    conn.commit()
+
+
+def _seed_default_avatar_flags(conn: sqlite3.Connection) -> None:
+    """Seed default global avatar feature flags."""
+    _DEFAULT_FLAGS = [
+        ("global", "show_mic", 0),
+        ("global", "show_skin_switcher", 0),
+        ("global", "show_joke_button", 0),
+        ("global", "show_controls", 0),
+        ("global", "show_debug", 0),
+        ("global", "satellite_mode", 0),
+        ("global", "dev_mode", 0),
+    ]
+    for scope, flag_name, enabled in _DEFAULT_FLAGS:
+        conn.execute(
+            "INSERT OR IGNORE INTO avatar_feature_flags (scope, flag_name, enabled) "
+            "VALUES (?, ?, ?)",
+            (scope, flag_name, enabled),
+        )
     conn.commit()
 
 

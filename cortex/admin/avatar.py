@@ -166,3 +166,52 @@ def set_audio_route(room: str, body: AudioRouteUpdate):
     from cortex.avatar.websocket import set_audio_route as _set_route
     _set_route(room, body.route)
     return {"room": room, "route": body.route}
+
+
+# ── Feature flags ────────────────────────────────────────────────
+
+
+class FlagUpdate(BaseModel):
+    scope: str = Field(default="global")
+    flag_name: str
+    enabled: bool
+
+
+class DevModeToggle(BaseModel):
+    enabled: bool
+
+
+@router.get("/avatar/flags")
+def list_avatar_flags(db: sqlite3.Connection = Depends(_h._db)):
+    """Get all feature flags (global + per-user overrides)."""
+    from cortex.avatar.flags import get_all_flags
+    return get_all_flags()
+
+
+@router.patch("/avatar/flags")
+def update_avatar_flag(body: FlagUpdate, db: sqlite3.Connection = Depends(_h._db)):
+    """Update a single feature flag."""
+    from cortex.avatar.flags import set_flag, KNOWN_FLAGS
+    if body.flag_name not in KNOWN_FLAGS:
+        raise HTTPException(status_code=400, detail=f"Unknown flag: {body.flag_name}")
+    set_flag(body.scope, body.flag_name, body.enabled)
+    return {"scope": body.scope, "flag_name": body.flag_name, "enabled": body.enabled}
+
+
+@router.post("/avatar/flags/dev-mode")
+def toggle_dev_mode(body: DevModeToggle, db: sqlite3.Connection = Depends(_h._db)):
+    """Toggle dev mode on/off."""
+    from cortex.avatar.flags import set_flag
+    set_flag("global", "dev_mode", body.enabled)
+    return {"dev_mode": body.enabled}
+
+
+@router.post("/avatar/flags/reset")
+def reset_avatar_flags(
+    scope: str = "global",
+    db: sqlite3.Connection = Depends(_h._db),
+):
+    """Reset all flags for a scope to defaults."""
+    from cortex.avatar.flags import reset_flags
+    reset_flags(scope)
+    return {"reset": scope}
