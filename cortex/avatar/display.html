@@ -1468,44 +1468,58 @@
       _eyeCurrentY += (_eyeTargetY - _eyeCurrentY) * EYE_SMOOTH;
 
       const offsetX = _eyeCurrentX * _eyeMaxOffsetX;
-      const offsetY = _eyeCurrentY * _eyeMaxOffsetY;
+      // Asymmetric vertical: down gets more range, up gets less (eyes sit in upper part of face)
+      const offsetY = _eyeCurrentY > 0 
+        ? _eyeCurrentY * _eyeMaxOffsetY * 1.2   // looking down: 120% range
+        : _eyeCurrentY * _eyeMaxOffsetY * 0.7;  // looking up: 70% range (hits brow)
 
       // Move all eye elements EXCEPT the outlines (tagged with data-eye-outline)
       const svg = container.querySelector('svg');
       if (!svg) { requestAnimationFrame(updateEyeTracking); return; }
       
+      // Glints barely move (fixed light source) — 10% of pupil movement
+      const glintFactor = 0.1;
+      
       const eyesBase = svg.querySelector('#eyes-base');
       if (eyesBase) {
-        // Move all children that aren't eye outlines
         Array.from(eyesBase.children).forEach(el => {
-          if (el.dataset.eyeOutline) return;  // don't move the eye shape itself
+          if (el.dataset.eyeOutline) return;
           if (!el.dataset.origCx) el.dataset.origCx = el.getAttribute('cx');
           if (!el.dataset.origCy) el.dataset.origCy = el.getAttribute('cy');
           const origCx = parseFloat(el.dataset.origCx);
           const origCy = parseFloat(el.dataset.origCy);
-          if (!isNaN(origCx) && !isNaN(origCy)) {
-            el.setAttribute('cx', origCx + offsetX);
-            el.setAttribute('cy', origCy + offsetY);
-          }
+          if (isNaN(origCx) || isNaN(origCy)) return;
+          
+          // Glints (small white circles) barely move
+          const r = parseFloat(el.getAttribute('r') || '0');
+          const fill = el.getAttribute('fill') || '';
+          const isGlint = (fill === 'white' && r > 0 && r < 10);
+          const factor = isGlint ? glintFactor : 1.0;
+          
+          el.setAttribute('cx', origCx + offsetX * factor);
+          el.setAttribute('cy', origCy + offsetY * factor);
         });
       }
       
       // Also move pupils in active expression groups
       const activeExpr = svg.querySelector(`#expr-${currentExpr}`);
       if (activeExpr && activeExpr.style.display !== 'none') {
-        // Move inner elements (pupils, glints) but not eye whites or outlines
         activeExpr.querySelectorAll('circle, ellipse').forEach(el => {
-          // Skip large ellipses (eye whites in expressions)
           const rx = parseFloat(el.getAttribute('rx') || el.getAttribute('r') || '0');
-          if (rx > 20) return;  // likely an eye white, don't move
+          if (rx > 20) return;  // eye white, don't move
           if (!el.dataset.origCx) el.dataset.origCx = el.getAttribute('cx');
           if (!el.dataset.origCy) el.dataset.origCy = el.getAttribute('cy');
           const origCx = parseFloat(el.dataset.origCx);
           const origCy = parseFloat(el.dataset.origCy);
-          if (!isNaN(origCx) && !isNaN(origCy)) {
-            el.setAttribute('cx', origCx + offsetX);
-            el.setAttribute('cy', origCy + offsetY);
-          }
+          if (isNaN(origCx) || isNaN(origCy)) return;
+          
+          const r = parseFloat(el.getAttribute('r') || '0');
+          const fill = el.getAttribute('fill') || '';
+          const isGlint = (fill === 'white' && r > 0 && r < 10);
+          const factor = isGlint ? glintFactor : 1.0;
+          
+          el.setAttribute('cx', origCx + offsetX * factor);
+          el.setAttribute('cy', origCy + offsetY * factor);
         });
       }
 
