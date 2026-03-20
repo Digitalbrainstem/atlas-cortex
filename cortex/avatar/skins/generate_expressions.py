@@ -713,9 +713,11 @@ def generate_decoration_elements(
                 # Outer tangent: right edge of right eye
                 outer_x = ref_cx + base_eyes["rx"]
             ox = deco.get("offset_x", 0)
-            oy = deco.get("offset_y", 10)
+            tear_ry = deco.get("ry", 7)
             cx = outer_x + ox
-            cy = ref_cy + base_eyes["ry"] * 0.5 + oy  # start at mid-eye height
+            # Top of tear starts at bottom of eye (tangent)
+            eye_bottom = ref_cy + base_eyes["ry"]
+            cy = eye_bottom + tear_ry  # center of tear = eye_bottom + half tear height
             el = ET.Element(f"{{{ns}}}ellipse")
             el.set("cx", _fmt(cx))
             el.set("cy", _fmt(cy))
