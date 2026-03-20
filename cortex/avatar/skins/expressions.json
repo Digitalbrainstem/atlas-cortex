@@ -275,8 +275,8 @@
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": -20,
-          "offset_y": 10,
+          "offset_x": 6,
+          "offset_y": 5,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -286,8 +286,8 @@
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": 20,
-          "offset_y": 10,
+          "offset_x": -6,
+          "offset_y": 5,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -421,8 +421,8 @@
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": -20,
-          "offset_y": 10,
+          "offset_x": 6,
+          "offset_y": 5,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -432,8 +432,8 @@
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": 20,
-          "offset_y": 10,
+          "offset_x": -6,
+          "offset_y": 5,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
