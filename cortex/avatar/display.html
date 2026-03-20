@@ -105,6 +105,17 @@
     }
     #dev-overlay button:hover { background: #475569; }
     #dev-ws-log { background: #0f172a; border: 1px solid #1e293b; border-radius: 0.3rem; padding: 0.3rem; margin-top: 0.3rem; color: #64748b; }
+    /* Wobble animation for zzz and question marks */
+    @keyframes wobble {
+      0%, 100% { transform: rotate(-5deg) translateY(0); }
+      25% { transform: rotate(5deg) translateY(-3px); }
+      50% { transform: rotate(-3deg) translateY(-1px); }
+      75% { transform: rotate(4deg) translateY(-4px); }
+    }
+    @keyframes float-up {
+      0%, 100% { opacity: 0.7; transform: translateY(0); }
+      50% { opacity: 0.9; transform: translateY(-5px); }
+    }
   </style>
 </head>
 <body>

@@ -33,7 +33,8 @@ _MOUTH_SHAPES = {
 _EYE_SHAPES = {
     "squint", "wide", "closed", "wink", "narrow", "droopy",
     "look_up", "asymmetric", "asymmetric_size", "nearly_closed",
-    "slightly_wide", "confident", "dreamy",
+    "slightly_wide", "confident", "dreamy", "hearts",
+    "small_intense", "joy", "droopy_small", "crying",
 }
 
 # All recognised eyebrow shape names
@@ -328,8 +329,32 @@ def generate_eye_elements(
 
         # Nearly closed uses curved lines (not flat ovals)
         is_closed = (shape == "closed") or (shape == "nearly_closed") or (shape == "wink" and side_name == "left")
+        is_hearts = (shape == "hearts")
 
-        if is_closed:
+        if is_hearts:
+            # Heart-shaped pupils for love expression
+            # Draw eye white + heart instead of pupil + no glint
+            new_ry = wry * ry_ratio
+            white_el = ET.Element(f"{{{ns}}}ellipse")
+            white_el.set("cx", _fmt(wcx))
+            white_el.set("cy", _fmt(wcy))
+            white_el.set("rx", _fmt(wrx * rx_scale))
+            white_el.set("ry", _fmt(new_ry))
+            white_el.set("fill", wfill)
+            elements.append(white_el)
+            # Heart path centered on pupil position
+            hs = pr * 0.8  # heart size based on pupil
+            hx, hy = pcx, pcy
+            heart = ET.Element(f"{{{ns}}}path")
+            heart.set("d",
+                f"M{_fmt(hx)} {_fmt(hy + hs * 0.4)} "
+                f"C{_fmt(hx - hs)} {_fmt(hy - hs * 0.2)} {_fmt(hx - hs * 0.5)} {_fmt(hy - hs * 0.9)} {_fmt(hx)} {_fmt(hy - hs * 0.4)} "
+                f"C{_fmt(hx + hs * 0.5)} {_fmt(hy - hs * 0.9)} {_fmt(hx + hs)} {_fmt(hy - hs * 0.2)} {_fmt(hx)} {_fmt(hy + hs * 0.4)} Z"
+            )
+            heart.set("fill", "#E74C3C")
+            heart.set("opacity", "0.9")
+            elements.append(heart)
+        elif is_closed:
             elements.append(_closed_line(wcx, wcy + cy_shift, wrx * rx_scale, closed_stroke))
         else:
             new_ry = wry * ry_ratio
@@ -762,7 +787,7 @@ def generate_decoration_elements(
         elif dtype == "zzz":
             ox = deco.get("offset_x", 60)
             oy = deco.get("offset_y", -40)
-            s = deco.get("size", 14)
+            s = deco.get("size", 28)
             fill = deco.get("fill", "#999")
             opacity = str(deco.get("opacity", 0.7))
             cx = base_eyes["right_cx"] + ox
@@ -779,6 +804,7 @@ def generate_decoration_elements(
                 el.set("font-weight", "bold")
                 el.set("fill", fill)
                 el.set("opacity", opacity)
+                el.set("style", f"animation: float-up {1.5 + i * 0.3}s ease-in-out infinite")
                 el.text = "z"
                 elements.append(el)
 
@@ -800,7 +826,7 @@ def generate_decoration_elements(
         elif dtype == "question_mark":
             ox = deco.get("offset_x", 50)
             oy = deco.get("offset_y", -35)
-            s = deco.get("size", 16)
+            s = deco.get("size", 32)
             fill = deco.get("fill", "#666")
             opacity = str(deco.get("opacity", 0.7))
             cx = base_eyes["right_cx"] + ox
@@ -813,6 +839,7 @@ def generate_decoration_elements(
             el.set("font-weight", "bold")
             el.set("fill", fill)
             el.set("opacity", opacity)
+            el.set("style", "animation: wobble 1.2s ease-in-out infinite")
             el.text = "?"
             elements.append(el)
 
