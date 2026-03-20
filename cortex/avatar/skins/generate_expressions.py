@@ -98,20 +98,19 @@ def derive_mouth_geometry(root: ET.Element) -> dict:
 
 
 def derive_eye_geometry(root: ET.Element) -> dict:
-    """Extract eye positions, radii, pupils, and glints from eyes-base."""
+    """Extract eye positions, radii, and pupils from eyes-base."""
     ns = "http://www.w3.org/2000/svg"
     eyes_g = root.find(f".//*[@id='eyes-base']")
     if eyes_g is None:
         raise ValueError("SVG missing eyes-base group")
 
     children = list(eyes_g)
-    if len(children) < 6:
-        raise ValueError("eyes-base needs at least 6 children (white+pupil+glint × 2)")
+    if len(children) < 4:
+        raise ValueError("eyes-base needs at least 4 children (white+pupil × 2)")
 
-    # Children 0,1,2 = left eye; children 3,4,5 = right eye
-    # Each triplet: [white, pupil, glint]
-    def _parse_eye(triplet: list[ET.Element]) -> dict:
-        white_el, pupil_el, glint_el = triplet
+    # Parse pairs: [white, pupil] × 2 (glints removed)
+    def _parse_eye(pair: list[ET.Element]) -> dict:
+        white_el, pupil_el = pair
         result = {
             "white_cx": float(white_el.get("cx", "0")),
             "white_cy": float(white_el.get("cy", "0")),
@@ -121,26 +120,21 @@ def derive_eye_geometry(root: ET.Element) -> dict:
             "pupil_cx": float(pupil_el.get("cx", "0")),
             "pupil_cy": float(pupil_el.get("cy", "0")),
             "pupil_fill": pupil_el.get("fill", "#2D2D2D"),
-            "glint_cx": float(glint_el.get("cx", "0")),
-            "glint_cy": float(glint_el.get("cy", "0")),
-            "glint_r": float(glint_el.get("r", "0")),
         }
-        # Pupil size: circle uses r, ellipse uses rx/ry
         if pupil_el.get("rx") is not None:
             result["pupil_r"] = float(pupil_el.get("rx"))
             result["pupil_ry"] = float(pupil_el.get("ry", pupil_el.get("rx")))
         else:
             result["pupil_r"] = float(pupil_el.get("r", "0"))
             result["pupil_ry"] = result["pupil_r"]
-        # Preserve opacity if present
         if pupil_el.get("opacity"):
             result["pupil_opacity"] = pupil_el.get("opacity")
-        if glint_el.get("opacity"):
-            result["glint_opacity"] = glint_el.get("opacity")
         return result
 
-    left_data = _parse_eye(children[0:3])
-    right_data = _parse_eye(children[3:6])
+    # Split children into two eyes (first half = left, second half = right)
+    half = len(children) // 2
+    left_data = _parse_eye(children[0:2])
+    right_data = _parse_eye(children[half:half+2])
 
     # Backward-compatible top-level keys
     rx = (left_data["white_rx"] + right_data["white_rx"]) / 2
@@ -298,10 +292,6 @@ def generate_eye_elements(
         pry = side_data.get("pupil_ry", pr)
         pfill = side_data["pupil_fill"]
         p_opacity = side_data.get("pupil_opacity")
-        gcx = side_data["glint_cx"]
-        gcy = side_data["glint_cy"]
-        gr = side_data["glint_r"]
-        g_opacity = side_data.get("glint_opacity")
 
         # Determine ry_ratio for this side
         ry_ratio = default_ry_ratio
@@ -399,19 +389,6 @@ def generate_eye_elements(
             if p_opacity:
                 pupil_el.set("opacity", p_opacity)
             elements.append(pupil_el)
-
-            # Glint — scale with eye
-            glint_offset_y = (gcy - wcy) * ry_ratio
-            glint_cy = actual_cy + glint_offset_y
-            scaled_gr = gr * max(pupil_scale, 0.4)
-            glint_el = ET.Element(f"{{{ns}}}circle")
-            glint_el.set("cx", _fmt(gcx))
-            glint_el.set("cy", _fmt(glint_cy))
-            glint_el.set("r", _fmt(scaled_gr))
-            glint_el.set("fill", "white")
-            if g_opacity:
-                glint_el.set("opacity", g_opacity)
-            elements.append(glint_el)
 
     return elements
 
