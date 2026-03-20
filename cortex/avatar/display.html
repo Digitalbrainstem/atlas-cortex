@@ -122,6 +122,12 @@
       60% { opacity: 0.45; transform: translateY(8px); }
       100% { opacity: 0.15; transform: translateY(15px); }
     }
+    @keyframes silly-eyes {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(8deg) translateX(2px); }
+      50% { transform: rotate(-5deg) translateX(-3px); }
+      75% { transform: rotate(6deg) translateY(2px); }
+    }
   </style>
 </head>
 <body>
@@ -352,7 +358,7 @@
     const scaler = document.getElementById('avatar-scaler');
 
     // Backward-compat: skin and bg from URL hash
-    let _initialSkin = 'default';
+    let _initialSkin = 'nick';
     const _skinMatch = location.hash.match(/skin=([a-z0-9_-]+)/i);
     if (_skinMatch) _initialSkin = _skinMatch[1];
     const _bgMatch = location.hash.match(/bg=([0-9a-fA-F]{3,8})/);
@@ -1128,6 +1134,22 @@
       if (expr === 'laughing' || expr === 'rofl') {
         startLaughMouth();
       }
+
+      // Silly eyes wiggle animation
+      const exprEl = document.getElementById(`expr-${expr}`);
+      if (exprEl) {
+        // Remove previous silly animation
+        exprEl.querySelectorAll('ellipse[fill="white"], circle[fill="#2D2D2D"]').forEach(e => {
+          e.style.animation = '';
+        });
+        if (expr === 'silly') {
+          exprEl.querySelectorAll('ellipse[fill="white"]').forEach((e, i) => {
+            e.style.animation = `silly-eyes 0.8s ease-in-out ${i * 0.2}s infinite`;
+            e.style.transformOrigin = 'center';
+            e.style.transformBox = 'fill-box';
+          });
+        }
+      }
     }
 
     let _laughInterval = null;
@@ -1362,8 +1384,9 @@
     let _eyeCurrentX = 0;  // smoothed current position
     let _eyeCurrentY = 0;
     let _eyeTrackTimeout = null;
+    let _pupilDriftAngle = 0;  // subtle idle drift
     const EYE_SMOOTH = 0.15;       // lerp factor
-    const EYE_MAX_OFFSET_X = 8;    // max px offset for pupil
+    const EYE_MAX_OFFSET_X = 8;    // max offset for pupil in viewBox units
     const EYE_MAX_OFFSET_Y = 6;
 
     function handleEyeTarget(msg) {
@@ -1381,20 +1404,25 @@
     }
 
     function updateEyeTracking() {
+      // Subtle idle drift when not tracking
+      if (!_eyeTrackingActive) {
+        _pupilDriftAngle += 0.008;
+        _eyeTargetX = Math.sin(_pupilDriftAngle) * 0.15;
+        _eyeTargetY = Math.cos(_pupilDriftAngle * 0.7) * 0.08;
+      }
+
       // Smooth interpolation toward target
       _eyeCurrentX += (_eyeTargetX - _eyeCurrentX) * EYE_SMOOTH;
       _eyeCurrentY += (_eyeTargetY - _eyeCurrentY) * EYE_SMOOTH;
 
-      // Only override random pupil movement when sensor tracking is active
-      if (!_eyeTrackingActive && Math.abs(_eyeCurrentX) < 0.01 && Math.abs(_eyeCurrentY) < 0.01) {
-        requestAnimationFrame(updateEyeTracking);
-        return;
-      }
-
       const offsetX = _eyeCurrentX * EYE_MAX_OFFSET_X;
       const offsetY = _eyeCurrentY * EYE_MAX_OFFSET_Y;
 
-      const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
+      // Find ALL pupil elements — by class OR by fill color
+      const svg = container.querySelector('svg');
+      if (!svg) { requestAnimationFrame(updateEyeTracking); return; }
+      
+      const pupils = svg.querySelectorAll('.pupil-left, .pupil-right, circle[fill="#2D2D2D"], ellipse[fill="#2D2D2D"]');
       pupils.forEach(p => {
         if (!p.dataset.origCx) p.dataset.origCx = p.getAttribute('cx');
         if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
@@ -1407,8 +1435,10 @@
       // Glint moves opposite at 30% magnitude (fixed light source illusion)
       const glintDx = -offsetX * 0.3;
       const glintDy = -offsetY * 0.3;
-      const glints = container.querySelectorAll('.glint, #eyes-base circle[r="6"]');
+      const glints = svg.querySelectorAll('.glint, circle[fill="white"][r]');
       glints.forEach(g => {
+        const r = parseFloat(g.getAttribute('r') || '0');
+        if (r > 10) return;  // skip eye whites, only move small glints
         if (!g.dataset.origCx) g.dataset.origCx = g.getAttribute('cx');
         if (!g.dataset.origCy) g.dataset.origCy = g.getAttribute('cy');
         g.setAttribute('cx', parseFloat(g.dataset.origCx) + glintDx);

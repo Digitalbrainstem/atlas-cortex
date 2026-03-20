@@ -728,13 +728,17 @@ def generate_decoration_elements(
             if side == "left":
                 ref_cx = base_eyes["left_cx"]
                 ref_cy = base_eyes["left_cy"]
+                # Outer tangent: left edge of left eye
+                outer_x = ref_cx - base_eyes["rx"]
             else:
                 ref_cx = base_eyes["right_cx"]
                 ref_cy = base_eyes["right_cy"]
+                # Outer tangent: right edge of right eye
+                outer_x = ref_cx + base_eyes["rx"]
             ox = deco.get("offset_x", 0)
-            oy = deco.get("offset_y", 25)
-            cx = ref_cx + ox
-            cy = ref_cy + base_eyes["ry"] + oy
+            oy = deco.get("offset_y", 10)
+            cx = outer_x + ox
+            cy = ref_cy + base_eyes["ry"] * 0.5 + oy  # start at mid-eye height
             el = ET.Element(f"{{{ns}}}ellipse")
             el.set("cx", _fmt(cx))
             el.set("cy", _fmt(cy))
