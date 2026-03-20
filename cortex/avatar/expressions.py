@@ -59,7 +59,7 @@ _SENTIMENT_EXPRESSION: dict[str, str] = {
 
 # Content-aware expression hints (regex pattern → expression name)
 _CONTENT_EXPRESSION_PATTERNS: list[tuple[str, str]] = [
-    (r"\bjoke\b|\bfunny\b|\blaugh\b|\bhaha\b|\blol\b|\bhumor\b", "silly"),
+    (r"\bjoke\b|\bfunny\b|\blaugh\b|\bhaha\b|\blol\b|\bhumor\b", "laughing"),
     (r"\blove\b|\bheart\b|\badore\b|\bsweet\b|\bcute\b", "love"),
     (r"\bconfus\w*\b|\bwhat\??$|\bhuh\b|\bweird\b", "confused"),
     (r"\bscar[ey]\w*\b|\bafraid\b|\bfrightened\b|\bcreepy\b|\bhorror\b", "scared"),
