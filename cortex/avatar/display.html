@@ -1385,9 +1385,9 @@
     let _eyeCurrentY = 0;
     let _eyeTrackTimeout = null;
     let _pupilDriftAngle = 0;  // subtle idle drift
-    const EYE_SMOOTH = 0.15;       // lerp factor
-    const EYE_MAX_OFFSET_X = 8;    // max offset for pupil in viewBox units
-    const EYE_MAX_OFFSET_Y = 6;
+    const EYE_SMOOTH = 0.2;        // lerp factor (faster response)
+    const EYE_MAX_OFFSET_X = 22;   // max offset — cartoon exaggerated!
+    const EYE_MAX_OFFSET_Y = 16;   // vertical range
 
     function handleEyeTarget(msg) {
       _eyeTargetX = msg.x || 0;
@@ -1406,9 +1406,9 @@
     function updateEyeTracking() {
       // Subtle idle drift when not tracking
       if (!_eyeTrackingActive) {
-        _pupilDriftAngle += 0.008;
-        _eyeTargetX = Math.sin(_pupilDriftAngle) * 0.15;
-        _eyeTargetY = Math.cos(_pupilDriftAngle * 0.7) * 0.08;
+        _pupilDriftAngle += 0.012;
+        _eyeTargetX = Math.sin(_pupilDriftAngle) * 0.3;
+        _eyeTargetY = Math.cos(_pupilDriftAngle * 0.7) * 0.15;
       }
 
       // Smooth interpolation toward target
