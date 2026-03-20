@@ -179,6 +179,14 @@
         <button onclick="testAudioPlayback()">🔊 Test Sound</button>
       </div>
       <div class="dev-section">
+        <strong>Eye Tracking:</strong>
+        <button onclick="handleEyeTarget({x:-0.8, y:0, tracking:true})">👈 Left</button>
+        <button onclick="handleEyeTarget({x:0, y:0, tracking:true})">👁️ Center</button>
+        <button onclick="handleEyeTarget({x:0.8, y:0, tracking:true})">👉 Right</button>
+        <button onclick="handleEyeTarget({x:0, y:-0.8, tracking:true})">👆 Up</button>
+        <button onclick="handleEyeTarget({x:0, y:0.8, tracking:true})">👇 Down</button>
+      </div>
+      <div class="dev-section">
         <strong>WebSocket:</strong>
         <span id="dev-ws-status">disconnected</span>
         <pre id="dev-ws-log" style="max-height:100px;overflow:auto;font-size:10px;"></pre>
@@ -902,6 +910,9 @@
         case 'TTS_END':
           if (!_suppressAvatarWsAudio) handleTtsEnd(msg);
           break;
+        case 'eye_target':
+          handleEyeTarget(msg);
+          break;
       }
     }
 
@@ -1338,12 +1349,79 @@
       }, 150);
     }
 
+    // ── Eye Tracking (sensor-driven) ────────────────────────
+    let _eyeTrackingActive = false;
+    let _eyeTargetX = 0;   // -1 to 1
+    let _eyeTargetY = 0;   // -1 to 1
+    let _eyeCurrentX = 0;  // smoothed current position
+    let _eyeCurrentY = 0;
+    let _eyeTrackTimeout = null;
+    const EYE_SMOOTH = 0.15;       // lerp factor
+    const EYE_MAX_OFFSET_X = 8;    // max px offset for pupil
+    const EYE_MAX_OFFSET_Y = 6;
+
+    function handleEyeTarget(msg) {
+      _eyeTargetX = msg.x || 0;
+      _eyeTargetY = msg.y || 0;
+      _eyeTrackingActive = msg.tracking !== false;
+
+      // Reset timeout — if no data for 3s, return to centre
+      if (_eyeTrackTimeout) clearTimeout(_eyeTrackTimeout);
+      _eyeTrackTimeout = setTimeout(() => {
+        _eyeTrackingActive = false;
+        _eyeTargetX = 0;
+        _eyeTargetY = 0;
+      }, 3000);
+    }
+
+    function updateEyeTracking() {
+      // Smooth interpolation toward target
+      _eyeCurrentX += (_eyeTargetX - _eyeCurrentX) * EYE_SMOOTH;
+      _eyeCurrentY += (_eyeTargetY - _eyeCurrentY) * EYE_SMOOTH;
+
+      // Only override random pupil movement when sensor tracking is active
+      if (!_eyeTrackingActive && Math.abs(_eyeCurrentX) < 0.01 && Math.abs(_eyeCurrentY) < 0.01) {
+        requestAnimationFrame(updateEyeTracking);
+        return;
+      }
+
+      const offsetX = _eyeCurrentX * EYE_MAX_OFFSET_X;
+      const offsetY = _eyeCurrentY * EYE_MAX_OFFSET_Y;
+
+      const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
+      pupils.forEach(p => {
+        if (!p.dataset.origCx) p.dataset.origCx = p.getAttribute('cx');
+        if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
+        const origCx = parseFloat(p.dataset.origCx);
+        const origCy = parseFloat(p.dataset.origCy);
+        p.setAttribute('cx', origCx + offsetX);
+        p.setAttribute('cy', origCy + offsetY);
+      });
+
+      // Glint moves opposite at 30% magnitude (fixed light source illusion)
+      const glintDx = -offsetX * 0.3;
+      const glintDy = -offsetY * 0.3;
+      const glints = container.querySelectorAll('.glint, #eyes-base circle[r="6"]');
+      glints.forEach(g => {
+        if (!g.dataset.origCx) g.dataset.origCx = g.getAttribute('cx');
+        if (!g.dataset.origCy) g.dataset.origCy = g.getAttribute('cy');
+        g.setAttribute('cx', parseFloat(g.dataset.origCx) + glintDx);
+        g.setAttribute('cy', parseFloat(g.dataset.origCy) + glintDy);
+      });
+
+      requestAnimationFrame(updateEyeTracking);
+    }
+
+    requestAnimationFrame(updateEyeTracking);
+
     // ── Pupil movement (subtle random eye tracking) ───────────
     function startPupilMovement() {
       if (pupilInterval) clearInterval(pupilInterval);
       pupilInterval = setInterval(() => {
         // Don't move pupils during expressions that have their own eyes
         if (currentExpr !== 'neutral' && currentExpr !== 'listening') return;
+        // Sensor tracking overrides random movement
+        if (_eyeTrackingActive) return;
         const pupils = container.querySelectorAll('.pupil-left, .pupil-right');
         if (!pupils.length) return;
         // Wider, faster movement while speaking; subtle when idle

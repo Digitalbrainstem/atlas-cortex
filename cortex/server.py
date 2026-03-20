@@ -150,6 +150,11 @@ async def lifespan(app: FastAPI):
 
     register_startup_task("nightly-evolution", _run_nightly_evolution)
 
+    # Register eye tracker as lifecycle service (only polls if ATLAS_EYE_SENSOR set)
+    from cortex.avatar.eye_tracking import get_eye_tracker
+    _eye_tracker = get_eye_tracker()
+    register_service("eye-tracker", _eye_tracker.start, _eye_tracker.stop)
+
     await start_all()
     yield
     await stop_all()
