@@ -1477,8 +1477,7 @@
       const svg = container.querySelector('svg');
       if (!svg) { requestAnimationFrame(updateEyeTracking); return; }
       
-      // Glints barely move (fixed light source) — 10% of pupil movement
-      const glintFactor = 0.1;
+      // Glints stay fixed (they represent light reflection, not part of the pupil)
       
       const eyesBase = svg.querySelector('#eyes-base');
       if (eyesBase) {
@@ -1490,14 +1489,14 @@
           const origCy = parseFloat(el.dataset.origCy);
           if (isNaN(origCx) || isNaN(origCy)) return;
           
-          // Glints (small white circles) barely move
+          // Glints don't move at all — hide them during tracking to avoid visual clutter
           const r = parseFloat(el.getAttribute('r') || '0');
           const fill = el.getAttribute('fill') || '';
           const isGlint = (fill === 'white' && r > 0 && r < 10);
-          const factor = isGlint ? glintFactor : 1.0;
+          if (isGlint) return;  // skip glints entirely
           
-          el.setAttribute('cx', origCx + offsetX * factor);
-          el.setAttribute('cy', origCy + offsetY * factor);
+          el.setAttribute('cx', origCx + offsetX);
+          el.setAttribute('cy', origCy + offsetY);
         });
       }
       
@@ -1516,10 +1515,10 @@
           const r = parseFloat(el.getAttribute('r') || '0');
           const fill = el.getAttribute('fill') || '';
           const isGlint = (fill === 'white' && r > 0 && r < 10);
-          const factor = isGlint ? glintFactor : 1.0;
+          if (isGlint) return;  // skip glints
           
-          el.setAttribute('cx', origCx + offsetX * factor);
-          el.setAttribute('cy', origCy + offsetY * factor);
+          el.setAttribute('cx', origCx + offsetX);
+          el.setAttribute('cy', origCy + offsetY);
         });
       }
 
