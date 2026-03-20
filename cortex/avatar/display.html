@@ -1400,55 +1400,45 @@
       const eyesBase = svg.querySelector('#eyes-base');
       if (!eyesBase) return;
       
-      // Find eye whites (largest ellipses) and pupils
-      const ellipses = eyesBase.querySelectorAll('ellipse');
-      const circles = eyesBase.querySelectorAll('circle');
-      
-      // Sort ellipses by rx to find the whites (largest)
-      const sorted = Array.from(ellipses).sort((a, b) => 
+      // Find the two largest ellipses — these are the eye outlines (don't move these)
+      const allEllipses = Array.from(eyesBase.querySelectorAll('ellipse'));
+      allEllipses.sort((a, b) => 
         parseFloat(b.getAttribute('rx') || 0) - parseFloat(a.getAttribute('rx') || 0)
       );
       
-      if (sorted.length < 2) return;
+      if (allEllipses.length < 2) return;
       
-      // Two biggest ellipses = eye whites
-      const whites = sorted.slice(0, 2).sort((a, b) => 
-        parseFloat(a.getAttribute('cx')) - parseFloat(b.getAttribute('cx'))
-      );
+      // Two biggest = eye outlines (static)
+      const eyeOutlines = allEllipses.slice(0, 2);
+      const outlineRx = parseFloat(eyeOutlines[0].getAttribute('rx'));
+      const outlineRy = parseFloat(eyeOutlines[0].getAttribute('ry'));
       
-      // Find pupils (dark circles/ellipses near each white)
-      const allDark = [...svg.querySelectorAll('#eyes-base circle[fill="#2D2D2D"], #eyes-base ellipse[fill="#2D2D2D"], #eyes-base circle[fill="#111"], #eyes-base ellipse[fill="#111"]')];
+      // Everything else = movable (pupils, highlights, glints)
+      // Find the largest movable element to calculate constraint
+      const movableEllipses = allEllipses.slice(2);
+      const movableCircles = Array.from(eyesBase.querySelectorAll('circle'));
       
-      const leftWhite = whites[0];
-      const rightWhite = whites[1];
-      
-      const lwRx = parseFloat(leftWhite.getAttribute('rx'));
-      const lwRy = parseFloat(leftWhite.getAttribute('ry'));
-      const rwRx = parseFloat(rightWhite.getAttribute('rx'));
-      const rwRy = parseFloat(rightWhite.getAttribute('ry'));
-      
-      // Find pupil radius (largest dark element near each eye)
-      let leftPupilR = 0, rightPupilR = 0;
-      allDark.forEach(d => {
-        const r = parseFloat(d.getAttribute('r') || d.getAttribute('rx') || 0);
-        const dcx = parseFloat(d.getAttribute('cx'));
-        const lwCx = parseFloat(leftWhite.getAttribute('cx'));
-        const rwCx = parseFloat(rightWhite.getAttribute('cx'));
-        if (Math.abs(dcx - lwCx) < lwRx) leftPupilR = Math.max(leftPupilR, r);
-        if (Math.abs(dcx - rwCx) < rwRx) rightPupilR = Math.max(rightPupilR, r);
+      let maxMovableR = 0;
+      movableEllipses.forEach(e => {
+        maxMovableR = Math.max(maxMovableR, parseFloat(e.getAttribute('rx') || 0));
+      });
+      movableCircles.forEach(c => {
+        maxMovableR = Math.max(maxMovableR, parseFloat(c.getAttribute('r') || 0));
       });
       
-      // Max offset = eye white radius - pupil radius - small margin
-      // This ensures the pupil stays inside the eye
-      const marginFactor = 0.85;  // use 85% of available space for cartoon exaggeration
-      _eyeMaxOffsetX = Math.min(lwRx - leftPupilR, rwRx - rightPupilR) * marginFactor;
-      _eyeMaxOffsetY = Math.min(lwRy - leftPupilR, rwRy - rightPupilR) * marginFactor;
+      // Tag the outlines so we don't move them
+      eyeOutlines.forEach(e => e.dataset.eyeOutline = 'true');
+      
+      // Max offset = outline radius - largest movable radius, use 85% for cartoon
+      _eyeMaxOffsetX = (outlineRx - maxMovableR) * 0.85;
+      _eyeMaxOffsetY = (outlineRy - maxMovableR) * 0.85;
       
       // Ensure minimum movement
-      _eyeMaxOffsetX = Math.max(_eyeMaxOffsetX, 5);
-      _eyeMaxOffsetY = Math.max(_eyeMaxOffsetY, 4);
+      _eyeMaxOffsetX = Math.max(_eyeMaxOffsetX, 8);
+      _eyeMaxOffsetY = Math.max(_eyeMaxOffsetY, 6);
       
-      console.log(`Eye bounds: maxX=${_eyeMaxOffsetX.toFixed(1)} maxY=${_eyeMaxOffsetY.toFixed(1)} (whiteRx=${lwRx} pupilR=${leftPupilR})`);
+      console.log('Eye bounds: maxX=' + _eyeMaxOffsetX.toFixed(1) + ' maxY=' + _eyeMaxOffsetY.toFixed(1) + 
+                  ' (outlineRx=' + outlineRx + ' movableR=' + maxMovableR + ')');
     }
 
     function handleEyeTarget(msg) {
@@ -1480,32 +1470,44 @@
       const offsetX = _eyeCurrentX * _eyeMaxOffsetX;
       const offsetY = _eyeCurrentY * _eyeMaxOffsetY;
 
-      // Find ALL pupil elements — by class OR by fill color
+      // Move all eye elements EXCEPT the outlines (tagged with data-eye-outline)
       const svg = container.querySelector('svg');
       if (!svg) { requestAnimationFrame(updateEyeTracking); return; }
       
-      const pupils = svg.querySelectorAll('.pupil-left, .pupil-right, circle[fill="#2D2D2D"], ellipse[fill="#2D2D2D"], circle[fill="#111"], ellipse[fill="#111"]');
-      pupils.forEach(p => {
-        if (!p.dataset.origCx) p.dataset.origCx = p.getAttribute('cx');
-        if (!p.dataset.origCy) p.dataset.origCy = p.getAttribute('cy');
-        const origCx = parseFloat(p.dataset.origCx);
-        const origCy = parseFloat(p.dataset.origCy);
-        p.setAttribute('cx', origCx + offsetX);
-        p.setAttribute('cy', origCy + offsetY);
-      });
-
-      // Glint moves opposite at 30% magnitude (fixed light source illusion)
-      const glintDx = -offsetX * 0.3;
-      const glintDy = -offsetY * 0.3;
-      const glints = svg.querySelectorAll('.glint, circle[fill="white"][r]');
-      glints.forEach(g => {
-        const r = parseFloat(g.getAttribute('r') || '0');
-        if (r > 10) return;  // skip eye whites, only move small glints
-        if (!g.dataset.origCx) g.dataset.origCx = g.getAttribute('cx');
-        if (!g.dataset.origCy) g.dataset.origCy = g.getAttribute('cy');
-        g.setAttribute('cx', parseFloat(g.dataset.origCx) + glintDx);
-        g.setAttribute('cy', parseFloat(g.dataset.origCy) + glintDy);
-      });
+      const eyesBase = svg.querySelector('#eyes-base');
+      if (eyesBase) {
+        // Move all children that aren't eye outlines
+        Array.from(eyesBase.children).forEach(el => {
+          if (el.dataset.eyeOutline) return;  // don't move the eye shape itself
+          if (!el.dataset.origCx) el.dataset.origCx = el.getAttribute('cx');
+          if (!el.dataset.origCy) el.dataset.origCy = el.getAttribute('cy');
+          const origCx = parseFloat(el.dataset.origCx);
+          const origCy = parseFloat(el.dataset.origCy);
+          if (!isNaN(origCx) && !isNaN(origCy)) {
+            el.setAttribute('cx', origCx + offsetX);
+            el.setAttribute('cy', origCy + offsetY);
+          }
+        });
+      }
+      
+      // Also move pupils in active expression groups
+      const activeExpr = svg.querySelector(`#expr-${currentExpr}`);
+      if (activeExpr && activeExpr.style.display !== 'none') {
+        // Move inner elements (pupils, glints) but not eye whites or outlines
+        activeExpr.querySelectorAll('circle, ellipse').forEach(el => {
+          // Skip large ellipses (eye whites in expressions)
+          const rx = parseFloat(el.getAttribute('rx') || el.getAttribute('r') || '0');
+          if (rx > 20) return;  // likely an eye white, don't move
+          if (!el.dataset.origCx) el.dataset.origCx = el.getAttribute('cx');
+          if (!el.dataset.origCy) el.dataset.origCy = el.getAttribute('cy');
+          const origCx = parseFloat(el.dataset.origCx);
+          const origCy = parseFloat(el.dataset.origCy);
+          if (!isNaN(origCx) && !isNaN(origCy)) {
+            el.setAttribute('cx', origCx + offsetX);
+            el.setAttribute('cy', origCy + offsetY);
+          }
+        });
+      }
 
       requestAnimationFrame(updateEyeTracking);
     }
