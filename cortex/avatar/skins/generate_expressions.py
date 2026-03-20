@@ -556,14 +556,12 @@ def generate_eyebrow_elements(
 
     brow_y = lcy - ry - 6
     brow_span = rx * 0.9
-    # Derive brow color from pupil fill (dark) instead of mouth stroke
-    pupil_fill = base_eyes.get("left", {}).get("pupil_fill", "")
-    if pupil_fill and pupil_fill.lower() not in ("white", "#fff", "#ffffff"):
-        brow_color = pupil_fill
-    elif base_eyes.get("fill", "white").lower() not in ("white", "#fff", "#ffffff"):
-        brow_color = base_eyes["fill"]
-    else:
-        brow_color = "#333"
+    # Use mouth stroke color for eyebrows (matches the face's color scheme)
+    brow_color = base_mouth.get("stroke", "")
+    if not brow_color or brow_color.lower() in ("white", "#fff", "#ffffff", "none"):
+        # Fallback to pupil color
+        pupil_fill = base_eyes.get("left", {}).get("pupil_fill", "")
+        brow_color = pupil_fill if pupil_fill and pupil_fill.lower() not in ("white", "#fff") else "#333"
     stroke = brow_color
     sw = base_mouth["stroke_width"] * 0.65
 
@@ -745,6 +743,9 @@ def generate_decoration_elements(
             el.set("fill", deco.get("fill", "#5DADE2"))
             if "opacity" in deco:
                 el.set("opacity", str(deco["opacity"]))
+            if deco.get("animate"):
+                delay = "0s" if side == "left" else "0.3s"
+                el.set("style", f"animation: tear-stream 1.5s ease-in-out {delay} infinite")
             elements.append(el)
 
         elif dtype == "heart":
@@ -865,12 +866,20 @@ def inject_expressions(svg_path: Path) -> int:
     base_eyes = derive_eye_geometry(root)
 
     # Ensure eyebrows-base exists (for neutral expression)
+    # Remove and regenerate eyebrows-base (ensure color matches mouth)
     existing_brows = root.find(f".//*[@id='eyebrows-base']")
-    if existing_brows is None:
+    if existing_brows is not None:
+        eb_parent = {c: p for p in root.iter() for c in p}.get(existing_brows)
+        if eb_parent is not None:
+            eb_parent.remove(existing_brows)
+    # Always create fresh eyebrows-base
+    if True:
         # Create default eyebrows above the eyes
         brow_g = ET.SubElement(root, f"{{{ns}}}g")
         brow_g.set("id", "eyebrows-base")
-        brow_color = base_eyes.get("left", {}).get("pupil_fill", "#333")
+        brow_color = base_mouth.get("stroke", "")
+        if not brow_color or brow_color.lower() in ("white", "#fff", "#ffffff", "none"):
+            brow_color = base_eyes.get("left", {}).get("pupil_fill", "#333")
         if not brow_color or brow_color == "white":
             brow_color = "#333"
         lcx = base_eyes["left_cx"]
