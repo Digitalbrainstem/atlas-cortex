@@ -60,6 +60,14 @@ def has_clients(room: str) -> bool:
 
 # ── Core broadcast ───────────────────────────────────────────────
 
+async def broadcast_to_avatars(message: dict[str, Any]) -> None:
+    """Send a JSON message to ALL connected avatar display clients (every room)."""
+    async with _clients_lock:
+        rooms = list(_clients.keys())
+    for room in rooms:
+        await broadcast_to_room(room, message)
+
+
 async def broadcast_to_room(room: str, message: dict[str, Any]) -> None:
     """Send a JSON message to all avatar display clients in a room."""
     msg_type = message.get("type", "?")

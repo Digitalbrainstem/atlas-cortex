@@ -282,7 +282,9 @@ def generate_eye_elements(
         return el
 
     default_ry_ratio = expr.get("ry_ratio", 1.0)
-    closed_stroke = base_eyes.get("stroke") or base_eyes["fill"]
+    closed_stroke = base_eyes.get("stroke") or base_eyes.get("left", {}).get("pupil_fill", "#333")
+    if not closed_stroke or closed_stroke == "white":
+        closed_stroke = "#333"  # Never draw closed eyes in white!
 
     for side_name, side_data in [("left", base_eyes["left"]), ("right", base_eyes["right"])]:
         wcx = side_data["white_cx"]
@@ -738,8 +740,8 @@ def generate_decoration_elements(
             el = ET.Element(f"{{{ns}}}ellipse")
             el.set("cx", _fmt(cx))
             el.set("cy", _fmt(cy))
-            el.set("rx", "4")
-            el.set("ry", "7")
+            el.set("rx", _fmt(deco.get("rx", 4)))
+            el.set("ry", _fmt(deco.get("ry", 7)))
             el.set("fill", deco.get("fill", "#5DADE2"))
             if "opacity" in deco:
                 el.set("opacity", str(deco["opacity"]))
@@ -861,6 +863,37 @@ def inject_expressions(svg_path: Path) -> int:
     # Derive base face geometry from this skin
     base_mouth = derive_mouth_geometry(root)
     base_eyes = derive_eye_geometry(root)
+
+    # Ensure eyebrows-base exists (for neutral expression)
+    existing_brows = root.find(f".//*[@id='eyebrows-base']")
+    if existing_brows is None:
+        # Create default eyebrows above the eyes
+        brow_g = ET.SubElement(root, f"{{{ns}}}g")
+        brow_g.set("id", "eyebrows-base")
+        brow_color = base_eyes.get("left", {}).get("pupil_fill", "#333")
+        if not brow_color or brow_color == "white":
+            brow_color = "#333"
+        lcx = base_eyes["left_cx"]
+        rcx = base_eyes["right_cx"]
+        ey = base_eyes["left_cy"]
+        rx = base_eyes["rx"]
+        brow_y = ey - base_eyes["ry"] - 8  # above the eyes
+        brow_span = rx * 0.9
+        sw = base_mouth["stroke_width"] * 0.65
+        # Left brow
+        lb = ET.SubElement(brow_g, f"{{{ns}}}path")
+        lb.set("d", f"M{_fmt(lcx - brow_span)} {_fmt(brow_y)} Q{_fmt(lcx)} {_fmt(brow_y - brow_span * 0.25)} {_fmt(lcx + brow_span)} {_fmt(brow_y)}")
+        lb.set("fill", "none")
+        lb.set("stroke", brow_color)
+        lb.set("stroke-width", _fmt(sw))
+        lb.set("stroke-linecap", "round")
+        # Right brow
+        rb = ET.SubElement(brow_g, f"{{{ns}}}path")
+        rb.set("d", f"M{_fmt(rcx - brow_span)} {_fmt(brow_y)} Q{_fmt(rcx)} {_fmt(brow_y - brow_span * 0.25)} {_fmt(rcx + brow_span)} {_fmt(brow_y)}")
+        rb.set("fill", "none")
+        rb.set("stroke", brow_color)
+        rb.set("stroke-width", _fmt(sw))
+        rb.set("stroke-linecap", "round")
 
     # Remove ALL existing expr-* groups
     parent_map = {c: p for p in root.iter() for c in p}

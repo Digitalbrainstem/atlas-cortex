@@ -202,9 +202,9 @@
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
-        "shape": "smirk",
-        "width_ratio": 0.95,
-        "curve_ratio": 0.5
+        "shape": "smile",
+        "width_ratio": 0.85,
+        "curve_ratio": 0.8
       },
       "eyes": {
         "shape": "confident",
@@ -213,7 +213,7 @@
       },
       "eyebrows": {
         "shape": "one_raised",
-        "dy": -5
+        "dy": -3
       },
       "description": "Asymmetric smirk, relaxed eyes, one brow raised"
     },
@@ -221,10 +221,9 @@
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
-        "shape": "pucker",
-        "rx_ratio": 0.13,
-        "ry_ratio": 0.16,
-        "fill": "#e74c6f"
+        "shape": "smile",
+        "width_ratio": 0.6,
+        "curve_ratio": 0.4
       },
       "eyes": {
         "shape": "hearts",
@@ -279,7 +278,9 @@
           "offset_x": -5,
           "offset_y": 25,
           "fill": "#5DADE2",
-          "opacity": 0.7
+          "opacity": 0.5,
+          "rx": 5,
+          "ry": 14
         },
         {
           "type": "teardrop",
@@ -287,7 +288,9 @@
           "offset_x": 5,
           "offset_y": 25,
           "fill": "#5DADE2",
-          "opacity": 0.7
+          "opacity": 0.5,
+          "rx": 5,
+          "ry": 14
         }
       ],
       "description": "Open frown, tightly squinted eyes, worried brows"
@@ -418,7 +421,9 @@
           "offset_x": 0,
           "offset_y": 15,
           "fill": "#5DADE2",
-          "opacity": 0.6
+          "opacity": 0.5,
+          "rx": 5,
+          "ry": 14
         },
         {
           "type": "teardrop",
@@ -426,7 +431,9 @@
           "offset_x": 0,
           "offset_y": 15,
           "fill": "#5DADE2",
-          "opacity": 0.6
+          "opacity": 0.5,
+          "rx": 5,
+          "ry": 14
         }
       ]
     }
