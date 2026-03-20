@@ -47,8 +47,8 @@
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
-        "width_ratio": 0.6,
-        "curve_ratio": 0.5
+        "width_ratio": 0.7,
+        "curve_ratio": 0.3
       },
       "eyes": {
         "shape": "small_intense",
@@ -116,11 +116,12 @@
       "decorations": [
         {
           "type": "question_mark",
-          "offset_x": 50,
-          "offset_y": -35,
-          "size": 16,
+          "offset_x": 55,
+          "offset_y": -45,
+          "size": 32,
           "fill": "#666",
-          "opacity": 0.7
+          "opacity": 0.7,
+          "wobble": true
         }
       ],
       "description": "Wavy S-curve mouth, asymmetric eyes and brows"
@@ -202,16 +203,17 @@
       "replace_eyes": true,
       "mouth": {
         "shape": "smirk",
-        "width_ratio": 0.9,
-        "curve_ratio": 0.3
+        "width_ratio": 0.95,
+        "curve_ratio": 0.5
       },
       "eyes": {
         "shape": "confident",
-        "rx_ratio": 0.95,
-        "ry_ratio": 0.8
+        "rx_ratio": 1.0,
+        "ry_ratio": 0.85
       },
       "eyebrows": {
-        "shape": "one_raised"
+        "shape": "one_raised",
+        "dy": -5
       },
       "description": "Asymmetric smirk, relaxed eyes, one brow raised"
     },
@@ -225,9 +227,9 @@
         "fill": "#e74c6f"
       },
       "eyes": {
-        "shape": "dreamy",
+        "shape": "hearts",
         "rx_ratio": 0.9,
-        "ry_ratio": 0.65
+        "ry_ratio": 0.8
       },
       "eyebrows": {
         "shape": "soft"
@@ -309,11 +311,12 @@
       "decorations": [
         {
           "type": "zzz",
-          "offset_x": 60,
-          "offset_y": -40,
-          "size": 14,
+          "offset_x": 70,
+          "offset_y": -50,
+          "size": 28,
           "fill": "#999",
-          "opacity": 0.7
+          "opacity": 0.7,
+          "wobble": true
         }
       ],
       "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
@@ -412,16 +415,16 @@
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": -5,
-          "offset_y": 20,
+          "offset_x": 0,
+          "offset_y": 15,
           "fill": "#5DADE2",
           "opacity": 0.6
         },
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": 5,
-          "offset_y": 20,
+          "offset_x": 0,
+          "offset_y": 15,
           "fill": "#5DADE2",
           "opacity": 0.6
         }
