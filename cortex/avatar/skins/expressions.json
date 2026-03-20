@@ -278,9 +278,10 @@
           "offset_x": -5,
           "offset_y": 25,
           "fill": "#5DADE2",
-          "opacity": 0.5,
-          "rx": 5,
-          "ry": 14
+          "opacity": 0.45,
+          "rx": 6,
+          "ry": 18,
+          "animate": true
         },
         {
           "type": "teardrop",
@@ -288,9 +289,10 @@
           "offset_x": 5,
           "offset_y": 25,
           "fill": "#5DADE2",
-          "opacity": 0.5,
-          "rx": 5,
-          "ry": 14
+          "opacity": 0.45,
+          "rx": 6,
+          "ry": 18,
+          "animate": true
         }
       ],
       "description": "Open frown, tightly squinted eyes, worried brows"
@@ -421,9 +423,10 @@
           "offset_x": 0,
           "offset_y": 15,
           "fill": "#5DADE2",
-          "opacity": 0.5,
-          "rx": 5,
-          "ry": 14
+          "opacity": 0.45,
+          "rx": 6,
+          "ry": 18,
+          "animate": true
         },
         {
           "type": "teardrop",
@@ -431,9 +434,10 @@
           "offset_x": 0,
           "offset_y": 15,
           "fill": "#5DADE2",
-          "opacity": 0.5,
-          "rx": 5,
-          "ry": 14
+          "opacity": 0.45,
+          "rx": 6,
+          "ry": 18,
+          "animate": true
         }
       ]
     }
