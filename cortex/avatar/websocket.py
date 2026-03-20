@@ -119,7 +119,7 @@ async def _handle_tell_joke(room: str) -> None:
             logger.warning("Failed to stream joke TTS for room=%s", room)
 
         # Post-punchline expression
-        await broadcast_expression(room, "silly", 1.0)
+        await broadcast_expression(room, "laughing", 1.0)
         await broadcast_speaking_end(room)
 
     except Exception:
