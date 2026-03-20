@@ -179,8 +179,8 @@ async def _pipeline_event_generator(
                     tts_text = _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part
                     yield TTSEvent(text=tts_text)
             yield ExpressionEvent(
-                expression="",
-                intensity=0.5,
+                expression="laughing",
+                intensity=0.8,
                 sentiment=sentiment,
                 text=f"{message} {instant_response}",
             )
