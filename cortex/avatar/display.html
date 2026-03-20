@@ -1001,10 +1001,19 @@
     // ── Expression rendering ──────────────────────────────────
     function showExpression(expr) {
       console.log('showExpression:', expr);
+      
+      // Hide ALL expression groups and reset their children's opacity
       EXPRESSIONS.forEach(e => {
         const el = document.getElementById(`expr-${e}`);
-        if (el) el.style.display = 'none';
+        if (el) {
+          el.style.display = 'none';
+          // Reset any opacity changes from _hideExpressionMouth
+          Array.from(el.children).forEach(child => {
+            if (child.style.opacity === '0') child.style.opacity = '';
+          });
+        }
       });
+      
       const el = document.getElementById(`expr-${expr}`);
       if (el) {
         el.style.display = 'inline';
@@ -1019,7 +1028,7 @@
       if (baseEyes) baseEyes.style.display = replaceEyes ? 'none' : 'inline';
       if (baseBrows) baseBrows.style.display = replaceEyes ? 'none' : 'inline';
 
-      // Some expressions have their own mouth (toothy grins) — hide viseme mouths
+      // Some expressions have their own mouth — hide viseme mouths
       const replaceMouth = el && el.getAttribute('data-replace-mouth') === 'true';
       console.log('  replaceEyes:', replaceEyes, 'replaceMouth:', replaceMouth, 'el:', !!el);
       if (replaceMouth) {

@@ -308,10 +308,10 @@ def generate_eye_elements(
             else:
                 ry_ratio = expr.get("right_ry_ratio", ry_ratio)
 
-        # Determine rx scale
-        rx_scale = 1.0
+        # Determine rx scale — from shape-specific defaults or expression config
+        rx_scale = expr.get("rx_ratio", 1.0)
         if shape == "narrow":
-            rx_scale = 0.95
+            rx_scale = min(rx_scale, 0.95)
         elif shape == "asymmetric_size":
             rx_scale = 1.05 if side_name == "left" else 0.85
         elif shape == "asymmetric":
@@ -319,14 +319,15 @@ def generate_eye_elements(
 
         # Determine cy offset
         cy_shift = 0
-        if shape in ("droopy", "nearly_closed"):
+        if shape in ("droopy", "droopy_small"):
             cy_shift = 2
         elif shape == "dreamy":
             cy_shift = 1
         elif shape == "look_up":
             cy_shift = expr.get("pupil_dy", -3)
 
-        is_closed = (shape == "closed") or (shape == "wink" and side_name == "left")
+        # Nearly closed uses curved lines (not flat ovals)
+        is_closed = (shape == "closed") or (shape == "nearly_closed") or (shape == "wink" and side_name == "left")
 
         if is_closed:
             elements.append(_closed_line(wcx, wcy + cy_shift, wrx * rx_scale, closed_stroke))
