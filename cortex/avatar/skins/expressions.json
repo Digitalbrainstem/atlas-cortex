@@ -275,8 +275,8 @@
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": -5,
-          "offset_y": 25,
+          "offset_x": -20,
+          "offset_y": 10,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -286,8 +286,8 @@
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": 5,
-          "offset_y": 25,
+          "offset_x": 20,
+          "offset_y": 10,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -372,7 +372,8 @@
       "eyes": {
         "shape": "asymmetric_size",
         "left_ry_ratio": 1.4,
-        "right_ry_ratio": 0.45
+        "right_ry_ratio": 0.45,
+        "animate": true
       },
       "eyebrows": {
         "shape": "wavy_brow",
@@ -420,8 +421,8 @@
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": 0,
-          "offset_y": 15,
+          "offset_x": -20,
+          "offset_y": 10,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
@@ -431,8 +432,8 @@
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": 0,
-          "offset_y": 15,
+          "offset_x": 20,
+          "offset_y": 10,
           "fill": "#5DADE2",
           "opacity": 0.45,
           "rx": 6,
