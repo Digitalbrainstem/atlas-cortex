@@ -294,4 +294,9 @@ def get_default_registry() -> ToolRegistry:
     except ImportError:
         pass
 
+    # Sandbox tool (isolated experimentation)
+    from cortex.cli.sandbox import SandboxTool
+
+    registry.register(SandboxTool())
+
     return registry

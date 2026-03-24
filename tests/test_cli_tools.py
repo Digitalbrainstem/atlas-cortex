@@ -385,6 +385,8 @@ class TestDefaultRegistry:
             "log_analyze", "metrics_query", "incident_timeline",
             # Project management tools
             "task_track", "time_estimate", "risk_assess",
+            # Sandbox
+            "sandbox",
         }
         actual = {t.tool_id for t in reg.list_tools()}
         assert expected == actual
@@ -392,7 +394,7 @@ class TestDefaultRegistry:
     def test_schemas_are_valid(self):
         reg = get_default_registry()
         schemas = reg.get_function_schemas()
-        assert len(schemas) == 65
+        assert len(schemas) == 66
         for s in schemas:
             assert s["type"] == "function"
             fn = s["function"]
