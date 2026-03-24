@@ -583,7 +583,7 @@ jobs:
           # Compress rootfs
           echo "::group::mksquashfs"
           sudo mksquashfs "$ROOTFS" "$ISO_DIR/live/filesystem.squashfs" \
-              -comp xz -Xbcj x86 -b 1M -no-duplicates
+              -comp gzip -b 256K -no-duplicates
           echo "::endgroup::"
 
           echo "Squashfs size: $(sudo du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
