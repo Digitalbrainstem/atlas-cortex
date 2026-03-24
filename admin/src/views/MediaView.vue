@@ -46,6 +46,9 @@ const ytVerifyUrl = ref('')
 const ytDeviceCode = ref('')
 const ytMessage = ref('')
 const ytAuthProviders = ref([])
+const ytLinkUserId = ref('')        // user_id for per-user linking
+const ytSetGlobal = ref(false)      // set as global default after linking
+const ytAccountName = ref('')       // custom account label
 
 async function fetchProviders() {
   loading.value = true
@@ -128,15 +131,21 @@ async function fetchYtAuth() {
   } catch (_) { /* ignore */ }
 }
 
-function ytIsLinked() {
-  return ytAuthProviders.value.some(p => p.provider === 'youtube' && p.authenticated)
+function ytGlobalAccount() {
+  return ytAuthProviders.value.find(p => p.provider === 'youtube' && p.is_global && p.authenticated)
 }
 
-async function startYouTubeAuth() {
+function ytUserAccounts() {
+  return ytAuthProviders.value.filter(p => p.provider === 'youtube' && !p.is_global && p.authenticated)
+}
+
+async function startYouTubeAuth(userId = '', setGlobal = false) {
   ytAuthStep.value = 'linking'
   ytMessage.value = ''
+  ytLinkUserId.value = userId
+  ytSetGlobal.value = setGlobal
   try {
-    const data = await api.post('/admin/media/auth/youtube/start')
+    const data = await api.post('/admin/media/auth/youtube/start', { user_id: userId })
     ytUserCode.value = data.user_code
     ytVerifyUrl.value = data.verification_url
     ytDeviceCode.value = data.device_code
@@ -153,6 +162,9 @@ async function pollYouTubeAuth() {
     const data = await api.post('/admin/media/auth/youtube/complete', {
       device_code: ytDeviceCode.value,
       timeout: 120,
+      user_id: ytLinkUserId.value,
+      set_global: ytSetGlobal.value,
+      account_name: ytAccountName.value || '',
     })
     if (data.ok) {
       ytAuthStep.value = 'success'
@@ -168,11 +180,21 @@ async function pollYouTubeAuth() {
   }
 }
 
-async function unlinkYouTube() {
+async function unlinkYouTube(userId = '') {
   try {
-    await api.delete('/admin/media/auth/youtube')
+    const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+    await api.delete(`/admin/media/auth/youtube${qs}`)
     ytAuthStep.value = 'idle'
     ytMessage.value = ''
+    fetchYtAuth()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function setAsGlobalDefault(userId) {
+  try {
+    await api.post('/admin/media/auth/youtube/set-global', { user_id: userId })
     fetchYtAuth()
   } catch (e) {
     error.value = e.message
@@ -309,41 +331,92 @@ onMounted(() => {
 
       <!-- YouTube Auth Tab -->
       <div v-if="activeTab === 'youtube-auth'" class="tab-content">
-        <div class="yt-auth-card">
+        <div class="yt-auth-section">
           <h2>📺 YouTube Premium</h2>
-          <p class="yt-desc">Link your YouTube Premium account for ad-free video on satellite displays.</p>
+          <p class="yt-desc">
+            Link YouTube accounts for ad-free video on satellite displays.
+            Login is <strong>one time only</strong> — Atlas auto-refreshes tokens so you'll never need to log in again.
+          </p>
 
-          <!-- Already linked -->
-          <div v-if="ytIsLinked() && ytAuthStep !== 'success'" class="yt-linked">
-            <p class="yt-status-ok">✅ YouTube account linked</p>
-            <button @click="unlinkYouTube" class="btn-danger">Unlink Account</button>
+          <!-- Active linking flow (shared by global + per-user) -->
+          <div v-if="ytAuthStep === 'linking'" class="yt-auth-card">
+            <div class="yt-polling"><p>Starting device flow...</p></div>
+          </div>
+          <div v-else-if="ytAuthStep === 'polling'" class="yt-auth-card">
+            <div class="yt-code-display">
+              <p>Go to:</p>
+              <a :href="ytVerifyUrl" target="_blank" class="yt-verify-url">{{ ytVerifyUrl }}</a>
+              <p>And enter this code:</p>
+              <div class="yt-code">{{ ytUserCode }}</div>
+              <p v-if="ytLinkUserId" class="yt-link-for">Linking for: <strong>{{ ytLinkUserId }}</strong></p>
+              <p class="yt-waiting">Waiting for authorization<span class="yt-dots">...</span></p>
+            </div>
+          </div>
+          <div v-else-if="ytAuthStep === 'success'" class="yt-auth-card">
+            <div class="yt-success">
+              <p class="yt-status-ok">✅ {{ ytMessage }}</p>
+              <button @click="ytAuthStep = 'idle'; fetchYtAuth()" class="btn-primary">Done</button>
+            </div>
+          </div>
+          <div v-else-if="ytAuthStep === 'error'" class="yt-auth-card">
+            <p class="yt-error">{{ ytMessage }}</p>
+            <button @click="ytAuthStep = 'idle'" class="btn-primary" style="margin-top:0.75rem;">Try Again</button>
           </div>
 
-          <!-- Idle: show Link button -->
-          <div v-else-if="ytAuthStep === 'idle' || ytAuthStep === 'error'">
-            <button @click="startYouTubeAuth" class="btn-primary btn-lg">🔗 Link YouTube Account</button>
-            <p v-if="ytMessage" class="yt-error">{{ ytMessage }}</p>
-          </div>
+          <!-- Normal view (not actively linking) -->
+          <template v-else>
+            <!-- Global default account -->
+            <div class="yt-auth-card">
+              <h3>🌐 Global Default Account</h3>
+              <p class="yt-hint">Used when a user doesn't have their own account linked.</p>
+              <div v-if="ytGlobalAccount()" class="yt-account-row">
+                <span class="yt-status-ok">✅ {{ ytGlobalAccount().account_name || 'YouTube Premium' }}</span>
+                <button @click="unlinkYouTube()" class="btn-danger btn-sm">Unlink</button>
+              </div>
+              <div v-else class="yt-account-row">
+                <span class="yt-status-none">No global account linked</span>
+                <button @click="startYouTubeAuth('', false)" class="btn-primary btn-sm">🔗 Link Global Account</button>
+              </div>
+            </div>
 
-          <!-- Linking: spinner -->
-          <div v-else-if="ytAuthStep === 'linking'" class="yt-polling">
-            <p>Starting device flow...</p>
-          </div>
+            <!-- Per-user accounts -->
+            <div class="yt-auth-card" style="margin-top:1rem;">
+              <h3>👤 Per-User Accounts</h3>
+              <p class="yt-hint">Each family member can link their own YouTube account. Falls back to global if not set.</p>
+              <div v-if="ytUserAccounts().length > 0" class="yt-user-list">
+                <div v-for="ua in ytUserAccounts()" :key="ua.user_id" class="yt-user-row">
+                  <div class="yt-user-info">
+                    <strong>{{ ua.user_id }}</strong>
+                    <span class="yt-user-account">{{ ua.account_name }}</span>
+                  </div>
+                  <div class="yt-user-actions">
+                    <button
+                      @click="setAsGlobalDefault(ua.user_id)"
+                      class="btn-secondary btn-sm"
+                      title="Copy this account as the global default"
+                    >⭐ Set as Default</button>
+                    <button @click="unlinkYouTube(ua.user_id)" class="btn-danger btn-sm">Unlink</button>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="yt-no-users">No per-user accounts linked yet.</div>
 
-          <!-- Polling: show code -->
-          <div v-else-if="ytAuthStep === 'polling'" class="yt-code-display">
-            <p>Go to:</p>
-            <a :href="ytVerifyUrl" target="_blank" class="yt-verify-url">{{ ytVerifyUrl }}</a>
-            <p>And enter this code:</p>
-            <div class="yt-code">{{ ytUserCode }}</div>
-            <p class="yt-waiting">Waiting for authorization<span class="yt-dots">...</span></p>
-          </div>
+              <!-- Add per-user account -->
+              <div class="yt-add-user">
+                <input v-model="ytAccountName" placeholder="User name (e.g. dad, jake)" class="input input-sm" />
+                <button
+                  @click="startYouTubeAuth(ytAccountName.trim(), false); ytAccountName = ''"
+                  :disabled="!ytAccountName.trim()"
+                  class="btn-primary btn-sm"
+                >🔗 Link User Account</button>
+              </div>
+            </div>
 
-          <!-- Success -->
-          <div v-else-if="ytAuthStep === 'success'" class="yt-success">
-            <p class="yt-status-ok">✅ {{ ytMessage }}</p>
-            <button @click="ytAuthStep = 'idle'; fetchYtAuth()" class="btn-primary">Done</button>
-          </div>
+            <p class="yt-onetime-note">
+              🔒 Login is <strong>one-time</strong>. Google refresh tokens last indefinitely.
+              Atlas auto-refreshes access tokens hourly — no one will ever need to re-login.
+            </p>
+          </template>
         </div>
       </div>
     </div>
@@ -510,34 +583,109 @@ onMounted(() => {
 }
 
 /* YouTube Auth */
+.yt-auth-section h2 { margin-bottom: 0.5rem; }
+
 .yt-auth-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 2rem;
-  max-width: 500px;
+  padding: 1.5rem;
+  max-width: 600px;
 }
 
-.yt-auth-card h2 { margin-bottom: 0.5rem; }
+.yt-auth-card h3 { margin-bottom: 0.25rem; font-size: 1rem; }
 
 .yt-desc {
   color: var(--text-muted);
   margin-bottom: 1.5rem;
   font-size: 0.9rem;
+  max-width: 600px;
 }
 
-.yt-linked {
+.yt-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.yt-account-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
 }
 
 .yt-status-ok {
-  font-size: 1.1rem;
   font-weight: 600;
   color: #22c55e;
 }
+
+.yt-status-none {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.yt-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.yt-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.yt-user-info { display: flex; flex-direction: column; }
+.yt-user-account { font-size: 0.8rem; color: var(--text-muted); }
+.yt-user-actions { display: flex; gap: 0.5rem; }
+
+.yt-no-users {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.yt-add-user {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.yt-onetime-note {
+  margin-top: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  max-width: 600px;
+}
+
+.yt-link-for {
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.btn-sm { font-size: 0.8rem; padding: 0.35rem 0.75rem; }
+.input-sm { max-width: 200px; }
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.btn-secondary:hover { background: var(--bg-primary); }
 
 .btn-danger {
   padding: 0.5rem 1rem;
