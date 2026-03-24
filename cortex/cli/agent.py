@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import sys
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +290,7 @@ async def run_agent(
     """
     from cortex.providers import get_provider
     from cortex.cli.memory_bridge import MemoryBridge
+    from cortex.curiosity import CuriosityEngine
 
     current_model = model or os.environ.get("MODEL_FAST", "qwen2.5:14b")
 
@@ -304,9 +306,14 @@ async def run_agent(
     await bridge.initialize()
     bridge.set_provider(provider)
 
+    # ── Curiosity engine ───────────────────────────────────────
+    curiosity = CuriosityEngine()
+    await curiosity.initialize()
+
     # ── Tools ───────────────────────────────────────────────────
     registry = get_default_registry()
     system_prompt = build_system_prompt(registry)
+    system_prompt += curiosity.get_system_prompt_addition()
 
     # ── Task context ────────────────────────────────────────────
     task_parts: list[str] = [task]
@@ -346,6 +353,7 @@ async def run_agent(
            style="thinking")
 
     # ── ReAct loop ──────────────────────────────────────────────
+    _agent_start = _time.monotonic()
     for iteration in range(1, max_iterations + 1):
         _print_iteration(iteration, max_iterations)
         _print_thinking()
@@ -386,6 +394,21 @@ async def run_agent(
             # No tool calls → agent finished (final summary)
             history.append({"role": "assistant", "content": full_response})
             await bridge.remember_decision(f"Task completed: {task[:200]}")
+
+            # Curiosity: record task completion and save state
+            try:
+                curiosity.on_task_complete(
+                    task[:200],
+                    _time.monotonic() - _agent_start,
+                    iteration,
+                )
+                reflection = await curiosity.reflect()
+                if reflection and "No notable patterns" not in reflection:
+                    await bridge.remember_decision(reflection)
+                await curiosity.save_state()
+            except Exception:  # noqa: BLE001
+                pass
+
             await bridge.shutdown()
             _print_done("Task complete")
             return 0
@@ -412,6 +435,7 @@ async def run_agent(
                     success=False, output="", error="User denied execution",
                 )
             else:
+                _t0 = _time.monotonic()
                 try:
                     result = await registry.execute(tool_id, params, tool_context)
                 except Exception as exc:  # noqa: BLE001
@@ -419,6 +443,18 @@ async def run_agent(
                         success=False, output="",
                         error=f"Tool error: {exc}",
                     )
+                _elapsed = _time.monotonic() - _t0
+
+            # Curiosity: observe tool execution (best-effort)
+            try:
+                curiosity.on_tool_executed(tool_id, params, result, _elapsed)
+                if not result.success:
+                    curiosity.on_error(
+                        result.error.split(":")[0] if result.error else "unknown",
+                        f"{tool_id}: {result.error}",
+                    )
+            except Exception:  # noqa: BLE001
+                pass
 
             _print_tool_result(result)
 
@@ -450,5 +486,15 @@ async def run_agent(
         "The agent made progress but did not complete the task.",
         style="thinking",
     )
+
+    # Curiosity: record even incomplete tasks
+    try:
+        curiosity.on_task_complete(
+            task[:200], _time.monotonic() - _agent_start, max_iterations,
+        )
+        await curiosity.save_state()
+    except Exception:  # noqa: BLE001
+        pass
+
     await bridge.shutdown()
     return 1
