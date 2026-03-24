@@ -1,0 +1,14 @@
+[Unit]
+Description=Atlas Workspace Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/local/bin/atlas daemon start
+Restart=on-failure
+RestartSec=5
+Environment=ATLAS_SOCKET=/run/user/%U/atlas.sock
+
+[Install]
+WantedBy=default.target

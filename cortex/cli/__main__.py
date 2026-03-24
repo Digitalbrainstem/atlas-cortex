@@ -84,6 +84,21 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── reflect ──────────────────────────────────────────────────
     sub.add_parser("reflect", help="Atlas reflects on recent work and suggests improvements")
 
+    # ── daemon ───────────────────────────────────────────────────
+    daemon_p = sub.add_parser("daemon", help="Manage the workspace daemon")
+    daemon_sub = daemon_p.add_subparsers(dest="daemon_action")
+    daemon_sub.add_parser("start", help="Start the daemon")
+    daemon_sub.add_parser("stop", help="Stop the daemon")
+    daemon_sub.add_parser("status", help="Check daemon status")
+    daemon_sub.add_parser("restart", help="Restart the daemon")
+
+    # ── workspace ────────────────────────────────────────────────
+    sub.add_parser("workspace", help="Open workspace TUI (connects to daemon)")
+
+    # ── send ─────────────────────────────────────────────────────
+    send_p = sub.add_parser("send", help="Send a message to the running daemon")
+    send_p.add_argument("message", nargs="+", help="Message to send")
+
     return parser
 
 
@@ -161,6 +176,90 @@ async def _run_reflect(_args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_daemon(args: argparse.Namespace) -> int:
+    from cortex.cli.daemon import (
+        get_daemon_pid,
+        is_daemon_running,
+        start_daemon,
+        stop_daemon,
+    )
+
+    action = getattr(args, "daemon_action", None) or "start"
+
+    if action == "start":
+        if is_daemon_running():
+            print(f"Daemon already running (PID {get_daemon_pid()})")
+            return 0
+        print("Starting Atlas workspace daemon...")
+        await start_daemon(model=args.model)
+    elif action == "stop":
+        if stop_daemon():
+            print("Daemon stopped")
+        else:
+            print("Daemon not running")
+    elif action == "status":
+        if is_daemon_running():
+            print(f"✅ Daemon running (PID {get_daemon_pid()})")
+        else:
+            print("❌ Daemon not running")
+    elif action == "restart":
+        stop_daemon()
+        await asyncio.sleep(1)
+        print("Starting Atlas workspace daemon...")
+        await start_daemon(model=args.model)
+    return 0
+
+
+async def _run_workspace(_args: argparse.Namespace) -> int:
+    from cortex.cli.daemon import is_daemon_running
+
+    if not is_daemon_running():
+        print("Daemon not running. Starting it first...")
+        import subprocess
+
+        subprocess.Popen(
+            [sys.executable, "-m", "cortex.cli", "daemon", "start"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        await asyncio.sleep(3)
+
+    from cortex.cli.workspace import run_workspace_tui
+
+    return await run_workspace_tui()
+
+
+async def _run_send(args: argparse.Namespace) -> int:
+    from cortex.cli.workspace import WorkspaceClient
+
+    client = WorkspaceClient()
+    if not await client.connect():
+        print("❌ Daemon not running")
+        return 1
+
+    # Consume the welcome message
+    await client.receive()
+
+    message = " ".join(args.message)
+    await client.send_message(message)
+
+    while True:
+        msg = await client.receive()
+        if not msg:
+            break
+        if msg.get("type") == "token":
+            print(msg.get("text", ""), end="", flush=True)
+        elif msg.get("type") == "response_end":
+            print()
+            break
+        elif msg.get("type") == "error":
+            print(f"❌ {msg.get('message', '')}")
+            break
+
+    await client.disconnect()
+    return 0
+
+
 def main() -> int:
     # Check deps before importing anything that needs them
     from cortex.cli import _check_cli_deps
@@ -183,6 +282,9 @@ def main() -> int:
         "status": _run_status,
         "diagnose": _run_diagnose,
         "reflect": _run_reflect,
+        "daemon": _run_daemon,
+        "workspace": _run_workspace,
+        "send": _run_send,
     }
 
     handler = handlers.get(args.command)
