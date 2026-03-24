@@ -69,6 +69,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── diagnose ─────────────────────────────────────────────────
     sub.add_parser("diagnose", help="Run system diagnostics")
 
+    # ── reflect ──────────────────────────────────────────────────
+    sub.add_parser("reflect", help="Atlas reflects on recent work and suggests improvements")
+
     return parser
 
 
