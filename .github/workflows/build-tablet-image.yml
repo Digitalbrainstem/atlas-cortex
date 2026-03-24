@@ -97,6 +97,7 @@ jobs:
           sudo mount -t proc proc   "$ROOTFS/proc"
           sudo mount -t sysfs sys   "$ROOTFS/sys"
           sudo mount -t tmpfs tmpfs "$ROOTFS/run"
+          sudo rm -f "$ROOTFS/etc/resolv.conf" 2>/dev/null || true
           sudo cp /etc/resolv.conf   "$ROOTFS/etc/resolv.conf"
 
           sudo tee "$ROOTFS/etc/apt/sources.list" > /dev/null << 'SOURCES'
