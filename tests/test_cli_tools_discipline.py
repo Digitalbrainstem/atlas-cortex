@@ -933,7 +933,7 @@ class TestDisciplineToolsRegistry:
     def test_schemas_valid(self):
         registry = get_default_registry()
         schemas = registry.get_function_schemas()
-        # Should have at least 31 original + 14 new = 45
+        # Should have at least 31 original + 14 new = 45+
         assert len(schemas) >= 45
         for s in schemas:
             assert s["type"] == "function"
