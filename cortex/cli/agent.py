@@ -279,6 +279,7 @@ async def run_agent(
     Returns 0 on success, 1 on failure.
     """
     from cortex.providers import get_provider
+    from cortex.cli.memory_bridge import MemoryBridge
 
     current_model = model or os.environ.get("MODEL_FAST", "qwen2.5:14b")
 
@@ -288,6 +289,11 @@ async def run_agent(
     except Exception as exc:
         _print_error(f"LLM provider unavailable: {exc}")
         return 1
+
+    # ── Memory bridge ──────────────────────────────────────────
+    bridge = MemoryBridge(user_id="cli_agent")
+    await bridge.initialize()
+    bridge.set_provider(provider)
 
     # ── Tools ───────────────────────────────────────────────────
     registry = get_default_registry()
@@ -310,12 +316,15 @@ async def run_agent(
 
     full_task = "".join(task_parts)
 
-    # ── Conversation ────────────────────────────────────────────
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": full_task},
-    ]
+    # ── Conversation (memory-managed) ──────────────────────────
+    history: list[dict[str, str]] = []
     tool_context: dict[str, Any] = {"cwd": cwd}
+
+    messages = await bridge.build_messages_with_memory(
+        system_prompt=system_prompt,
+        current_message=full_task,
+        history=[],
+    )
 
     # ── Banner ──────────────────────────────────────────────────
     _print("\n╭─────────────────────────────────────╮", style="header")
@@ -323,7 +332,9 @@ async def run_agent(
     _print("╰─────────────────────────────────────╯", style="header")
     _print(f"  Model: {current_model}", style="thinking")
     _print(f"  Tools: {len(registry.list_tools())}", style="thinking")
-    _print(f"  Max iterations: {max_iterations}\n", style="thinking")
+    _print(f"  Max iterations: {max_iterations}", style="thinking")
+    _print(f"  Memory: {'connected' if bridge._db_conn else 'offline'}\n",
+           style="thinking")
 
     # ── ReAct loop ──────────────────────────────────────────────
     for iteration in range(1, max_iterations + 1):
@@ -340,6 +351,7 @@ async def run_agent(
             )
         except Exception as exc:
             _print_error(f"LLM request failed: {exc}")
+            await bridge.shutdown()
             return 1
 
         full_response = ""
@@ -355,6 +367,7 @@ async def run_agent(
                 print()  # trailing newline after streamed output
         except Exception as exc:
             _print_error(f"\nStreaming error: {exc}")
+            await bridge.shutdown()
             return 1
 
         # ── Parse tool calls ────────────────────────────────────
@@ -362,12 +375,14 @@ async def run_agent(
 
         if not tool_calls:
             # No tool calls → agent finished (final summary)
-            messages.append({"role": "assistant", "content": full_response})
+            history.append({"role": "assistant", "content": full_response})
+            await bridge.remember_decision(f"Task completed: {task[:200]}")
+            await bridge.shutdown()
             _print_done("Task complete")
             return 0
 
         # ── Execute tool calls ──────────────────────────────────
-        messages.append({"role": "assistant", "content": full_response})
+        history.append({"role": "assistant", "content": full_response})
 
         results_parts: list[str] = []
         for call in tool_calls:
@@ -404,11 +419,21 @@ async def run_agent(
                 f"Tool: {tool_id}\nSuccess: {result.success}\nOutput:\n{output}",
             )
 
+            # Store tool result to memory (best-effort)
+            await bridge.remember_tool_result(
+                tool_id, params, result.output if result.success else "",
+            )
+
         results_message = "\n\n---\n\n".join(results_parts)
-        messages.append({
-            "role": "user",
-            "content": f"Tool results:\n\n{results_message}",
-        })
+        tool_result_text = f"Tool results:\n\n{results_message}"
+        history.append({"role": "user", "content": tool_result_text})
+
+        # Rebuild messages through bridge (handles archival + memory recall)
+        messages = await bridge.build_messages_with_memory(
+            system_prompt=system_prompt,
+            current_message=f"Continue working on the task. {tool_result_text}",
+            history=history,
+        )
 
     # ── Max iterations reached ──────────────────────────────────
     _print_error(f"Reached maximum iterations ({max_iterations})")
@@ -416,4 +441,5 @@ async def run_agent(
         "The agent made progress but did not complete the task.",
         style="thinking",
     )
+    await bridge.shutdown()
     return 1

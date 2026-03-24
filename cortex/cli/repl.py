@@ -261,6 +261,8 @@ def _show_banner(model: str) -> None:
 
 async def run_repl(model: str | None = None) -> int:
     """Interactive chat loop with streaming output."""
+    from cortex.cli.memory_bridge import MemoryBridge
+
     current_model = model or os.environ.get("MODEL_FAST", "qwen2.5:14b")
 
     # Initialise database (best-effort)
@@ -279,6 +281,11 @@ async def run_repl(model: str | None = None) -> int:
         _print_system("Start your LLM backend and try again.")
         return 1
 
+    # Initialise memory bridge
+    bridge = MemoryBridge(user_id="cli_user")
+    await bridge.initialize()
+    bridge.set_provider(provider)
+
     _show_banner(current_model)
 
     prompt_session = _build_prompt_session()
@@ -291,6 +298,7 @@ async def run_repl(model: str | None = None) -> int:
             # EOF / Ctrl-D / Ctrl-C
             print()
             _print_system("Goodbye! 👋")
+            await bridge.shutdown()
             break
 
         text = raw.strip()
@@ -314,17 +322,24 @@ async def run_repl(model: str | None = None) -> int:
         # ── Slash commands ──────────────────────────────────────
         cmd, arg = parse_slash_command(text)
         if cmd:
+            if cmd == "/clear" and history:
+                # Archive before clearing (don't lose context)
+                await bridge._archive_old_turns(history)
             should_quit, current_model = await _handle_slash_command(
                 cmd, arg, history, current_model, db_conn,
             )
             if should_quit:
                 _print_system("Goodbye! 👋")
+                await bridge.shutdown()
                 break
             continue
 
         # ── Send to pipeline ────────────────────────────────────
         history.append({"role": "user", "content": text})
         response_chunks: list[str] = []
+
+        # Auto-recall memory for context
+        memory_context = await bridge.recall(text)
 
         if _HAS_RICH and _console is not None:
             _console.print("\n[assistant]Atlas[/assistant]:", end=" ")
@@ -338,6 +353,7 @@ async def run_repl(model: str | None = None) -> int:
                 user_id="cli_user",
                 conversation_history=history[:-1],
                 model_fast=current_model,
+                memory_context=memory_context,
                 db_conn=db_conn,
             ):
                 print(chunk, end="", flush=True)
@@ -351,6 +367,17 @@ async def run_repl(model: str | None = None) -> int:
 
         full_response = "".join(response_chunks)
         history.append({"role": "assistant", "content": full_response})
+
+        # Auto-archive if conversation is getting long
+        if len(history) > bridge.archive_threshold:
+            history = await bridge._archive_old_turns(history)
+
+        # Store meaningful interactions to memory
+        if len(full_response) > 100:
+            await bridge.remember(
+                f"User asked: {text[:200]}\nAtlas answered: {full_response[:500]}",
+                tags=["conversation"],
+            )
 
         # Best-effort DB logging
         _log_interaction(db_conn, text, full_response)
