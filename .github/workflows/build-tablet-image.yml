@@ -578,7 +578,7 @@ jobs:
       - name: Build squashfs and ISO
         run: |
           ISO_DIR="$BUILD_DIR/iso"
-          mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
+          sudo mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
 
           # Compress rootfs
           echo "::group::mksquashfs"
@@ -586,7 +586,7 @@ jobs:
               -comp xz -Xbcj x86 -b 1M -no-duplicates
           echo "::endgroup::"
 
-          echo "Squashfs size: $(du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
+          echo "Squashfs size: $(sudo du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
 
           # Copy kernel + initrd (prefer Surface kernel if available)
           VMLINUZ=$(ls -1t "$ROOTFS/boot"/vmlinuz-*surface* 2>/dev/null | head -1 || \
@@ -594,12 +594,12 @@ jobs:
           INITRD=$(ls -1t "$ROOTFS/boot"/initrd.img-*surface* 2>/dev/null | head -1 || \
                    ls -1t "$ROOTFS/boot"/initrd.img-* 2>/dev/null | head -1)
 
-          cp "$VMLINUZ" "$ISO_DIR/live/vmlinuz"
-          cp "$INITRD"  "$ISO_DIR/live/initrd.img"
+          sudo cp "$VMLINUZ" "$ISO_DIR/live/vmlinuz"
+          sudo cp "$INITRD"  "$ISO_DIR/live/initrd.img"
           echo "Kernel: $(basename "$VMLINUZ")"
 
           # GRUB config
-          cat > "$ISO_DIR/boot/grub/grub.cfg" << 'GRUB'
+          sudo tee "$ISO_DIR/boot/grub/grub.cfg" > /dev/null << 'GRUB'
           set default=0
           set timeout=3
           menuentry "Atlas Tablet OS" {
@@ -611,13 +611,16 @@ jobs:
               initrd /live/initrd.img
           }
           GRUB
-          sed -i 's/^[[:space:]]*//' "$ISO_DIR/boot/grub/grub.cfg"
+          sudo sed -i 's/^[[:space:]]*//' "$ISO_DIR/boot/grub/grub.cfg"
 
           # Build ISO
           DATE=$(date +%Y%m%d)
           OUTPUT="atlas-tablet-os-${DATE}.iso"
 
-          grub-mkrescue -o "$OUTPUT" "$ISO_DIR" -- -volid "ATLAS_TABLET" 2>/dev/null
+          sudo grub-mkrescue -o "$OUTPUT" "$ISO_DIR" -- -volid "ATLAS_TABLET" 2>/dev/null
+
+          # Make readable by non-root for upload
+          sudo chmod 644 "$OUTPUT"
 
           echo "ISO_FILE=$OUTPUT" >> $GITHUB_ENV
           echo "ISO size: $(du -sh "$OUTPUT" | cut -f1)"
