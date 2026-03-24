@@ -59,8 +59,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Attach file(s) for context (images, PDFs, code, logs)",
     )
     agent_p.add_argument(
-        "--max-iterations", type=int, default=25,
-        help="Maximum agent iterations (default: 25)",
+        "--max-iterations", type=int, default=50,
+        help="Maximum agent iterations (default: 50)",
     )
 
     # ── status ───────────────────────────────────────────────────
