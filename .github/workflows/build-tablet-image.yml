@@ -1,0 +1,645 @@
+# ──────────────────────────────────────────────────────────────────
+# Atlas Tablet OS — Image Builder
+#
+# Builds a complete, ready-to-flash OS image for x86_64 tablets
+# (Surface Go, etc.) with everything pre-installed:
+#   - Ubuntu 24.04 minimal + Openbox kiosk
+#   - linux-surface kernel (Surface Go touchscreen/WiFi)
+#   - Chromium fullscreen avatar display
+#   - Atlas satellite agent + Python venv
+#   - Captive portal for first-boot WiFi setup
+#   - mDNS auto-discovery of Atlas server
+#
+# The user flow: flash → boot → WiFi setup on touchscreen → done.
+#
+# Triggers:
+#   - On release publish
+#   - Monthly schedule (1st of month, 4 AM UTC)
+#   - Manual dispatch
+#
+# Output:
+#   - atlas-tablet-os-YYYYMMDD.iso (~1.5 GB, GitHub Release artifact)
+# ──────────────────────────────────────────────────────────────────
+
+name: Build Tablet Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_surface_kernel:
+        description: 'Include linux-surface kernel'
+        required: false
+        default: true
+        type: boolean
+      publish_release:
+        description: 'Publish as GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+  schedule:
+    # Monthly: 1st of each month at 4:00 AM UTC (offset from Pi build)
+    - cron: '0 4 1 * *'
+
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-tablet-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            dosfstools
+
+      # ── Phase 1: Bootstrap minimal Ubuntu rootfs ────────────────
+      - name: Bootstrap Ubuntu Noble (24.04) rootfs
+        run: |
+          BUILD_DIR="/tmp/atlas-tablet-build"
+          ROOTFS="$BUILD_DIR/rootfs"
+          sudo mkdir -p "$ROOTFS"
+
+          echo "::group::debootstrap"
+          sudo debootstrap --arch=amd64 --variant=minbase \
+            --include=systemd,systemd-sysv,dbus,sudo,locales,apt-utils \
+            noble "$ROOTFS" http://archive.ubuntu.com/ubuntu
+          echo "::endgroup::"
+
+          echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_ENV
+          echo "ROOTFS=$ROOTFS" >> $GITHUB_ENV
+
+      # ── Phase 2: Mount and configure apt ────────────────────────
+      - name: Mount pseudo-filesystems
+        run: |
+          sudo mount --bind /dev     "$ROOTFS/dev"
+          sudo mount --bind /dev/pts "$ROOTFS/dev/pts"
+          sudo mount -t proc proc   "$ROOTFS/proc"
+          sudo mount -t sysfs sys   "$ROOTFS/sys"
+          sudo mount -t tmpfs tmpfs "$ROOTFS/run"
+          sudo cp /etc/resolv.conf   "$ROOTFS/etc/resolv.conf"
+
+          sudo tee "$ROOTFS/etc/apt/sources.list" > /dev/null << 'SOURCES'
+          deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+          deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+          SOURCES
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/apt/sources.list"
+
+      # ── Phase 3: Install all packages ───────────────────────────
+      - name: Install packages in chroot
+        run: |
+          echo "::group::apt-get install"
+          sudo chroot "$ROOTFS" /bin/bash << 'CHROOT'
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update -qq
+
+          # Kernel
+          apt-get install -y -qq linux-generic
+
+          # Display (Openbox kiosk, no full DE)
+          apt-get install -y -qq xorg xinit openbox chromium-browser unclutter xdotool
+
+          # Audio
+          apt-get install -y -qq pulseaudio pulseaudio-utils alsa-utils
+
+          # Networking
+          apt-get install -y -qq network-manager avahi-daemon avahi-utils \
+              iw wireless-tools wpasupplicant rfkill
+
+          # Python
+          apt-get install -y -qq python3 python3-pip python3-venv python3-dev \
+              python3-flask build-essential libasound2-dev
+
+          # Utilities
+          apt-get install -y -qq curl wget git openssh-server usbutils pciutils less nano
+
+          # Bootloader
+          apt-get install -y -qq grub-pc grub-efi-amd64-bin grub-efi-amd64-signed shim-signed
+
+          apt-get clean
+          rm -rf /var/lib/apt/lists/*
+          CHROOT
+          echo "::endgroup::"
+
+      # ── Phase 4: Install linux-surface kernel ───────────────────
+      - name: Install linux-surface kernel
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_surface_kernel == 'true'
+        run: |
+          echo "::group::linux-surface"
+          sudo chroot "$ROOTFS" /bin/bash << 'SURFACE'
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          curl -fsSL https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
+              | gpg --dearmor > /etc/apt/trusted.gpg.d/linux-surface.gpg
+
+          echo "deb [arch=amd64] https://pkg.surfacelinux.com/debian release main" \
+              > /etc/apt/sources.list.d/linux-surface.list
+
+          apt-get update -qq
+          apt-get install -y -qq linux-image-surface linux-headers-surface iptsd libwacom-surface || {
+              echo "::warning::linux-surface install failed — image will use generic kernel"
+          }
+          apt-get clean
+          rm -rf /var/lib/apt/lists/*
+          SURFACE
+          echo "::endgroup::"
+
+      # ── Phase 5: Create atlas user and system config ────────────
+      - name: Configure system (user, locale, auto-login)
+        run: |
+          sudo chroot "$ROOTFS" /bin/bash << 'CONFIG'
+          set -euo pipefail
+
+          # User
+          useradd -m -s /bin/bash -G audio,video,input,netdev,sudo atlas
+          echo "atlas:atlas-setup" | chpasswd
+
+          # Locale
+          echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
+          locale-gen
+          echo 'LANG=en_US.UTF-8' > /etc/default/locale
+
+          # Hostname
+          echo "atlas-tablet" > /etc/hostname
+          printf '127.0.0.1\tlocalhost\n127.0.1.1\tatlas-tablet\n' > /etc/hosts
+
+          # Timezone
+          ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+
+          # Auto-login on tty1
+          mkdir -p /etc/systemd/system/getty@tty1.service.d/
+          cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf << 'AL'
+          [Service]
+          ExecStart=
+          ExecStart=-/sbin/agetty --autologin atlas --noclear %I $TERM
+          AL
+          sed -i 's/^[[:space:]]*//' /etc/systemd/system/getty@tty1.service.d/autologin.conf
+
+          # Disable lid-close suspend
+          mkdir -p /etc/systemd/logind.conf.d/
+          cat > /etc/systemd/logind.conf.d/atlas-tablet.conf << 'LID'
+          [Login]
+          HandleLidSwitch=ignore
+          HandleLidSwitchExternalPower=ignore
+          HandleLidSwitchDocked=ignore
+          IdleAction=ignore
+          LID
+          sed -i 's/^[[:space:]]*//' /etc/systemd/logind.conf.d/atlas-tablet.conf
+
+          # NetworkManager config
+          mkdir -p /etc/NetworkManager/conf.d/
+          cat > /etc/NetworkManager/conf.d/atlas.conf << 'NM'
+          [main]
+          plugins=ifupdown,keyfile
+          [ifupdown]
+          managed=true
+          [device]
+          wifi.scan-rand-mac-address=no
+          NM
+          sed -i 's/^[[:space:]]*//' /etc/NetworkManager/conf.d/atlas.conf
+
+          # Enable core services
+          systemctl enable ssh
+          systemctl enable NetworkManager
+          systemctl enable avahi-daemon
+
+          # Minimal fstab
+          printf 'LABEL=ATLASROOT  /  ext4  errors=remount-ro  0  1\n' > /etc/fstab
+          CONFIG
+
+      # ── Phase 6: Install Atlas satellite agent ──────────────────
+      - name: Install satellite agent
+        run: |
+          INSTALL_DIR="$ROOTFS/opt/atlas-satellite"
+          sudo mkdir -p "$INSTALL_DIR/atlas_satellite/platforms"
+          sudo mkdir -p "$INSTALL_DIR/cache/fillers"
+
+          # Copy agent code
+          for f in satellite/atlas_satellite/*.py; do
+            [ -f "$f" ] && sudo cp "$f" "$INSTALL_DIR/atlas_satellite/"
+          done
+          if [ -f satellite/atlas_satellite/platforms/__init__.py ]; then
+            sudo cp satellite/atlas_satellite/platforms/__init__.py \
+                "$INSTALL_DIR/atlas_satellite/platforms/"
+          fi
+          sudo cp satellite/requirements.txt "$INSTALL_DIR/"
+
+          # Create venv and install deps
+          echo "::group::pip install"
+          sudo chroot "$ROOTFS" /bin/bash << 'VENV'
+          set -euo pipefail
+          python3 -m venv /opt/atlas-satellite/venv
+          /opt/atlas-satellite/venv/bin/pip install -q --upgrade pip
+          /opt/atlas-satellite/venv/bin/pip install -q \
+              -r /opt/atlas-satellite/requirements.txt || {
+              echo "::warning::Some satellite deps failed — agent may need manual pip install"
+          }
+          VENV
+          echo "::endgroup::"
+
+          # Default config (mDNS auto-discovery)
+          sudo tee "$INSTALL_DIR/config.json" > /dev/null << 'CFG'
+          {
+            "satellite_id": "",
+            "server_url": "",
+            "room": "",
+            "mode": "dedicated",
+            "device_type": "tablet",
+            "service_port": 5110,
+            "wake_word": "hey atlas",
+            "volume": 0.7,
+            "mic_gain": 0.8,
+            "vad_sensitivity": 2,
+            "audio_device_in": "default",
+            "audio_device_out": "default",
+            "led_type": "none",
+            "wake_word_enabled": false,
+            "filler_enabled": true,
+            "features": {}
+          }
+          CFG
+
+      # ── Phase 7: Install captive portal ─────────────────────────
+      - name: Install captive portal
+        run: |
+          PORTAL_DIR="$ROOTFS/opt/atlas-captive-portal"
+          sudo mkdir -p "$PORTAL_DIR/templates"
+
+          sudo cp satellite/captive_portal/portal.py            "$PORTAL_DIR/portal.py"
+          sudo cp satellite/captive_portal/hotspot.sh           "$PORTAL_DIR/hotspot.sh"
+          sudo cp satellite/captive_portal/requirements.txt     "$PORTAL_DIR/requirements.txt"
+          sudo cp satellite/captive_portal/templates/setup.html "$PORTAL_DIR/templates/setup.html"
+          sudo chmod +x "$PORTAL_DIR/hotspot.sh"
+
+          sudo mkdir -p "$ROOTFS/var/lib/atlas"
+
+          # Captive portal service
+          sudo tee "$ROOTFS/etc/systemd/system/atlas-captive-portal.service" > /dev/null << 'UNIT'
+          [Unit]
+          Description=Atlas Satellite WiFi Setup (Captive Portal)
+          After=NetworkManager.service
+          Wants=NetworkManager.service
+          ConditionPathExists=!/var/lib/atlas/wifi-configured
+
+          [Service]
+          Type=simple
+          ExecStartPre=/bin/sleep 10
+          ExecStart=/opt/atlas-captive-portal/hotspot.sh start
+          ExecStop=/opt/atlas-captive-portal/hotspot.sh stop
+          Restart=on-failure
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/systemd/system/atlas-captive-portal.service"
+
+          sudo chroot "$ROOTFS" systemctl enable atlas-captive-portal
+
+      # ── Phase 8: Configure kiosk mode ───────────────────────────
+      - name: Configure kiosk mode (Openbox + Chromium)
+        run: |
+          # Openbox autostart
+          AUTOSTART_DIR="$ROOTFS/home/atlas/.config/openbox"
+          sudo mkdir -p "$AUTOSTART_DIR"
+          sudo cp satellite/tablet/kiosk-autostart.sh "$AUTOSTART_DIR/autostart" 2>/dev/null || \
+          sudo tee "$AUTOSTART_DIR/autostart" > /dev/null << 'KIOSK'
+          # Atlas Tablet Kiosk — Openbox autostart
+          unclutter -idle 3 &
+          xset s off
+          xset -dpms
+          xset s noblank
+
+          # Wait for network
+          for i in $(seq 1 60); do
+              if ping -c 1 -W 1 1.1.1.1 &>/dev/null 2>&1; then break; fi
+              sleep 1
+          done
+
+          # Discover Atlas server via mDNS
+          ATLAS_URL=""
+          ATLAS_HOST=$(avahi-resolve -n atlas-cortex.local 2>/dev/null | awk '{print $2}')
+          if [ -n "$ATLAS_HOST" ]; then
+              ATLAS_URL="http://${ATLAS_HOST}:5100"
+          fi
+
+          # Fallback: config file
+          if [ -z "$ATLAS_URL" ] && [ -f /opt/atlas-satellite/config.json ]; then
+              ATLAS_URL=$(python3 -c "
+          import json, sys
+          try:
+              url = json.load(open('/opt/atlas-satellite/config.json')).get('server_url','')
+              if url.startswith('ws'):
+                  url = url.replace('ws://', 'http://').replace('wss://', 'https://').split('/ws/')[0]
+              print(url)
+          except Exception:
+              sys.exit(0)
+          " 2>/dev/null || true)
+          fi
+
+          # Fallback: captive portal
+          if [ -z "$ATLAS_URL" ]; then
+              KIOSK_URL="http://10.42.0.1/"
+          else
+              KIOSK_URL="${ATLAS_URL}/avatar#skin=nick"
+          fi
+
+          chromium-browser \
+              --kiosk --no-first-run --disable-translate --disable-infobars \
+              --disable-suggestions-ui --disable-save-password-bubble \
+              --disable-session-crashed-bubble --disable-component-update \
+              --autoplay-policy=no-user-gesture-required \
+              --use-fake-ui-for-media-stream --enable-features=OverlayScrollbar \
+              --check-for-update-interval=31536000 --noerrdialogs \
+              --start-fullscreen "$KIOSK_URL" &
+          KIOSK
+
+          # .bash_profile — auto-start X on tty1
+          sudo tee "$ROOTFS/home/atlas/.bash_profile" > /dev/null << 'PROFILE'
+          if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+              startx -- -nocursor 2>/dev/null
+          fi
+          PROFILE
+
+          # .xinitrc
+          echo "exec openbox-session" | sudo tee "$ROOTFS/home/atlas/.xinitrc" > /dev/null
+
+          sudo chroot "$ROOTFS" chown -R atlas:atlas /home/atlas
+
+      # ── Phase 9: Install systemd services ───────────────────────
+      - name: Install Atlas systemd services
+        run: |
+          # Satellite agent service
+          sudo tee "$ROOTFS/etc/systemd/system/atlas-satellite.service" > /dev/null << 'SATUNIT'
+          [Unit]
+          Description=Atlas Satellite Agent
+          After=network-online.target pulseaudio.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=atlas
+          Group=atlas
+          WorkingDirectory=/opt/atlas-satellite
+          ExecStart=/opt/atlas-satellite/venv/bin/python -m atlas_satellite
+          Restart=on-failure
+          RestartSec=5
+          Environment=ATLAS_DEVICE_TYPE=tablet
+          Environment=PYTHONUNBUFFERED=1
+
+          [Install]
+          WantedBy=multi-user.target
+          SATUNIT
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/systemd/system/atlas-satellite.service"
+
+          # mDNS announce service
+          sudo tee "$ROOTFS/usr/local/bin/atlas-announce" > /dev/null << 'ANNOUNCE'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          HOSTNAME=$(hostname)
+          SAT_ID="tablet-${HOSTNAME}"
+          LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
+          echo "Atlas Tablet announcing: ${SAT_ID} at ${LOCAL_IP}:5110"
+          if command -v avahi-publish &>/dev/null; then
+              exec avahi-publish -s "${SAT_ID}" _atlas-satellite._tcp 5110 \
+                  "id=${SAT_ID}" "hostname=${HOSTNAME}" "room=" "hw_type=tablet"
+          else
+              while true; do
+                  sleep 30
+                  command -v avahi-publish &>/dev/null && \
+                      exec avahi-publish -s "${SAT_ID}" _atlas-satellite._tcp 5110 \
+                          "id=${SAT_ID}" "hostname=${HOSTNAME}" "room=" "hw_type=tablet"
+              done
+          fi
+          ANNOUNCE
+          sudo chmod +x "$ROOTFS/usr/local/bin/atlas-announce"
+
+          sudo tee "$ROOTFS/etc/systemd/system/atlas-announce.service" > /dev/null << 'ANNUNIT'
+          [Unit]
+          Description=Atlas Tablet mDNS Announcement
+          After=network-online.target avahi-daemon.service
+          Wants=network-online.target
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/atlas-announce
+          Restart=always
+          RestartSec=10
+          [Install]
+          WantedBy=multi-user.target
+          ANNUNIT
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/systemd/system/atlas-announce.service"
+
+          # First-boot service (unique satellite ID)
+          sudo tee "$ROOTFS/usr/local/bin/atlas-firstboot" > /dev/null << 'FIRSTBOOT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          LOG="/var/log/atlas-firstboot.log"
+          exec > "$LOG" 2>&1
+
+          echo "$(date) — Atlas Tablet first-boot starting"
+
+          SUFFIX=$(head -c 4 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 4)
+          SAT_HOSTNAME="atlas-tablet-${SUFFIX}"
+          hostnamectl set-hostname "$SAT_HOSTNAME"
+          sed -i "s/127.0.1.1.*/127.0.1.1\t${SAT_HOSTNAME}/" /etc/hosts
+          echo "Hostname: $SAT_HOSTNAME"
+
+          CONFIG="/opt/atlas-satellite/config.json"
+          if [ -f "$CONFIG" ]; then
+              python3 -c "
+          import json
+          c = json.load(open('$CONFIG'))
+          c['satellite_id'] = 'tablet-${SAT_HOSTNAME}'
+          json.dump(c, open('$CONFIG', 'w'), indent=2)
+          " 2>/dev/null || true
+          fi
+
+          systemctl enable atlas-satellite
+          systemctl start atlas-satellite
+          systemctl restart atlas-announce
+
+          echo "$(date) — Atlas Tablet first-boot complete!"
+          systemctl disable atlas-firstboot.service
+          FIRSTBOOT
+          sudo chmod +x "$ROOTFS/usr/local/bin/atlas-firstboot"
+
+          sudo tee "$ROOTFS/etc/systemd/system/atlas-firstboot.service" > /dev/null << 'FBUNIT'
+          [Unit]
+          Description=Atlas Tablet First Boot Setup
+          After=network-online.target
+          Wants=network-online.target
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/atlas-firstboot
+          RemainAfterExit=yes
+          TimeoutStartSec=120
+          [Install]
+          WantedBy=multi-user.target
+          FBUNIT
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/systemd/system/atlas-firstboot.service"
+
+          # Brightness service
+          sudo tee "$ROOTFS/usr/local/bin/atlas-brightness" > /dev/null << 'BRIGHT'
+          #!/usr/bin/env bash
+          for bl in /sys/class/backlight/*/brightness; do
+              [ -f "$bl" ] || continue
+              max=$(cat "$(dirname "$bl")/max_brightness" 2>/dev/null || echo 100)
+              echo "$max" > "$bl" 2>/dev/null || true
+          done
+          BRIGHT
+          sudo chmod +x "$ROOTFS/usr/local/bin/atlas-brightness"
+
+          sudo tee "$ROOTFS/etc/systemd/system/atlas-brightness.service" > /dev/null << 'BLUNIT'
+          [Unit]
+          Description=Atlas Tablet Brightness
+          After=multi-user.target
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/atlas-brightness
+          [Install]
+          WantedBy=multi-user.target
+          BLUNIT
+          sudo sed -i 's/^[[:space:]]*//' "$ROOTFS/etc/systemd/system/atlas-brightness.service"
+
+          # Enable services
+          sudo chroot "$ROOTFS" systemctl enable atlas-announce
+          sudo chroot "$ROOTFS" systemctl enable atlas-firstboot
+          sudo chroot "$ROOTFS" systemctl enable atlas-brightness
+
+      # ── Phase 10: Clean up and build image ──────────────────────
+      - name: Clean rootfs and unmount
+        run: |
+          sudo rm -rf "$ROOTFS/var/cache/apt/archives"/*.deb
+          sudo rm -rf "$ROOTFS/var/lib/apt/lists"/*
+          sudo rm -rf "$ROOTFS/tmp"/*
+          sudo rm -f  "$ROOTFS/etc/resolv.conf"
+
+          sudo umount -lf "$ROOTFS/run"     2>/dev/null || true
+          sudo umount -lf "$ROOTFS/dev/pts" 2>/dev/null || true
+          sudo umount -lf "$ROOTFS/dev"     2>/dev/null || true
+          sudo umount -lf "$ROOTFS/proc"    2>/dev/null || true
+          sudo umount -lf "$ROOTFS/sys"     2>/dev/null || true
+
+      - name: Build squashfs and ISO
+        run: |
+          ISO_DIR="$BUILD_DIR/iso"
+          mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
+
+          # Compress rootfs
+          echo "::group::mksquashfs"
+          sudo mksquashfs "$ROOTFS" "$ISO_DIR/live/filesystem.squashfs" \
+              -comp xz -Xbcj x86 -b 1M -no-duplicates
+          echo "::endgroup::"
+
+          echo "Squashfs size: $(du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
+
+          # Copy kernel + initrd (prefer Surface kernel if available)
+          VMLINUZ=$(ls -1t "$ROOTFS/boot"/vmlinuz-*surface* 2>/dev/null | head -1 || \
+                    ls -1t "$ROOTFS/boot"/vmlinuz-* 2>/dev/null | head -1)
+          INITRD=$(ls -1t "$ROOTFS/boot"/initrd.img-*surface* 2>/dev/null | head -1 || \
+                   ls -1t "$ROOTFS/boot"/initrd.img-* 2>/dev/null | head -1)
+
+          cp "$VMLINUZ" "$ISO_DIR/live/vmlinuz"
+          cp "$INITRD"  "$ISO_DIR/live/initrd.img"
+          echo "Kernel: $(basename "$VMLINUZ")"
+
+          # GRUB config
+          cat > "$ISO_DIR/boot/grub/grub.cfg" << 'GRUB'
+          set default=0
+          set timeout=3
+          menuentry "Atlas Tablet OS" {
+              linux /live/vmlinuz boot=live toram quiet splash
+              initrd /live/initrd.img
+          }
+          menuentry "Atlas Tablet OS (Safe Mode)" {
+              linux /live/vmlinuz boot=live toram nomodeset quiet
+              initrd /live/initrd.img
+          }
+          GRUB
+          sed -i 's/^[[:space:]]*//' "$ISO_DIR/boot/grub/grub.cfg"
+
+          # Build ISO
+          DATE=$(date +%Y%m%d)
+          OUTPUT="atlas-tablet-os-${DATE}.iso"
+
+          grub-mkrescue -o "$OUTPUT" "$ISO_DIR" -- -volid "ATLAS_TABLET" 2>/dev/null
+
+          echo "ISO_FILE=$OUTPUT" >> $GITHUB_ENV
+          echo "ISO size: $(du -sh "$OUTPUT" | cut -f1)"
+
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
+          cat "${ISO_FILE}.sha256"
+
+      - name: Upload image as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-tablet-os
+          path: |
+            ${{ env.ISO_FILE }}
+            ${{ env.ISO_FILE }}.sha256
+          compression-level: 6
+          retention-days: 90
+
+      - name: Upload to release
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'release' && github.ref_name || format('tablet-os-{0}', env.ISO_FILE) }}
+          files: |
+            ${{ env.ISO_FILE }}
+            ${{ env.ISO_FILE }}.sha256
+          body: |
+            ## Atlas Tablet OS Image
+
+            Pre-built OS image for x86_64 tablets (Surface Go, etc.) with Atlas satellite.
+
+            ### Quick Start
+            1. Flash `${{ env.ISO_FILE }}` to a USB drive:
+               ```bash
+               sudo dd if=${{ env.ISO_FILE }} of=/dev/sdX bs=4M status=progress
+               ```
+               Or use [balenaEtcher](https://etcher.balena.io/) / Rufus.
+            2. Boot the tablet from USB
+            3. Connect to WiFi on the touchscreen
+            4. Atlas avatar appears — done!
+
+            **No installer. No terminal. Everything is pre-installed.**
+
+            ### What's Included
+            - Ubuntu 24.04 minimal + Openbox kiosk
+            - linux-surface kernel (Surface Go touchscreen + WiFi)
+            - Chromium fullscreen avatar display
+            - Atlas satellite agent + Python venv
+            - Captive portal for WiFi setup
+            - mDNS auto-discovery
+
+            ### Default Credentials
+            - **User:** `atlas`
+            - **Password:** `atlas-setup`
+            - **SSH:** Enabled (change password after setup!)
+
+            ### Checksum
+            ```
+            $(cat ${ISO_FILE}.sha256)
+            ```
