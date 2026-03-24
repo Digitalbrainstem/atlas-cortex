@@ -186,3 +186,51 @@ async def scan_library(
     provider = LocalLibraryProvider()
     count = await provider.scan_directory(req.path)
     return {"ok": True, "files_indexed": count}
+
+
+# ── Media auth for satellite display ─────────────────────────────
+
+
+@router.get("/media/auth")
+async def list_media_auth(_: dict = Depends(require_admin)):
+    """List media service authentication (no secrets)."""
+    from cortex.satellite.display_auth import get_media_auth
+
+    return {"providers": get_media_auth().list_providers()}
+
+
+class MediaAuthRequest(BaseModel):
+    token: str = ""
+    refresh_token: str = ""
+    auth_type: str = "oauth"
+    account_name: str = ""
+    is_premium: bool = False
+
+
+@router.post("/media/auth/{provider}")
+async def set_media_auth(
+    provider: str,
+    req: MediaAuthRequest,
+    _: dict = Depends(require_admin),
+):
+    """Store authentication for a media provider."""
+    from cortex.satellite.display_auth import get_media_auth
+
+    mgr = get_media_auth()
+    mgr.set_auth(
+        provider=provider,
+        token=req.token,
+        refresh_token=req.refresh_token,
+        auth_type=req.auth_type,
+        account_name=req.account_name,
+        is_premium=req.is_premium,
+    )
+    return {"ok": True}
+
+
+@router.delete("/media/auth/{provider}")
+async def remove_media_auth(provider: str, _: dict = Depends(require_admin)):
+    """Remove stored auth for a media provider."""
+    from cortex.satellite.display_auth import get_media_auth
+
+    return {"ok": get_media_auth().remove_auth(provider)}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Atlas Satellite Auto-Update
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/atlas-satellite/autoupdate.sh
+
+[Install]
+WantedBy=multi-user.target
