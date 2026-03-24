@@ -64,6 +64,10 @@ class ToolRegistry:
             log.warning("Overwriting tool %s", tool.tool_id)
         self._tools[tool.tool_id] = tool
 
+    def unregister(self, tool_id: str) -> bool:
+        """Remove a tool from the registry. Returns True if it existed."""
+        return self._tools.pop(tool_id, None) is not None
+
     def get(self, tool_id: str) -> AgentTool | None:
         return self._tools.get(tool_id)
 
@@ -92,11 +96,17 @@ class ToolRegistry:
 def get_default_registry() -> ToolRegistry:
     """Create a registry with all built-in tools registered."""
     from cortex.cli.tools.dev import (
+        BenchmarkTool,
         BuildTool,
+        CodeAnalyzeTool,
         DBQueryTool,
+        DiffPreviewTool,
         DockerTool,
+        EnvManageTool,
         LintTool,
         PackageManageTool,
+        ProcessRunTool,
+        RefactorTool,
         TestRunTool,
     )
     from cortex.cli.tools.files import (
@@ -111,6 +121,13 @@ def get_default_registry() -> ToolRegistry:
         SSHTool,
         WebFetchTool,
         WebSearchTool,
+    )
+    from cortex.cli.tools.network_ops import (
+        ContainerLogsTool,
+        FirewallReadTool,
+        HTTPDebugTool,
+        NetworkScanTool,
+        SSLCheckTool,
     )
     from cortex.cli.tools.shell import GlobTool, GrepTool, ShellExecTool
 
@@ -136,6 +153,18 @@ def get_default_registry() -> ToolRegistry:
         DockerTool,
         DBQueryTool,
         PackageManageTool,
+        RefactorTool,
+        DiffPreviewTool,
+        ProcessRunTool,
+        EnvManageTool,
+        CodeAnalyzeTool,
+        BenchmarkTool,
+        # Network engineering tools
+        NetworkScanTool,
+        HTTPDebugTool,
+        ContainerLogsTool,
+        SSLCheckTool,
+        FirewallReadTool,
     ]:
         registry.register(tool_cls())
 
@@ -164,6 +193,17 @@ def get_default_registry() -> ToolRegistry:
     except ImportError:
         pass
 
+    # Diagram & architecture tools
+    from cortex.cli.tools.diagrams import (
+        APISpecTool,
+        ArchitectureDocTool,
+        DependencyGraphTool,
+        MermaidGenerateTool,
+    )
+
+    for cls in [MermaidGenerateTool, ArchitectureDocTool, DependencyGraphTool, APISpecTool]:
+        registry.register(cls())
+
     # Multi-modal tools (optional)
     try:
         from cortex.cli.tools.multimodal import (
@@ -184,6 +224,33 @@ def get_default_registry() -> ToolRegistry:
             TextToSpeechTool,
         ]:
             registry.register(cls())
+    except ImportError:
+        pass
+
+    # Self-learning tools (dynamic tool lifecycle)
+    try:
+        from cortex.cli.tools.learned import (
+            ToolCleanupTool,
+            ToolForgetTool,
+            ToolLearnTool,
+            ToolListLearnedTool,
+            ToolProposeTool,
+            get_tool_loader,
+        )
+
+        for cls in [
+            ToolLearnTool,
+            ToolForgetTool,
+            ToolListLearnedTool,
+            ToolCleanupTool,
+            ToolProposeTool,
+        ]:
+            registry.register(cls())
+
+        # Load and register user-taught / auto-discovered tools
+        loader = get_tool_loader()
+        for tool in loader.load_all():
+            registry.register(tool)
     except ImportError:
         pass
 

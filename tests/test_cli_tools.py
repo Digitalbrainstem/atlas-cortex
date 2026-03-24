@@ -365,6 +365,17 @@ class TestDefaultRegistry:
             # Multi-modal tools
             "vision_analyze", "image_generate", "embed_text",
             "ocr", "speech_to_text", "text_to_speech",
+            # Diagram & architecture tools
+            "mermaid_generate", "architecture_doc", "dependency_graph", "api_spec",
+            # Self-evolution tools
+            "tool_learn", "tool_forget", "tool_list_learned",
+            "tool_propose", "tool_cleanup",
+            # Dev extended tools
+            "benchmark", "code_analyze", "diff_preview", "refactor",
+            # Network ops tools
+            "env_manage", "firewall_read", "http_debug",
+            "network_scan", "ssl_check",
+            "container_logs", "process_run",
         }
         actual = {t.tool_id for t in reg.list_tools()}
         assert expected == actual
@@ -372,7 +383,7 @@ class TestDefaultRegistry:
     def test_schemas_are_valid(self):
         reg = get_default_registry()
         schemas = reg.get_function_schemas()
-        assert len(schemas) == 31
+        assert len(schemas) == 51
         for s in schemas:
             assert s["type"] == "function"
             fn = s["function"]
