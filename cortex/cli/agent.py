@@ -168,6 +168,15 @@ Think step by step:
 - If a tool fails, adapt your approach
 - Be precise with file paths
 - When your task is complete, give a clear summary WITHOUT any tool calls
+
+## Self-Learning
+
+If you encounter a task that requires a capability none of your tools provide, \
+use tool_propose to create a new tool. This is better than trying to work around \
+missing tools with complex shell commands.
+
+You can also use tool_learn to teach yourself new tools from user instructions. \
+Use tool_cleanup periodically to remove tools you no longer need.
 """
 
 
