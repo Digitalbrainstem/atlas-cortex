@@ -372,10 +372,19 @@ class TestDefaultRegistry:
             "tool_propose", "tool_cleanup",
             # Dev extended tools
             "benchmark", "code_analyze", "diff_preview", "refactor",
+            "doc_generate", "changelog_generate",
             # Network ops tools
             "env_manage", "firewall_read", "http_debug",
             "network_scan", "ssl_check",
             "container_logs", "process_run",
+            # Database tools
+            "schema_inspect", "migration_generate", "query_explain",
+            # Security tools
+            "secret_scan", "vuln_scan", "permission_audit",
+            # DevOps tools
+            "log_analyze", "metrics_query", "incident_timeline",
+            # Project management tools
+            "task_track", "time_estimate", "risk_assess",
         }
         actual = {t.tool_id for t in reg.list_tools()}
         assert expected == actual
@@ -383,7 +392,7 @@ class TestDefaultRegistry:
     def test_schemas_are_valid(self):
         reg = get_default_registry()
         schemas = reg.get_function_schemas()
-        assert len(schemas) == 51
+        assert len(schemas) == 65
         for s in schemas:
             assert s["type"] == "function"
             fn = s["function"]

@@ -95,12 +95,19 @@ class ToolRegistry:
 
 def get_default_registry() -> ToolRegistry:
     """Create a registry with all built-in tools registered."""
+    from cortex.cli.tools.database import (
+        MigrationGenerateTool,
+        QueryExplainTool,
+        SchemaInspectTool,
+    )
     from cortex.cli.tools.dev import (
         BenchmarkTool,
         BuildTool,
+        ChangelogGenerateTool,
         CodeAnalyzeTool,
         DBQueryTool,
         DiffPreviewTool,
+        DocGenerateTool,
         DockerTool,
         EnvManageTool,
         LintTool,
@@ -108,6 +115,11 @@ def get_default_registry() -> ToolRegistry:
         ProcessRunTool,
         RefactorTool,
         TestRunTool,
+    )
+    from cortex.cli.tools.devops import (
+        IncidentTimelineTool,
+        LogAnalyzeTool,
+        MetricsQueryTool,
     )
     from cortex.cli.tools.files import (
         FileEditTool,
@@ -128,6 +140,16 @@ def get_default_registry() -> ToolRegistry:
         HTTPDebugTool,
         NetworkScanTool,
         SSLCheckTool,
+    )
+    from cortex.cli.tools.project import (
+        RiskAssessTool,
+        TaskTrackTool,
+        TimeEstimateTool,
+    )
+    from cortex.cli.tools.security import (
+        PermissionAuditTool,
+        SecretScanTool,
+        VulnScanTool,
     )
     from cortex.cli.tools.shell import GlobTool, GrepTool, ShellExecTool
 
@@ -159,12 +181,30 @@ def get_default_registry() -> ToolRegistry:
         EnvManageTool,
         CodeAnalyzeTool,
         BenchmarkTool,
+        DocGenerateTool,
+        ChangelogGenerateTool,
         # Network engineering tools
         NetworkScanTool,
         HTTPDebugTool,
         ContainerLogsTool,
         SSLCheckTool,
         FirewallReadTool,
+        # Database tools
+        SchemaInspectTool,
+        MigrationGenerateTool,
+        QueryExplainTool,
+        # Security tools
+        SecretScanTool,
+        VulnScanTool,
+        PermissionAuditTool,
+        # DevOps tools
+        LogAnalyzeTool,
+        MetricsQueryTool,
+        IncidentTimelineTool,
+        # Project management tools
+        TaskTrackTool,
+        TimeEstimateTool,
+        RiskAssessTool,
     ]:
         registry.register(tool_cls())
 
