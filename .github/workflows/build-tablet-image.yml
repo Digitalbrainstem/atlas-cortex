@@ -18,7 +18,9 @@
 #   - Manual dispatch
 #
 # Output:
-#   - atlas-tablet-os-YYYYMMDD.iso (~1.5 GB, GitHub Release artifact)
+#   - atlas-tablet-os-YYYYMMDD.iso (~800MB, GitHub Release artifact)
+#
+# Build time: ~5-8 minutes (downloads official Ubuntu cloud image, no debootstrap)
 # ──────────────────────────────────────────────────────────────────
 
 name: Build Tablet Image
@@ -50,7 +52,7 @@ permissions:
 jobs:
   build-tablet-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -60,7 +62,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            debootstrap \
             squashfs-tools \
             xorriso \
             grub-pc-bin \
@@ -68,37 +69,23 @@ jobs:
             mtools \
             dosfstools
 
-      # ── Cache: reuse base rootfs from previous builds ──────────
-      - name: Cache base rootfs
-        id: cache-rootfs
-        uses: actions/cache@v4
-        with:
-          path: /tmp/atlas-base-rootfs.tar.gz
-          key: tablet-rootfs-noble-v2-${{ hashFiles('satellite/tablet/build-image.sh') }}
-          restore-keys: |
-            tablet-rootfs-noble-v2-
-
-      # ── Phase 1: Bootstrap or restore rootfs ────────────────────
-      - name: Bootstrap Ubuntu Noble (24.04) rootfs
+      # ── Phase 1: Download official Ubuntu minimal cloud image ────
+      - name: Download Ubuntu Noble minimal rootfs
         run: |
           BUILD_DIR="/tmp/atlas-tablet-build"
           ROOTFS="$BUILD_DIR/rootfs"
           sudo mkdir -p "$ROOTFS"
 
-          if [ -f /tmp/atlas-base-rootfs.tar.gz ]; then
-            echo "Restoring cached base rootfs..."
-            sudo tar xzf /tmp/atlas-base-rootfs.tar.gz -C "$ROOTFS"
-            echo "CACHE_HIT=true" >> $GITHUB_ENV
-          else
-            echo "Building fresh rootfs (will be cached for next build)..."
-            echo "::group::debootstrap"
-            sudo debootstrap --arch=amd64 --variant=minbase \
-              --include=systemd,systemd-sysv,dbus,sudo,locales,apt-utils \
-              noble "$ROOTFS" http://archive.ubuntu.com/ubuntu
-            echo "::endgroup::"
-            echo "CACHE_HIT=false" >> $GITHUB_ENV
-          fi
-
+          echo "Downloading official Ubuntu 24.04 minimal rootfs..."
+          CLOUD_URL="https://cloud-images.ubuntu.com/minimal/releases/noble/release"
+          ROOTFS_TAR="ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz"
+          
+          wget -q "${CLOUD_URL}/${ROOTFS_TAR}" -O /tmp/ubuntu-rootfs.tar.xz
+          echo "Extracting (~200MB compressed)..."
+          sudo tar xJf /tmp/ubuntu-rootfs.tar.xz -C "$ROOTFS"
+          rm /tmp/ubuntu-rootfs.tar.xz
+          
+          echo "Rootfs downloaded and extracted: $(sudo du -sh "$ROOTFS" | cut -f1)"
           echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_ENV
           echo "ROOTFS=$ROOTFS" >> $GITHUB_ENV
 
@@ -577,13 +564,6 @@ jobs:
           sudo rm -f  "$ROOTFS/etc/resolv.conf"
           
           echo "::endgroup::"
-          
-          # Save base rootfs for cache (before Atlas-specific files)
-          if [ "$CACHE_HIT" = "false" ]; then
-            echo "Saving base rootfs to cache..."
-            sudo tar czf /tmp/atlas-base-rootfs.tar.gz -C "$ROOTFS" .
-            echo "Cache saved: $(du -sh /tmp/atlas-base-rootfs.tar.gz | cut -f1)"
-          fi
           
           # Report size
           echo "Rootfs size: $(sudo du -sh "$ROOTFS" | cut -f1)"
