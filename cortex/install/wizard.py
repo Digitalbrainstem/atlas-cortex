@@ -190,37 +190,45 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
         for g in gpus:
             best_vram = max(best_vram, g.get("vram_mb", 0))
 
-    # Check if Atlas models are available
-    atlas_ultra_ok = fast_model == "atlas-ultra:9b"
-    atlas_core_ok = fast_model == "atlas-core:2b"
-    fallback = rec.get("fast_fallback", "qwen2.5:7b")
+    fallback = rec.get("fast_fallback", "qwen3.5:9b")
 
     if not non_interactive:
         _print(f"\n  ★ Recommended for your hardware ({best_vram // 1024}GB VRAM):")
-        if best_vram >= 8000:
-            rec_label = "atlas-ultra:9b" if atlas_ultra_ok else f"atlas-ultra:9b (will try) or {fallback}"
-            if loras:
-                rec_label += f" + {', '.join(loras[:3])}"
-            _print(f"    {rec_label}")
-        else:
-            rec_label = "atlas-core:2b" if atlas_core_ok else f"atlas-core:2b (will try) or {fallback}"
-            _print(f"    {rec_label}")
+        rec_label = fast_model
+        if loras:
+            rec_label += f" + {', '.join(loras[:3])}"
+        _print(f"    {rec_label}")
 
         _print("\n  Other options:")
-        _print("    1. atlas-ultra:9b  (9B params, 8GB+ VRAM)  — best quality")
-        _print("    2. atlas-core:2b   (2B params, 4GB+ VRAM)  — faster, lighter")
-        _print(f"    3. {fallback:<17s}({rec['class']})           — generic Qwen (no Atlas training)")
-        _print("    4. Custom          (enter model name)")
+        _print("    1. qwen3.5:27b     (27B, ~16.5GB Q4)  — strongest, fits 20GB+")
+        _print("    2. qwen3.5:9b      (9B, ~5.5GB Q4)    — fast, fits 8GB+")
+        _print("    3. qwen2.5:7b      (7B, ~4.7GB Q4)    — proven stable")
+        _print("    4. qwen2.5:1.5b    (1.5B, ~1GB)       — CPU-friendly")
+        _print("    5. Custom          (enter model name)")
+        _print("")
+        _print("  Community models (import from HuggingFace GGUF):")
+        _print("    6. Qwen3.5-27B-Claude-Opus-Distilled   — Claude-style reasoning")
+        _print("    7. Qwen3.5-9B-Claude-Opus-Distilled    — Claude reasoning, lighter")
 
         raw = _input("\n  Selection [recommended]: ")
         if raw == "1":
-            model_fast = "atlas-ultra:9b"
+            model_fast = "qwen3.5:27b"
         elif raw == "2":
-            model_fast = "atlas-core:2b"
+            model_fast = "qwen3.5:9b"
         elif raw == "3":
-            model_fast = fallback
+            model_fast = "qwen2.5:7b"
         elif raw == "4":
+            model_fast = "qwen2.5:1.5b"
+        elif raw == "5":
             model_fast = _input("  Model name: ") or fast_model
+        elif raw == "6":
+            model_fast = "qwen3.5-claude-opus:27b"
+            _print("  → Import: ollama create qwen3.5-claude-opus:27b -f Modelfile")
+            _print("    Download GGUF from: huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF")
+        elif raw == "7":
+            model_fast = "qwen3.5-claude-opus:9b"
+            _print("  → Import: ollama create qwen3.5-claude-opus:9b -f Modelfile")
+            _print("    Download GGUF from: huggingface.co/Jackrong/Qwen3.5-9B-Claude-4.6-Opus-Reasoning-Distilled-GGUF")
         else:
             model_fast = fast_model
     else:
