@@ -211,6 +211,7 @@ def get_default_registry() -> ToolRegistry:
     # Atlas integration tools (optional — depend on cortex modules)
     try:
         from cortex.cli.tools.atlas import (
+            DisplayTool,
             HAControlTool,
             MemoryStoreTool,
             MemoryTool,
@@ -228,6 +229,7 @@ def get_default_registry() -> ToolRegistry:
             NotifyTool,
             MemoryTool,
             MemoryStoreTool,
+            DisplayTool,
         ]:
             registry.register(cls())
     except ImportError:

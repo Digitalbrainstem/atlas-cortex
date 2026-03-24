@@ -157,6 +157,49 @@
     display: none; align-items: center; justify-content: center;
     backdrop-filter: blur(4px); transition: all 0.3s;
   ">🎤</button>
+  <!-- Content display overlay — Atlas controls what's shown -->
+  <div id="content-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:1000; background:#0f172a;">
+    <button id="content-back" onclick="showAvatar()" style="
+      position:absolute; top:10px; left:10px; z-index:1001;
+      background:rgba(0,0,0,0.5); color:white; border:none;
+      border-radius:50%; width:40px; height:40px; font-size:20px;
+      cursor:pointer; display:none;
+    ">←</button>
+    <div id="content-recipe" class="content-panel" style="display:none;"></div>
+    <div id="content-video" class="content-panel" style="display:none;">
+      <iframe id="video-frame" style="width:100%; height:100%; border:none;"
+              allow="autoplay; encrypted-media; fullscreen"
+              allowfullscreen></iframe>
+    </div>
+    <div id="content-dashboard" class="content-panel" style="display:none;">
+      <iframe id="dashboard-frame" style="width:100%; height:100%; border:none;"
+              sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+    </div>
+    <div id="content-weather" class="content-panel" style="display:none;"></div>
+    <div id="content-photos" class="content-panel" style="display:none;">
+      <img id="slideshow-img" style="width:100%; height:100%; object-fit:contain;">
+    </div>
+    <div id="content-timer" class="content-panel" style="display:none;"></div>
+    <div id="content-list" class="content-panel" style="display:none;"></div>
+    <div id="content-media-player" class="content-panel" style="display:none;"></div>
+  </div>
+  <style>
+    .content-panel {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #e2e8f0;
+      font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+      padding: 2rem;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+  </style>
+
   <div id="dev-overlay">
     <div class="dev-panel">
       <h4>🔧 Dev Mode</h4>
@@ -925,7 +968,215 @@
         case 'eye_target':
           handleEyeTarget(msg);
           break;
+        case 'display':
+          handleDisplayCommand(msg);
+          break;
       }
+    }
+
+    // ── Display content system ───────────────────────────────────
+    let _slideshowTimer = null;
+    let _displayReturnTimer = null;
+
+    function handleDisplayCommand(msg) {
+      const mode = msg.mode;
+      const content = msg.content || {};
+      const duration = msg.duration || 0;
+
+      if (mode === 'avatar') { showAvatar(); return; }
+
+      document.getElementById('avatar-container').style.display = 'none';
+      const overlay = document.getElementById('content-overlay');
+      overlay.style.display = 'block';
+      document.getElementById('content-back').style.display = duration ? 'none' : 'block';
+
+      overlay.querySelectorAll('.content-panel').forEach(p => p.style.display = 'none');
+      if (_slideshowTimer) { clearInterval(_slideshowTimer); _slideshowTimer = null; }
+      if (_displayReturnTimer) { clearTimeout(_displayReturnTimer); _displayReturnTimer = null; }
+
+      switch (mode) {
+        case 'video':       renderVideo(content);       break;
+        case 'recipe':      renderRecipe(content);      break;
+        case 'dashboard':   renderDashboard(content);   break;
+        case 'weather':     renderWeather(content);     break;
+        case 'timer':       renderTimer(content);       break;
+        case 'list':        renderList(content);        break;
+        case 'photos':      renderPhotos(content);      break;
+        case 'media_player': renderMediaPlayer(content); break;
+      }
+
+      if (duration > 0) {
+        _displayReturnTimer = setTimeout(() => showAvatar(), duration * 1000);
+      }
+    }
+
+    function showAvatar() {
+      document.getElementById('content-overlay').style.display = 'none';
+      document.getElementById('avatar-container').style.display = 'block';
+      const frame = document.getElementById('video-frame');
+      if (frame) frame.src = '';
+      const dframe = document.getElementById('dashboard-frame');
+      if (dframe) dframe.src = '';
+      if (_slideshowTimer) { clearInterval(_slideshowTimer); _slideshowTimer = null; }
+      if (_displayReturnTimer) { clearTimeout(_displayReturnTimer); _displayReturnTimer = null; }
+    }
+
+    function renderVideo(content) {
+      const panel = document.getElementById('content-video');
+      panel.style.display = 'flex';
+      const frame = document.getElementById('video-frame');
+      if (content.provider === 'youtube') {
+        const embedUrl = content.embed_url ||
+          `https://www.youtube-nocookie.com/embed/${content.video_id}?autoplay=1&rel=0&modestbranding=1`;
+        frame.src = embedUrl;
+      } else if (content.provider === 'local') {
+        frame.src = content.url || '';
+      }
+    }
+
+    function renderRecipe(content) {
+      const panel = document.getElementById('content-recipe');
+      panel.style.display = 'flex';
+      panel.style.flexDirection = 'column';
+      panel.style.alignItems = 'flex-start';
+      panel.style.padding = '3rem';
+
+      let html = `<h1 style="font-size:2rem; margin-bottom:1rem;">${_esc(content.title || 'Recipe')}</h1>`;
+      if (content.prep_time || content.cook_time) {
+        html += `<p style="color:#94a3b8; margin-bottom:1.5rem;">`;
+        if (content.prep_time) html += `Prep: ${_esc(content.prep_time)} `;
+        if (content.cook_time) html += `Cook: ${_esc(content.cook_time)} `;
+        if (content.servings) html += `Serves: ${content.servings}`;
+        html += `</p>`;
+      }
+      if (content.ingredients) {
+        html += `<h2 style="font-size:1.3rem; margin-bottom:0.5rem;">Ingredients</h2><ul style="margin-bottom:1.5rem; padding-left:1.5rem;">`;
+        content.ingredients.forEach(i => { html += `<li style="margin-bottom:0.3rem;">${_esc(i)}</li>`; });
+        html += `</ul>`;
+      }
+      if (content.steps) {
+        html += `<h2 style="font-size:1.3rem; margin-bottom:0.5rem;">Steps</h2><ol style="padding-left:1.5rem;">`;
+        content.steps.forEach(s => {
+          const step = typeof s === 'string' ? s : s.text;
+          html += `<li style="margin-bottom:0.8rem; font-size:1.1rem;">${_esc(step)}`;
+          if (s.timer_seconds) {
+            html += ` <button onclick="startStepTimer(${s.timer_seconds})" style="background:#3b82f6; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;">⏱ ${Math.floor(s.timer_seconds/60)}min</button>`;
+          }
+          html += `</li>`;
+        });
+        html += `</ol>`;
+      }
+      panel.innerHTML = html;
+    }
+
+    function renderDashboard(content) {
+      const panel = document.getElementById('content-dashboard');
+      panel.style.display = 'flex';
+      document.getElementById('dashboard-frame').src = content.url || '';
+    }
+
+    function renderWeather(content) {
+      const panel = document.getElementById('content-weather');
+      panel.style.display = 'flex';
+      let html = `
+        <div style="text-align:center;">
+          <h1 style="font-size:4rem;">${content.temperature || '--'}°</h1>
+          <p style="font-size:1.5rem; color:#94a3b8;">${_esc(content.condition || '')}</p>
+          <p style="color:#64748b;">${_esc(content.location || '')}</p>
+        </div>`;
+      if (content.forecast) {
+        html += `<div style="display:flex; gap:2rem; margin-top:2rem;">`;
+        content.forecast.forEach(f => {
+          html += `<div style="text-align:center;">
+            <p style="font-weight:600;">${_esc(f.day)}</p>
+            <p>${f.high}° / ${f.low}°</p>
+            <p style="color:#94a3b8;">${_esc(f.condition)}</p>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+      panel.innerHTML = html;
+    }
+
+    function renderTimer(content) {
+      const panel = document.getElementById('content-timer');
+      panel.style.display = 'flex';
+      let remaining = content.remaining_seconds || content.total_seconds || 0;
+      function tick() {
+        const min = Math.floor(remaining / 60);
+        const sec = remaining % 60;
+        panel.innerHTML = `
+          <p style="font-size:1.5rem; color:#94a3b8; margin-bottom:1rem;">${_esc(content.label || 'Timer')}</p>
+          <h1 style="font-size:8rem; font-weight:300; font-variant-numeric:tabular-nums;">${min}:${sec.toString().padStart(2,'0')}</h1>`;
+        if (remaining > 0) { remaining--; setTimeout(tick, 1000); }
+        else { panel.innerHTML += `<p style="font-size:2rem; color:#22c55e; animation:pulse 1s infinite;">⏰ Time's up!</p>`; }
+      }
+      tick();
+    }
+
+    function renderList(content) {
+      const panel = document.getElementById('content-list');
+      panel.style.display = 'flex';
+      panel.style.alignItems = 'flex-start';
+      panel.style.padding = '3rem';
+      let html = `<h1 style="font-size:2rem; margin-bottom:1.5rem;">${_esc(content.title || 'List')}</h1>`;
+      html += `<ul style="list-style:none; width:100%; max-width:500px;">`;
+      (content.items || []).forEach(item => {
+        const text = typeof item === 'string' ? item : item.text;
+        const checked = typeof item === 'object' ? item.checked : false;
+        const style = checked ? 'text-decoration:line-through; color:#64748b;' : '';
+        html += `<li style="padding:0.8rem; border-bottom:1px solid #334155; font-size:1.2rem; ${style}">${checked ? '☑' : '☐'} ${_esc(text)}</li>`;
+      });
+      html += `</ul>`;
+      panel.innerHTML = html;
+    }
+
+    function renderPhotos(content) {
+      const panel = document.getElementById('content-photos');
+      panel.style.display = 'flex';
+      const img = document.getElementById('slideshow-img');
+      const photos = content.photos || [];
+      const interval = (content.interval_seconds || 10) * 1000;
+      let idx = 0;
+      function next() {
+        if (photos.length === 0) return;
+        img.src = photos[idx % photos.length];
+        idx++;
+      }
+      next();
+      _slideshowTimer = setInterval(next, interval);
+    }
+
+    function renderMediaPlayer(content) {
+      const panel = document.getElementById('content-media-player');
+      panel.style.display = 'flex';
+      panel.innerHTML = `
+        <div style="text-align:center;">
+          ${content.album_art_url ? `<img src="${_esc(content.album_art_url)}" style="width:300px; height:300px; border-radius:1rem; margin-bottom:2rem;">` : ''}
+          <h1 style="font-size:2rem;">${_esc(content.title || '')}</h1>
+          <p style="font-size:1.3rem; color:#94a3b8;">${_esc(content.artist || '')}</p>
+          <div style="margin-top:2rem;">
+            <span>${_fmtTime(content.progress_seconds || 0)}</span>
+            <span style="color:#475569;"> / </span>
+            <span>${_fmtTime(content.duration_seconds || 0)}</span>
+          </div>
+        </div>`;
+    }
+
+    function startStepTimer(seconds) {
+      handleDisplayCommand({mode: 'timer', content: {label: 'Step timer', total_seconds: seconds, remaining_seconds: seconds}, duration: 0});
+    }
+
+    function _esc(text) {
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    function _fmtTime(s) {
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${sec.toString().padStart(2,'0')}`;
     }
 
     // ── Load SVG skin ─────────────────────────────────────────

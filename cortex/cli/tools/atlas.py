@@ -573,3 +573,81 @@ class MemoryStoreTool(AgentTool):
             output=f"Stored: {content[:80]}{'…' if len(content) > 80 else ''}",
             metadata={"category": category},
         )
+
+
+# ---------------------------------------------------------------------------
+# Satellite display
+# ---------------------------------------------------------------------------
+
+
+class DisplayTool(AgentTool):
+    """Show content on a satellite tablet display (video, recipe, weather, etc.)."""
+
+    tool_id = "display"
+    description = (
+        "Show content on a satellite tablet display "
+        "(video, recipe, weather, dashboard, timer, list, photos)"
+    )
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "enum": [
+                    "avatar", "video", "recipe", "dashboard", "weather",
+                    "timer", "list", "photos", "media_player",
+                ],
+                "description": "What to display",
+            },
+            "room": {
+                "type": "string",
+                "description": "Target room (empty = all tablets)",
+                "default": "",
+            },
+            "content": {
+                "type": "object",
+                "description": "Content data (varies by mode)",
+            },
+            "duration": {
+                "type": "integer",
+                "description": "Seconds to show before returning to avatar (0 = until changed)",
+                "default": 0,
+            },
+        },
+        "required": ["mode"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolResult:
+        mode: str = params["mode"]
+        room: str = params.get("room", "")
+        content: dict[str, Any] = params.get("content", {})
+        duration: int = params.get("duration", 0)
+
+        try:
+            from cortex.satellite.display_protocol import send_display_command
+        except ImportError:
+            return ToolResult(
+                success=False, output="", error="Display module not available"
+            )
+
+        try:
+            ok = await send_display_command(room, mode, content, duration)
+        except Exception as exc:
+            return ToolResult(
+                success=False, output="", error=f"Display command failed: {exc}"
+            )
+
+        if not ok:
+            return ToolResult(
+                success=False,
+                output="",
+                error=f"Display command rejected for mode={mode}",
+            )
+        target = room or "all tablets"
+        return ToolResult(
+            success=True,
+            output=f"Showing {mode} on {target}",
+            metadata={"mode": mode, "room": room},
+        )
