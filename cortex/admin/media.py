@@ -234,3 +234,55 @@ async def remove_media_auth(provider: str, _: dict = Depends(require_admin)):
     from cortex.satellite.display_auth import get_media_auth
 
     return {"ok": get_media_auth().remove_auth(provider)}
+
+
+# ── YouTube OAuth device flow ────────────────────────────────────
+
+
+@router.post("/media/auth/youtube/start")
+async def start_youtube_auth(_: dict = Depends(require_admin)):
+    """Start YouTube OAuth device flow.  Returns code for user to enter."""
+    from cortex.satellite.display_auth import YouTubeOAuth
+
+    oauth = YouTubeOAuth()
+    flow = await oauth.start_device_flow()
+    return {
+        "user_code": flow["user_code"],
+        "verification_url": flow["verification_url"],
+        "message": f"Go to {flow['verification_url']} and enter code: {flow['user_code']}",
+        "device_code": flow["device_code"],
+        "expires_in": flow["expires_in"],
+    }
+
+
+class YouTubeCompleteRequest(BaseModel):
+    device_code: str
+    timeout: int = 120
+
+
+@router.post("/media/auth/youtube/complete")
+async def complete_youtube_auth(
+    req: YouTubeCompleteRequest,
+    _: dict = Depends(require_admin),
+):
+    """Poll for YouTube OAuth completion.  Call after user enters the code."""
+    import time as _time
+
+    from cortex.satellite.display_auth import YouTubeOAuth, get_media_auth
+
+    oauth = YouTubeOAuth()
+    token = await oauth.poll_for_token(req.device_code, timeout=req.timeout)
+    if token:
+        mgr = get_media_auth()
+        mgr.set_auth(
+            provider="youtube",
+            token=token["access_token"],
+            refresh_token=token.get("refresh_token", ""),
+            auth_type="oauth",
+            account_name="YouTube Premium",
+            is_premium=True,
+            expires_at=_time.time() + token.get("expires_in", 3600),
+        )
+        return {"ok": True, "message": "YouTube account linked!"}
+
+    return {"ok": False, "message": "Authorization timed out or was denied"}

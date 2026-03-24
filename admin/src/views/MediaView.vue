@@ -39,6 +39,14 @@ const newFeedUrl = ref('')
 const scanPath = ref('')
 const scanResult = ref('')
 
+// YouTube OAuth
+const ytAuthStep = ref('idle')      // idle | linking | polling | success | error
+const ytUserCode = ref('')
+const ytVerifyUrl = ref('')
+const ytDeviceCode = ref('')
+const ytMessage = ref('')
+const ytAuthProviders = ref([])
+
 async function fetchProviders() {
   loading.value = true
   error.value = ''
@@ -113,6 +121,64 @@ async function scanLibrary() {
   }
 }
 
+async function fetchYtAuth() {
+  try {
+    const data = await api.get('/admin/media/auth')
+    ytAuthProviders.value = data.providers || []
+  } catch (_) { /* ignore */ }
+}
+
+function ytIsLinked() {
+  return ytAuthProviders.value.some(p => p.provider === 'youtube' && p.authenticated)
+}
+
+async function startYouTubeAuth() {
+  ytAuthStep.value = 'linking'
+  ytMessage.value = ''
+  try {
+    const data = await api.post('/admin/media/auth/youtube/start')
+    ytUserCode.value = data.user_code
+    ytVerifyUrl.value = data.verification_url
+    ytDeviceCode.value = data.device_code
+    ytAuthStep.value = 'polling'
+    pollYouTubeAuth()
+  } catch (e) {
+    ytMessage.value = `Error: ${e.message}`
+    ytAuthStep.value = 'error'
+  }
+}
+
+async function pollYouTubeAuth() {
+  try {
+    const data = await api.post('/admin/media/auth/youtube/complete', {
+      device_code: ytDeviceCode.value,
+      timeout: 120,
+    })
+    if (data.ok) {
+      ytAuthStep.value = 'success'
+      ytMessage.value = data.message
+      fetchYtAuth()
+    } else {
+      ytAuthStep.value = 'error'
+      ytMessage.value = data.message
+    }
+  } catch (e) {
+    ytAuthStep.value = 'error'
+    ytMessage.value = `Error: ${e.message}`
+  }
+}
+
+async function unlinkYouTube() {
+  try {
+    await api.delete('/admin/media/auth/youtube')
+    ytAuthStep.value = 'idle'
+    ytMessage.value = ''
+    fetchYtAuth()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
 function prevPage() {
   if (historyPage.value > 1) {
     historyPage.value--
@@ -131,6 +197,7 @@ onMounted(() => {
   fetchHistory()
   fetchTargets()
   fetchPodcasts()
+  fetchYtAuth()
 })
 </script>
 
@@ -144,7 +211,7 @@ onMounted(() => {
       <!-- Tabs -->
       <div class="tabs">
         <button
-          v-for="tab in ['providers', 'now-playing', 'history', 'targets', 'podcasts', 'library']"
+          v-for="tab in ['providers', 'now-playing', 'history', 'targets', 'podcasts', 'library', 'youtube-auth']"
           :key="tab"
           :class="{ active: activeTab === tab }"
           @click="activeTab = tab"
@@ -238,6 +305,46 @@ onMounted(() => {
           <button @click="scanLibrary" class="btn-primary">Scan</button>
         </div>
         <div v-if="scanResult" class="scan-result">{{ scanResult }}</div>
+      </div>
+
+      <!-- YouTube Auth Tab -->
+      <div v-if="activeTab === 'youtube-auth'" class="tab-content">
+        <div class="yt-auth-card">
+          <h2>📺 YouTube Premium</h2>
+          <p class="yt-desc">Link your YouTube Premium account for ad-free video on satellite displays.</p>
+
+          <!-- Already linked -->
+          <div v-if="ytIsLinked() && ytAuthStep !== 'success'" class="yt-linked">
+            <p class="yt-status-ok">✅ YouTube account linked</p>
+            <button @click="unlinkYouTube" class="btn-danger">Unlink Account</button>
+          </div>
+
+          <!-- Idle: show Link button -->
+          <div v-else-if="ytAuthStep === 'idle' || ytAuthStep === 'error'">
+            <button @click="startYouTubeAuth" class="btn-primary btn-lg">🔗 Link YouTube Account</button>
+            <p v-if="ytMessage" class="yt-error">{{ ytMessage }}</p>
+          </div>
+
+          <!-- Linking: spinner -->
+          <div v-else-if="ytAuthStep === 'linking'" class="yt-polling">
+            <p>Starting device flow...</p>
+          </div>
+
+          <!-- Polling: show code -->
+          <div v-else-if="ytAuthStep === 'polling'" class="yt-code-display">
+            <p>Go to:</p>
+            <a :href="ytVerifyUrl" target="_blank" class="yt-verify-url">{{ ytVerifyUrl }}</a>
+            <p>And enter this code:</p>
+            <div class="yt-code">{{ ytUserCode }}</div>
+            <p class="yt-waiting">Waiting for authorization<span class="yt-dots">...</span></p>
+          </div>
+
+          <!-- Success -->
+          <div v-else-if="ytAuthStep === 'success'" class="yt-success">
+            <p class="yt-status-ok">✅ {{ ytMessage }}</p>
+            <button @click="ytAuthStep = 'idle'; fetchYtAuth()" class="btn-primary">Done</button>
+          </div>
+        </div>
       </div>
     </div>
   </AppLayout>
@@ -400,5 +507,93 @@ onMounted(() => {
   background: var(--bg-secondary);
   border-radius: var(--radius);
   margin-top: 0.5rem;
+}
+
+/* YouTube Auth */
+.yt-auth-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  max-width: 500px;
+}
+
+.yt-auth-card h2 { margin-bottom: 0.5rem; }
+
+.yt-desc {
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.yt-linked {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.yt-status-ok {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.btn-danger {
+  padding: 0.5rem 1rem;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.btn-danger:hover { opacity: 0.9; }
+
+.btn-lg { font-size: 1rem; padding: 0.75rem 1.5rem; }
+
+.yt-code-display { text-align: center; }
+
+.yt-verify-url {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0.5rem 0 1.5rem;
+}
+
+.yt-code {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  font-family: monospace;
+  background: var(--bg-primary);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 2rem;
+  display: inline-block;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.yt-waiting { color: var(--text-muted); font-size: 0.9rem; }
+
+@keyframes ytdots {
+  0% { content: ''; }
+  33% { content: '.'; }
+  66% { content: '..'; }
+  100% { content: '...'; }
+}
+.yt-dots { animation: ytdots 1.5s steps(4, end) infinite; }
+
+.yt-polling { text-align: center; color: var(--text-muted); padding: 2rem 0; }
+
+.yt-success { text-align: center; }
+.yt-success .btn-primary { margin-top: 1rem; }
+
+.yt-error {
+  color: var(--danger);
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
 }
 </style>

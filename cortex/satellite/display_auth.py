@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -134,7 +135,129 @@ class MediaAuthManager:
         return f"{base}/{video_id}?{params}"
 
 
+# ---------------------------------------------------------------------------
+# YouTube OAuth device flow (same flow as smart TVs)
+# ---------------------------------------------------------------------------
+
+
+class YouTubeOAuth:
+    """Google OAuth device flow for YouTube Premium — same flow as smart TVs.
+
+    Flow:
+    1. Atlas requests a device code from Google
+    2. User goes to google.com/device on their phone and enters the code
+    3. Atlas polls until user authorizes
+    4. OAuth token stored server-side, shared by all satellites + ytmusicapi
+    """
+
+    # Google OAuth endpoints
+    DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code"
+    TOKEN_URL = "https://oauth2.googleapis.com/token"
+    # ytmusicapi client credentials (public, same as YouTube TV app)
+    CLIENT_ID = (
+        "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com"
+    )
+    CLIENT_SECRET = "SboVhoG9s0rNafixCSGGKXAT"
+    SCOPES = "https://www.googleapis.com/auth/youtube"
+
+    async def start_device_flow(self) -> dict[str, object]:
+        """Start the OAuth device flow.
+
+        Returns ``{device_code, user_code, verification_url, expires_in, interval}``.
+        """
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                self.DEVICE_CODE_URL,
+                data={"client_id": self.CLIENT_ID, "scope": self.SCOPES},
+            )
+            r.raise_for_status()
+            data = r.json()
+            return {
+                "device_code": data["device_code"],
+                "user_code": data["user_code"],
+                "verification_url": data.get(
+                    "verification_url", "https://google.com/device"
+                ),
+                "expires_in": data.get("expires_in", 1800),
+                "interval": data.get("interval", 5),
+            }
+
+    async def poll_for_token(
+        self,
+        device_code: str,
+        interval: int = 5,
+        timeout: int = 300,
+    ) -> dict[str, object] | None:
+        """Poll Google until user authorises.
+
+        Returns ``{access_token, refresh_token, expires_in}`` or *None* on
+        timeout / denial.
+        """
+        import asyncio
+
+        import httpx
+
+        start = time.time()
+        async with httpx.AsyncClient() as client:
+            while time.time() - start < timeout:
+                await asyncio.sleep(interval)
+                r = await client.post(
+                    self.TOKEN_URL,
+                    data={
+                        "client_id": self.CLIENT_ID,
+                        "client_secret": self.CLIENT_SECRET,
+                        "device_code": device_code,
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    },
+                )
+                data = r.json()
+
+                if "access_token" in data:
+                    return {
+                        "access_token": data["access_token"],
+                        "refresh_token": data.get("refresh_token", ""),
+                        "expires_in": data.get("expires_in", 3600),
+                    }
+
+                error = data.get("error", "")
+                if error == "authorization_pending":
+                    continue
+                elif error == "slow_down":
+                    interval += 2
+                elif error in ("access_denied", "expired_token"):
+                    return None
+
+        return None
+
+    async def refresh_token(self, refresh_tok: str) -> dict[str, object] | None:
+        """Refresh an expired access token."""
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                self.TOKEN_URL,
+                data={
+                    "client_id": self.CLIENT_ID,
+                    "client_secret": self.CLIENT_SECRET,
+                    "refresh_token": refresh_tok,
+                    "grant_type": "refresh_token",
+                },
+            )
+            if r.status_code == 200:
+                data = r.json()
+                return {
+                    "access_token": data["access_token"],
+                    "expires_in": data.get("expires_in", 3600),
+                }
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Singleton
+# ---------------------------------------------------------------------------
+
 _manager: MediaAuthManager | None = None
 
 
