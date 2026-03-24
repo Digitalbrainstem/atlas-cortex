@@ -1371,3 +1371,475 @@ class BenchmarkTool(AgentTool):
                 "timings": [round(t, 4) for t in timings],
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Documentation Generation
+# ---------------------------------------------------------------------------
+
+
+def _find_undocumented(source: str, filepath: str) -> list[dict[str, Any]]:
+    """Find functions and classes without docstrings using ast."""
+    try:
+        tree = ast.parse(source, filename=filepath)
+    except SyntaxError:
+        return []
+
+    items: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            kind = "class" if isinstance(node, ast.ClassDef) else "function"
+            has_doc = (
+                node.body
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)
+            )
+            if not has_doc:
+                # Build signature for functions
+                sig = ""
+                if not isinstance(node, ast.ClassDef):
+                    args = []
+                    for arg in node.args.args:
+                        name = arg.arg
+                        annotation = ""
+                        if arg.annotation:
+                            annotation = ast.unparse(arg.annotation)
+                        args.append(f"{name}: {annotation}" if annotation else name)
+                    ret = ""
+                    if node.returns:
+                        ret = f" -> {ast.unparse(node.returns)}"
+                    sig = f"({', '.join(args)}){ret}"
+                items.append({
+                    "name": node.name,
+                    "kind": kind,
+                    "line": node.lineno,
+                    "signature": sig,
+                })
+    return items
+
+
+class DocGenerateTool(AgentTool):
+    """Generate or update documentation: docstrings, README, changelogs."""
+
+    tool_id = "doc_generate"
+    description = (
+        "Generate or update documentation: docstrings, README sections, changelogs"
+    )
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["docstrings", "readme", "changelog"],
+                "description": "Documentation action",
+            },
+            "path": {
+                "type": "string",
+                "description": "File or directory to document",
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Output file path (optional)",
+            },
+            "cwd": {"type": "string", "description": "Working directory"},
+        },
+        "required": ["action", "path"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolResult:
+        action = params.get("action", "")
+        path = params.get("path", "")
+
+        if action == "docstrings":
+            return self._scan_docstrings(path)
+        if action == "readme":
+            return self._generate_readme(path)
+        if action == "changelog":
+            cwd = _resolve_cwd(params, context)
+            return await self._generate_changelog(cwd, params)
+
+        return ToolResult(
+            success=False, output="", error=f"Unknown action: {action}"
+        )
+
+    def _scan_docstrings(self, path: str) -> ToolResult:
+        """Scan Python files for missing docstrings and generate stubs."""
+        target = Path(path)
+        if not target.exists():
+            return ToolResult(
+                success=False, output="", error=f"Path not found: {path}"
+            )
+
+        if target.is_file():
+            files = [target]
+        else:
+            files = sorted(target.rglob("*.py"))
+
+        all_missing: list[dict[str, Any]] = []
+        for fpath in files:
+            try:
+                source = fpath.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            missing = _find_undocumented(source, str(fpath))
+            for item in missing:
+                item["file"] = str(fpath)
+            all_missing.extend(missing)
+
+        if not all_missing:
+            return ToolResult(
+                success=True,
+                output="All functions and classes have docstrings.",
+                metadata={"files_scanned": len(files), "missing": 0},
+            )
+
+        lines: list[str] = [
+            f"Missing docstrings ({len(all_missing)} items in {len(files)} files):\n"
+        ]
+        for item in all_missing:
+            sig = item.get("signature", "")
+            lines.append(
+                f"  {item['file']}:{item['line']} "
+                f"{item['kind']} {item['name']}{sig}"
+            )
+
+        # Generate stub docstrings
+        lines.append("\nSuggested stubs:")
+        for item in all_missing[:20]:
+            if item["kind"] == "function":
+                lines.append(
+                    f'  {item["name"]}: """TODO: Document {item["name"]}."""'
+                )
+            else:
+                lines.append(
+                    f'  {item["name"]}: """TODO: Document the {item["name"]} class."""'
+                )
+
+        return ToolResult(
+            success=True,
+            output="\n".join(lines),
+            metadata={
+                "files_scanned": len(files),
+                "missing": len(all_missing),
+            },
+        )
+
+    def _generate_readme(self, path: str) -> ToolResult:
+        """Scan project structure and generate README sections."""
+        target = Path(path)
+        if not target.is_dir():
+            return ToolResult(
+                success=False, output="",
+                error=f"Not a directory: {path}",
+            )
+
+        # Collect project info
+        py_files = list(target.rglob("*.py"))
+        js_files = list(target.rglob("*.js")) + list(target.rglob("*.ts"))
+        test_files = [f for f in py_files if "test" in f.name.lower()]
+        has_docker = (target / "Dockerfile").is_file()
+        has_requirements = (target / "requirements.txt").is_file()
+        has_package_json = (target / "package.json").is_file()
+
+        # Top-level directories
+        dirs = sorted(
+            d.name for d in target.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        )
+
+        sections: list[str] = [f"# {target.name}\n"]
+
+        # Description placeholder
+        sections.append("> TODO: Project description\n")
+
+        # Project structure
+        sections.append("## Project Structure\n")
+        sections.append("```")
+        for d in dirs[:20]:
+            sections.append(f"├── {d}/")
+        sections.append("```\n")
+
+        # Setup
+        sections.append("## Setup\n")
+        if has_requirements:
+            sections.append("```bash")
+            sections.append("pip install -r requirements.txt")
+            sections.append("```\n")
+        if has_package_json:
+            sections.append("```bash")
+            sections.append("npm install")
+            sections.append("```\n")
+        if has_docker:
+            sections.append("```bash")
+            sections.append("docker build -t project .")
+            sections.append("```\n")
+
+        # Testing
+        if test_files:
+            sections.append("## Testing\n")
+            sections.append("```bash")
+            sections.append("python -m pytest tests/ -v")
+            sections.append("```\n")
+
+        # Stats
+        sections.append("## Stats\n")
+        sections.append(f"- Python files: {len(py_files)}")
+        if js_files:
+            sections.append(f"- JS/TS files: {len(js_files)}")
+        sections.append(f"- Test files: {len(test_files)}")
+        sections.append(f"- Directories: {len(dirs)}")
+
+        return ToolResult(
+            success=True,
+            output="\n".join(sections),
+            metadata={
+                "py_files": len(py_files),
+                "test_files": len(test_files),
+                "directories": len(dirs),
+            },
+        )
+
+    async def _generate_changelog(
+        self, cwd: str, params: dict[str, Any]
+    ) -> ToolResult:
+        """Delegate to ChangelogGenerateTool logic."""
+        # Use git log for changelog
+        try:
+            rc, out, err = await _run_cmd(
+                ["git", "--no-pager", "log", "--oneline", "-50"],
+                cwd, timeout=30,
+            )
+        except (asyncio.TimeoutError, OSError) as exc:
+            return ToolResult(success=False, output="", error=str(exc))
+
+        if rc != 0:
+            return ToolResult(
+                success=False, output="",
+                error=err or "git log failed",
+            )
+
+        return ToolResult(
+            success=True,
+            output=f"Recent commits:\n{out}",
+            metadata={"source": "git log"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Changelog Generation
+# ---------------------------------------------------------------------------
+
+# Conventional commit pattern: type(scope): description
+_CONVENTIONAL_RE = re.compile(
+    r"^(?P<type>feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)"
+    r"(?:\((?P<scope>[^)]+)\))?"
+    r"(?P<breaking>!)?"
+    r":\s*(?P<desc>.+)$",
+    re.IGNORECASE,
+)
+
+_TYPE_LABELS = {
+    "feat": "Features",
+    "fix": "Bug Fixes",
+    "docs": "Documentation",
+    "style": "Styling",
+    "refactor": "Refactoring",
+    "perf": "Performance",
+    "test": "Tests",
+    "chore": "Chores",
+    "ci": "CI/CD",
+    "build": "Build",
+    "revert": "Reverts",
+}
+
+
+class ChangelogGenerateTool(AgentTool):
+    """Generate changelog from git commits since a tag or date."""
+
+    tool_id = "changelog_generate"
+    description = "Generate changelog from git commits since a tag or date"
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "since": {
+                "type": "string",
+                "description": "Git tag or date to start from (e.g., 'v1.0.0' or '2024-01-01')",
+            },
+            "format": {
+                "type": "string",
+                "enum": ["markdown", "keep-a-changelog"],
+                "description": "Output format (default: markdown)",
+            },
+            "group_by": {
+                "type": "string",
+                "enum": ["type", "scope"],
+                "description": "Group commits by type or scope (default: type)",
+            },
+            "cwd": {"type": "string", "description": "Working directory"},
+        },
+        "required": ["since"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolResult:
+        since = params.get("since", "")
+        if not since:
+            return ToolResult(
+                success=False, output="",
+                error="since is required (tag or date)",
+            )
+
+        cwd = _resolve_cwd(params, context)
+        fmt = params.get("format", "markdown")
+        group_by = params.get("group_by", "type")
+
+        # Get commits since the reference
+        cmd = [
+            "git", "--no-pager", "log",
+            f"{since}..HEAD",
+            "--format=%H|%an|%aI|%s",
+        ]
+
+        try:
+            rc, out, err = await _run_cmd(cmd, cwd, timeout=30)
+        except (asyncio.TimeoutError, OSError) as exc:
+            return ToolResult(success=False, output="", error=str(exc))
+
+        if rc != 0:
+            return ToolResult(
+                success=False, output="",
+                error=err or f"git log failed (is '{since}' a valid ref?)",
+            )
+
+        if not out.strip():
+            return ToolResult(
+                success=True,
+                output=f"No commits found since {since}.",
+                metadata={"commit_count": 0},
+            )
+
+        # Parse commits
+        commits: list[dict[str, str]] = []
+        for line in out.strip().splitlines():
+            parts = line.split("|", 3)
+            if len(parts) < 4:
+                continue
+            sha, author, date, subject = parts
+            commits.append({
+                "sha": sha[:8],
+                "author": author,
+                "date": date[:10],
+                "subject": subject,
+            })
+
+        # Parse conventional commits
+        grouped: dict[str, list[dict[str, str]]] = {}
+        ungrouped: list[dict[str, str]] = []
+
+        for commit in commits:
+            m = _CONVENTIONAL_RE.match(commit["subject"])
+            if m:
+                ctype = m.group("type").lower()
+                scope = m.group("scope") or ""
+                desc = m.group("desc")
+                key = scope if group_by == "scope" else ctype
+                grouped.setdefault(key, []).append({
+                    **commit,
+                    "type": ctype,
+                    "scope": scope,
+                    "desc": desc,
+                    "breaking": bool(m.group("breaking")),
+                })
+            else:
+                ungrouped.append(commit)
+
+        # Format output
+        if fmt == "keep-a-changelog":
+            output = self._format_kac(since, grouped, ungrouped)
+        else:
+            output = self._format_markdown(since, grouped, ungrouped)
+
+        return ToolResult(
+            success=True,
+            output=output,
+            metadata={
+                "commit_count": len(commits),
+                "conventional_count": len(commits) - len(ungrouped),
+                "groups": list(grouped.keys()),
+            },
+        )
+
+    def _format_markdown(
+        self,
+        since: str,
+        grouped: dict[str, list[dict[str, str]]],
+        ungrouped: list[dict[str, str]],
+    ) -> str:
+        """Format as simple markdown."""
+        lines: list[str] = [f"# Changelog (since {since})\n"]
+
+        for key in sorted(grouped.keys()):
+            label = _TYPE_LABELS.get(key, key.title())
+            lines.append(f"## {label}\n")
+            for c in grouped[key]:
+                scope_prefix = f"**{c['scope']}:** " if c.get("scope") else ""
+                breaking = "⚠ BREAKING: " if c.get("breaking") else ""
+                lines.append(
+                    f"- {breaking}{scope_prefix}{c['desc']} "
+                    f"({c['sha']}) — {c['author']}"
+                )
+            lines.append("")
+
+        if ungrouped:
+            lines.append("## Other\n")
+            for c in ungrouped:
+                lines.append(
+                    f"- {c['subject']} ({c['sha']}) — {c['author']}"
+                )
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _format_kac(
+        self,
+        since: str,
+        grouped: dict[str, list[dict[str, str]]],
+        ungrouped: list[dict[str, str]],
+    ) -> str:
+        """Format using Keep a Changelog convention."""
+        lines: list[str] = [
+            f"## [Unreleased] - since {since}\n",
+        ]
+
+        # KAC categories
+        kac_map = {
+            "feat": "Added",
+            "fix": "Fixed",
+            "docs": "Changed",
+            "refactor": "Changed",
+            "perf": "Changed",
+            "revert": "Removed",
+        }
+
+        kac_groups: dict[str, list[str]] = {}
+        for key, commits in grouped.items():
+            kac_category = kac_map.get(key, "Changed")
+            for c in commits:
+                scope_prefix = f"**{c['scope']}:** " if c.get("scope") else ""
+                entry = f"{scope_prefix}{c['desc']}"
+                kac_groups.setdefault(kac_category, []).append(entry)
+
+        for category in ["Added", "Changed", "Deprecated", "Removed",
+                         "Fixed", "Security"]:
+            entries = kac_groups.get(category, [])
+            if entries:
+                lines.append(f"### {category}\n")
+                for entry in entries:
+                    lines.append(f"- {entry}")
+                lines.append("")
+
+        return "\n".join(lines)
