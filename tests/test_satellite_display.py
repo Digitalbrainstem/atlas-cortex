@@ -314,6 +314,115 @@ class TestMediaAuth:
         mgr = MediaAuthManager()
         assert mgr.list_providers() == []
 
+    # -- multi-user ---------------------------------------------------------
+
+    def test_per_user_set_and_get(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="global_tok", account_name="Family")
+        mgr.set_auth("youtube", token="jake_tok", account_name="Jake", user_id="jake")
+        # Jake gets his own
+        auth = mgr.get_auth("youtube", user_id="jake")
+        assert auth is not None
+        assert auth.token == "jake_tok"
+        assert auth.account_name == "Jake"
+        # Global still accessible
+        global_auth = mgr.get_auth("youtube")
+        assert global_auth is not None
+        assert global_auth.token == "global_tok"
+
+    def test_user_fallback_to_global(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="global_tok")
+        # No per-user auth for emma → falls back to global
+        auth = mgr.get_auth("youtube", user_id="emma")
+        assert auth is not None
+        assert auth.token == "global_tok"
+
+    def test_user_no_fallback_when_no_global(self):
+        mgr = MediaAuthManager()
+        auth = mgr.get_auth("youtube", user_id="nobody")
+        assert auth is None
+
+    def test_remove_user_auth_keeps_global(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g")
+        mgr.set_auth("youtube", token="u", user_id="jake")
+        assert mgr.remove_auth("youtube", user_id="jake")
+        assert mgr.get_auth("youtube") is not None  # global still there
+        assert mgr.get_auth("youtube", user_id="jake") is not None  # falls back
+
+    def test_remove_global_keeps_user(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g")
+        mgr.set_auth("youtube", token="u", user_id="jake")
+        assert mgr.remove_auth("youtube")  # remove global
+        assert mgr.get_auth("youtube") is None
+        jake = mgr.get_auth("youtube", user_id="jake")
+        assert jake is not None
+        assert jake.token == "u"
+
+    def test_set_global_default_from_user(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="dad_tok", account_name="Dad", is_premium=True, user_id="dad")
+        assert mgr.set_global_default("youtube", "dad")
+        global_auth = mgr.get_auth("youtube")
+        assert global_auth is not None
+        assert global_auth.token == "dad_tok"
+        assert global_auth.account_name == "Dad"
+        assert global_auth.is_premium is True
+
+    def test_set_global_default_nonexistent_user(self):
+        mgr = MediaAuthManager()
+        assert not mgr.set_global_default("youtube", "ghost")
+
+    def test_is_authenticated_user_fallback(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g")
+        assert mgr.is_authenticated("youtube", user_id="anyone")
+
+    def test_is_premium_user_specific(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g", is_premium=False)
+        mgr.set_auth("youtube", token="u", is_premium=True, user_id="jake")
+        assert mgr.is_premium("youtube", user_id="jake")
+        assert not mgr.is_premium("youtube")
+
+    def test_list_providers_includes_user_info(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g", account_name="Family")
+        mgr.set_auth("youtube", token="u", account_name="Jake", user_id="jake")
+        listing = mgr.list_providers()
+        assert len(listing) == 2
+        global_entry = [e for e in listing if e["is_global"]]
+        user_entry = [e for e in listing if not e["is_global"]]
+        assert len(global_entry) == 1
+        assert global_entry[0]["user_id"] == ""
+        assert len(user_entry) == 1
+        assert user_entry[0]["user_id"] == "jake"
+
+    def test_storage_key_helper(self):
+        assert MediaAuthManager._key("youtube") == "youtube"
+        assert MediaAuthManager._key("youtube", "jake") == "youtube:jake"
+        assert MediaAuthManager._key("plex", "") == "plex"
+
+    def test_persistence_multi_user(self):
+        mgr1 = MediaAuthManager()
+        mgr1.set_auth("youtube", token="g", account_name="Global")
+        mgr1.set_auth("youtube", token="j", account_name="Jake", user_id="jake")
+        # Reload
+        mgr2 = MediaAuthManager()
+        assert mgr2.get_auth("youtube").token == "g"
+        assert mgr2.get_auth("youtube", user_id="jake").token == "j"
+
+    def test_embed_url_per_user_premium(self):
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="g", is_premium=False)
+        mgr.set_auth("youtube", token="u", is_premium=True, user_id="jake")
+        url = mgr.get_youtube_embed_url("vid1", user_id="jake")
+        assert "fs=1" in url
+        url_global = mgr.get_youtube_embed_url("vid1")
+        assert "fs=1" not in url_global
+
 
 # ── get_media_auth singleton ─────────────────────────────────────
 
@@ -510,6 +619,12 @@ class TestAdminMediaAuthEndpoints:
 
         paths = [getattr(r, "path", "") for r in router.routes]
         assert "/media/auth/youtube/complete" in paths
+
+    def test_router_has_set_global(self):
+        from cortex.admin.media import router
+
+        paths = [getattr(r, "path", "") for r in router.routes]
+        assert "/media/auth/{provider}/set-global" in paths
 
 
 # ── YouTubeOAuth ─────────────────────────────────────────────────
@@ -722,7 +837,7 @@ class TestYouTubeOAuthEndpoints:
     """Verify the admin endpoints call the right OAuth methods."""
 
     async def test_start_youtube_auth_endpoint(self):
-        from cortex.admin.media import start_youtube_auth
+        from cortex.admin.media import YouTubeStartRequest, start_youtube_auth
 
         mock_flow = {
             "device_code": "dc_123",
@@ -737,12 +852,34 @@ class TestYouTubeOAuthEndpoints:
             new_callable=AsyncMock,
             return_value=mock_flow,
         ):
-            result = await start_youtube_auth(_={})
+            req = YouTubeStartRequest(user_id="")
+            result = await start_youtube_auth(req=req, _={})
 
         assert result["user_code"] == "WXYZ-1234"
         assert result["device_code"] == "dc_123"
         assert "google.com/device" in result["verification_url"]
         assert "WXYZ-1234" in result["message"]
+
+    async def test_start_youtube_auth_with_user_id(self):
+        from cortex.admin.media import YouTubeStartRequest, start_youtube_auth
+
+        mock_flow = {
+            "device_code": "dc_456",
+            "user_code": "USER-CODE",
+            "verification_url": "https://google.com/device",
+            "expires_in": 1800,
+            "interval": 5,
+        }
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.start_device_flow",
+            new_callable=AsyncMock,
+            return_value=mock_flow,
+        ):
+            req = YouTubeStartRequest(user_id="jake")
+            result = await start_youtube_auth(req=req, _={})
+
+        assert result["user_id"] == "jake"
 
     async def test_complete_youtube_auth_success(self, tmp_path, monkeypatch):
         from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
@@ -777,6 +914,76 @@ class TestYouTubeOAuthEndpoints:
         assert mgr.is_authenticated("youtube")
         assert mgr.is_premium("youtube")
 
+    async def test_complete_youtube_auth_per_user(self, tmp_path, monkeypatch):
+        from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
+
+        monkeypatch.setattr(
+            "cortex.satellite.display_auth.AUTH_FILE",
+            tmp_path / "media_auth.json",
+        )
+        monkeypatch.setattr("cortex.satellite.display_auth._manager", None)
+
+        mock_token = {
+            "access_token": "ya29.jake",
+            "refresh_token": "1//jake_ref",
+            "expires_in": 3600,
+        }
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.poll_for_token",
+            new_callable=AsyncMock,
+            return_value=mock_token,
+        ):
+            req = YouTubeCompleteRequest(
+                device_code="dc_jake", timeout=5, user_id="jake"
+            )
+            result = await complete_youtube_auth(req=req, _={})
+
+        assert result["ok"] is True
+
+        from cortex.satellite.display_auth import get_media_auth
+
+        mgr = get_media_auth()
+        assert mgr.is_authenticated("youtube", user_id="jake")
+        # Global should NOT be set
+        assert not mgr.is_authenticated("youtube")
+
+    async def test_complete_youtube_auth_set_global(self, tmp_path, monkeypatch):
+        from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
+
+        monkeypatch.setattr(
+            "cortex.satellite.display_auth.AUTH_FILE",
+            tmp_path / "media_auth.json",
+        )
+        monkeypatch.setattr("cortex.satellite.display_auth._manager", None)
+
+        mock_token = {
+            "access_token": "ya29.dad",
+            "refresh_token": "1//dad_ref",
+            "expires_in": 3600,
+        }
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.poll_for_token",
+            new_callable=AsyncMock,
+            return_value=mock_token,
+        ):
+            req = YouTubeCompleteRequest(
+                device_code="dc_dad", timeout=5,
+                user_id="dad", set_global=True,
+            )
+            result = await complete_youtube_auth(req=req, _={})
+
+        assert result["ok"] is True
+
+        from cortex.satellite.display_auth import get_media_auth
+
+        mgr = get_media_auth()
+        # Both per-user and global should be set
+        assert mgr.is_authenticated("youtube", user_id="dad")
+        assert mgr.is_authenticated("youtube")
+        assert mgr.get_auth("youtube").token == "ya29.dad"
+
     async def test_complete_youtube_auth_denied(self, tmp_path, monkeypatch):
         from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
 
@@ -796,3 +1003,125 @@ class TestYouTubeOAuthEndpoints:
 
         assert result["ok"] is False
         assert "timed out" in result["message"].lower() or "denied" in result["message"].lower()
+
+
+# ── Auto-refresh token ───────────────────────────────────────────
+
+
+class TestEnsureFreshToken:
+    """Test transparent auto-refresh of expired access tokens."""
+
+    @pytest.fixture(autouse=True)
+    def _use_tmp_auth_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "cortex.satellite.display_auth.AUTH_FILE",
+            tmp_path / "media_auth.json",
+        )
+
+    async def test_returns_token_when_not_expired(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="valid_tok", refresh_token="ref",
+            expires_at=_time.time() + 3600,
+        )
+        tok = await mgr.ensure_fresh_token("youtube")
+        assert tok == "valid_tok"
+
+    async def test_refreshes_expired_token(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="old_tok", refresh_token="ref_tok",
+            expires_at=_time.time() - 100,  # expired
+        )
+
+        mock_refresh = AsyncMock(return_value={
+            "access_token": "new_tok",
+            "expires_in": 3600,
+        })
+
+        with patch.object(YouTubeOAuth, "refresh_token", mock_refresh):
+            tok = await mgr.ensure_fresh_token("youtube")
+
+        assert tok == "new_tok"
+        # Verify it was persisted
+        auth = mgr.get_auth("youtube")
+        assert auth.token == "new_tok"
+
+    async def test_refreshes_within_5min_buffer(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="almost_expired", refresh_token="ref",
+            expires_at=_time.time() + 200,  # within 5-min buffer
+        )
+
+        mock_refresh = AsyncMock(return_value={
+            "access_token": "refreshed",
+            "expires_in": 3600,
+        })
+
+        with patch.object(YouTubeOAuth, "refresh_token", mock_refresh):
+            tok = await mgr.ensure_fresh_token("youtube")
+
+        assert tok == "refreshed"
+
+    async def test_returns_stale_when_no_refresh_token(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="stale_tok", refresh_token="",
+            expires_at=_time.time() - 100,
+        )
+        tok = await mgr.ensure_fresh_token("youtube")
+        assert tok == "stale_tok"
+
+    async def test_returns_stale_when_refresh_fails(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="stale_tok", refresh_token="ref",
+            expires_at=_time.time() - 100,
+        )
+
+        with patch.object(YouTubeOAuth, "refresh_token", AsyncMock(return_value=None)):
+            tok = await mgr.ensure_fresh_token("youtube")
+
+        assert tok == "stale_tok"
+
+    async def test_returns_none_when_no_auth(self):
+        mgr = MediaAuthManager()
+        tok = await mgr.ensure_fresh_token("youtube")
+        assert tok is None
+
+    async def test_per_user_auto_refresh(self):
+        import time as _time
+
+        mgr = MediaAuthManager()
+        mgr.set_auth(
+            "youtube", token="jake_old", refresh_token="jake_ref",
+            expires_at=_time.time() - 100, user_id="jake",
+        )
+
+        mock_refresh = AsyncMock(return_value={
+            "access_token": "jake_new",
+            "expires_in": 3600,
+        })
+
+        with patch.object(YouTubeOAuth, "refresh_token", mock_refresh):
+            tok = await mgr.ensure_fresh_token("youtube", user_id="jake")
+
+        assert tok == "jake_new"
+
+    async def test_no_refresh_when_expires_at_zero(self):
+        """When expires_at is 0 (not set), do not attempt refresh."""
+        mgr = MediaAuthManager()
+        mgr.set_auth("youtube", token="tok_no_expiry", refresh_token="ref")
+        tok = await mgr.ensure_fresh_token("youtube")
+        assert tok == "tok_no_expiry"
