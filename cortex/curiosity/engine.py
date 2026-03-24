@@ -1,5 +1,18 @@
 """Core curiosity engine — thinks like an analytical scientist.
 
+Architecture based on Derek Thomas's original design.  Five sub-modules
+collaborate inside the engine:
+
+1. **EleganceScorer**      — measures solution beauty
+2. **ResidualAnalyzer**    — examines what models get wrong
+3. **PerspectiveRotator**  — 8 scientific lenses, max cognitive distance
+4. **DriveController**     — research/practical/urgent exploration depth
+5. **CrossDomainConnector** — archetype-based analogy graph
+
+The *PatternObserver* and *HypothesisTracker* from the first version are
+retained — they handle the operational side (tool usage patterns, workflow
+improvements) while the five scientific modules handle analytical depth.
+
 Module ownership: Curiosity engine — autonomous improvement
 """
 from __future__ import annotations
@@ -7,10 +20,15 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
+from cortex.curiosity.connector import CrossDomainConnector
+from cortex.curiosity.drive import DriveController
+from cortex.curiosity.elegance import EleganceBreakdown, EleganceScorer
 from cortex.curiosity.hypothesis import HypothesisTracker
 from cortex.curiosity.observer import PatternObserver
+from cortex.curiosity.perspectives import Lens, PerspectiveRotator
+from cortex.curiosity.residuals import ResidualAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -20,23 +38,43 @@ _DEFAULT_STATE_DIR = os.path.expanduser("~/.atlas/curiosity")
 class CuriosityEngine:
     """Atlas's inner scientist.  Observes, hypothesizes, experiments, learns.
 
-    The engine runs as a background process (or is called periodically)
-    and surfaces improvements to the user/system.
+    The engine has two complementary halves:
 
-    Inspiration: the scientific method applied to AI self-improvement.
+    **Operational side** (PatternObserver + HypothesisTracker):
+      Watches tool usage, errors, task durations, user corrections.
+      Proposes workflow improvements and automation.
+
+    **Analytical side** (EleganceScorer + ResidualAnalyzer +
+    PerspectiveRotator + DriveController + CrossDomainConnector):
+      Applies the scientific method to any analysis task.
+      Scores elegance, examines residuals, rotates perspectives,
+      and suggests cross-domain analogies.
 
     Cycle:
-      1. OBSERVE      — Watch tool usage, errors, task durations, user corrections
-      2. HYPOTHESIZE   — Form theories about what could be improved
-      3. EXPERIMENT    — Propose and run controlled tests
-      4. LEARN         — Store validated insights to memory
-      5. PROPOSE       — Surface actionable improvements
-      6. CROSS-POLLINATE — Apply learnings from one domain to another
+      1. OBSERVE        — Watch behaviour / score solutions
+      2. HYPOTHESIZE    — Form theories about improvements
+      3. EXPERIMENT     — Propose and run controlled tests
+      4. LEARN          — Store validated insights to memory
+      5. PROPOSE        — Surface actionable improvements
+      6. CROSS-POLLINATE — Apply learnings across domains
     """
 
-    def __init__(self, state_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        state_dir: str | Path | None = None,
+        drive_mode: str = "practical",
+    ) -> None:
+        # Operational modules
         self.observer = PatternObserver()
         self.tracker = HypothesisTracker()
+
+        # Analytical modules (Derek Thomas design)
+        self.elegance = EleganceScorer()
+        self.residuals = ResidualAnalyzer()
+        self.perspectives = PerspectiveRotator()
+        self.drive = DriveController(mode=drive_mode)
+        self.connector = CrossDomainConnector()
+
         self._insights: list[dict[str, Any]] = []
         self._state_path = Path(state_dir or _DEFAULT_STATE_DIR)
 
@@ -71,10 +109,70 @@ class CuriosityEngine:
         """Hook: called when user corrects Atlas."""
         self.observer.observe_user_correction(original, correction)
 
-    # ── Analysis (run periodically or on-demand) ──────────────────
+    # ── Analytical pipeline (scientific method) ───────────────────
+
+    def score_elegance(
+        self,
+        solution_text: str,
+        residuals_data: Sequence[float] | None = None,
+        problem_text: str = "",
+    ) -> EleganceBreakdown:
+        """Score a solution's elegance.  Lower total = more beautiful."""
+        return self.elegance.score(solution_text, residuals_data, problem_text)
+
+    def analyze_residuals(
+        self,
+        predictions: Sequence[float],
+        actuals: Sequence[float],
+        metadata: dict[str, Sequence[Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Examine prediction errors for missing physics.
+
+        Returns a list of findings as dicts.
+        """
+        findings = self.residuals.analyze(predictions, actuals, metadata)
+        return [
+            {
+                "type": f.finding_type,
+                "field": f.field,
+                "detail": f.detail,
+                "strength": f.strength,
+            }
+            for f in findings
+        ]
+
+    def next_perspective(
+        self,
+        current_score: float = 0.0,
+        current_lens: str | None = None,
+    ) -> Lens | None:
+        """Get the next scientific lens to try (maximises cognitive distance)."""
+        return self.perspectives.next_lens(current_score, current_lens)
+
+    def should_keep_exploring(self, current_score: float) -> bool:
+        """Ask the drive controller if we should keep going."""
+        return self.drive.should_continue(current_score)
+
+    def suggest_analogies(
+        self, concept: str, domain: str = "transformers",
+    ) -> list[dict[str, str]]:
+        """Get cross-domain analogies for a concept."""
+        analogies = self.connector.suggest_analogies(concept, domain)
+        return [
+            {
+                "source": a.source_domain,
+                "target": a.target_domain,
+                "archetype": a.archetype,
+                "analogy": a.analogy,
+                "prompt": a.prompt,
+            }
+            for a in analogies
+        ]
+
+    # ── Operational analysis (pattern-based) ──────────────────────
 
     async def analyze(self) -> list[dict[str, Any]]:
-        """Run a full analysis cycle.  Returns actionable insights."""
+        """Run a full operational analysis cycle.  Returns actionable insights."""
         insights: list[dict[str, Any]] = []
 
         patterns = self.observer.get_notable_patterns()
@@ -202,11 +300,11 @@ class CuriosityEngine:
         return "\n".join(parts)
 
     async def cross_pollinate(self, current_domain: str) -> list[str]:
-        """Look for insights from other domains that might apply here.
+        """Look for insights from other domains via persistent memory.
 
-        Example: "In the web scraping project, we found that connection pooling
-        reduced API latency by 60%.  The current project also makes many HTTP
-        calls — should we try pooling here too?"
+        Complements ``suggest_analogies()`` which uses the static archetype
+        graph — this method searches Atlas's long-term memory for insights
+        from past sessions.
         """
         suggestions: list[str] = []
         try:
@@ -238,7 +336,7 @@ class CuriosityEngine:
         """Return text to append to the agent's system prompt."""
         return (
             "\n## Scientific Thinking\n\n"
-            "You have an inner scientist. As you work:\n"
+            "You have an inner scientist — the Curiosity Engine. As you work:\n"
             "- Question assumptions: "
             '"Is this the best approach? What alternatives exist?"\n'
             "- Notice patterns: "
@@ -247,11 +345,18 @@ class CuriosityEngine:
             '"I think caching would help. Let me benchmark before and after."\n'
             "- Learn from errors: "
             '"This failed because X. I\'ll remember this for next time."\n'
-            "- Cross-reference: "
-            '"This is similar to a pattern I saw in another project."\n'
+            "- Rotate perspectives: "
+            '"What if I view this as a fluid dynamics problem? An information '
+            'theory problem?"\n'
+            "- Seek elegance: "
+            '"Can I reduce the number of arbitrary constants? '
+            'Are the residuals random?"\n'
+            "- Cross-pollinate: "
+            '"This bottleneck pattern maps to Venturi constriction in fluids."\n'
             "\n"
             "When you notice an improvement opportunity, "
             "use tool_propose to create automation.\n"
             "When you validate an approach works better, "
             "store it to memory for future use.\n"
         )
+

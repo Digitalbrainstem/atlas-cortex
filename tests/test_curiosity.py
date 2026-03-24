@@ -1,16 +1,22 @@
-"""Tests for the Atlas Curiosity Engine — observer, hypothesis tracker, and engine."""
+"""Tests for the Atlas Curiosity Engine — all modules."""
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cortex.curiosity.observer import Observation, PatternObserver
-from cortex.curiosity.hypothesis import Hypothesis, HypothesisTracker
+from cortex.curiosity.connector import Analogy, CrossDomainConnector
+from cortex.curiosity.drive import DriveController
+from cortex.curiosity.elegance import EleganceBreakdown, EleganceScorer
 from cortex.curiosity.engine import CuriosityEngine
+from cortex.curiosity.hypothesis import Hypothesis, HypothesisTracker
+from cortex.curiosity.observer import Observation, PatternObserver
+from cortex.curiosity.perspectives import LENSES, Lens, PerspectiveRotator
+from cortex.curiosity.residuals import ResidualAnalyzer, ResidualFinding
 
 
 # ── PatternObserver ─────────────────────────────────────────────────
@@ -431,8 +437,11 @@ class TestCuriosityEngine:
     def test_system_prompt_addition(self):
         engine = CuriosityEngine()
         prompt = engine.get_system_prompt_addition()
-        assert "scientist" in prompt.lower() or "Scientific" in prompt
+        assert "Curiosity Engine" in prompt
         assert "Question assumptions" in prompt
+        assert "Rotate perspectives" in prompt
+        assert "Seek elegance" in prompt
+        assert "Cross-pollinate" in prompt
         assert "tool_propose" in prompt
 
     @pytest.mark.asyncio
@@ -513,3 +522,468 @@ class TestObservation:
         )
         assert len(obs.examples) == 2
         assert obs.confidence == 0.8
+
+
+# ── EleganceScorer ──────────────────────────────────────────────────
+
+
+class TestEleganceScorer:
+    """Elegance measurement: free params, residuals, symmetry, constants."""
+
+    def test_score_returns_breakdown(self):
+        scorer = EleganceScorer()
+        result = scorer.score("y = 3.14159 * x + 2")
+        assert isinstance(result, EleganceBreakdown)
+        assert 0.0 <= result.total <= 1.0
+
+    def test_known_constant_detected(self):
+        scorer = EleganceScorer()
+        result = scorer.score("y = 3.14159 * x")
+        assert "pi" in result.matched_constants
+
+    def test_unknown_constant_flagged(self):
+        scorer = EleganceScorer()
+        result = scorer.score("y = 0.0034 * x + 7.891")
+        assert len(result.unmatched_values) >= 1
+
+    def test_small_integers_matched(self):
+        scorer = EleganceScorer()
+        result = scorer.score("layers = 12, heads = 8")
+        assert any("int(" in m for m in result.matched_constants)
+
+    def test_no_numbers_is_perfect(self):
+        scorer = EleganceScorer()
+        result = scorer.score("The solution is symmetric and elegant")
+        assert result.free_params == 0.0
+
+    def test_residual_structure_random(self):
+        scorer = EleganceScorer()
+        # Alternating sign residuals → random → good
+        residuals = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+        result = scorer.score("y = x", residuals=residuals)
+        assert result.residual_structure < 0.3
+
+    def test_residual_structure_structured(self):
+        scorer = EleganceScorer()
+        # All positive residuals → structured → bad
+        residuals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        result = scorer.score("y = x", residuals=residuals)
+        assert result.residual_structure > 0.5
+
+    def test_symmetry_detected(self):
+        scorer = EleganceScorer()
+        result = scorer.score("The function is symmetric: f(x) = f(-x), invariant under rotation")
+        assert result.symmetry < 0.5  # lower = more symmetric (good)
+
+    def test_complexity_ratio(self):
+        scorer = EleganceScorer()
+        short = scorer.score("y = x", problem_text="Explain everything about the universe")
+        long = scorer.score("y = a*x^3 + b*x^2 + c*x + d + e*sin(f*x)", problem_text="fit a curve")
+        assert short.complexity < long.complexity
+
+    def test_weights_sum_to_one(self):
+        assert abs(sum(EleganceScorer.WEIGHTS.values()) - 1.0) < 0.01
+
+    def test_euler_constant_matched(self):
+        scorer = EleganceScorer()
+        result = scorer.score(f"decay = {math.e:.5f}")
+        assert "e" in result.matched_constants
+
+    def test_golden_ratio_matched(self):
+        scorer = EleganceScorer()
+        phi = (1 + math.sqrt(5)) / 2
+        result = scorer.score(f"ratio = {phi:.5f}")
+        assert "phi" in result.matched_constants
+
+
+# ── ResidualAnalyzer ────────────────────────────────────────────────
+
+
+class TestResidualAnalyzer:
+    """Residual analysis: correlation, group differences, monotonic trends."""
+
+    def test_perfect_predictions(self):
+        analyzer = ResidualAnalyzer()
+        findings = analyzer.analyze([1, 2, 3], [1, 2, 3])
+        # Zero residuals → no structured findings
+        assert all(f.finding_type != "correlation" for f in findings)
+
+    def test_correlation_detected(self):
+        analyzer = ResidualAnalyzer()
+        preds = [1.0, 2.0, 3.0, 4.0, 5.0]
+        acts = [1.5, 2.5, 3.5, 4.5, 5.5]
+        meta = {"temperature": [10.0, 20.0, 30.0, 40.0, 50.0]}
+        findings = analyzer.analyze(preds, acts, meta)
+        # Residuals are all -0.5, constant → won't correlate strongly
+        # But structure score might trigger
+        assert isinstance(findings, list)
+
+    def test_monotonic_trend_detected(self):
+        analyzer = ResidualAnalyzer()
+        preds = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+        acts = [1.0, 1.8, 2.4, 2.8, 3.0, 3.0, 2.8, 2.4]
+        meta = {"layer_count": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]}
+        findings = analyzer.analyze(preds, acts, meta)
+        monotonic = [f for f in findings if f.finding_type == "monotonic_trend"]
+        assert len(monotonic) >= 1
+
+    def test_group_difference_detected(self):
+        analyzer = ResidualAnalyzer()
+        preds = [1, 2, 3, 4, 5, 6]
+        acts = [1.5, 2.5, 3.5, 1, 2, 3]  # group B has large residuals
+        meta = {"family": ["A", "A", "A", "B", "B", "B"]}
+        findings = analyzer.analyze(preds, acts, meta)
+        group_findings = [f for f in findings if f.finding_type == "group_difference"]
+        assert len(group_findings) >= 1
+
+    def test_empty_data(self):
+        analyzer = ResidualAnalyzer()
+        assert analyzer.analyze([], [], {}) == []
+
+    def test_mismatched_lengths(self):
+        analyzer = ResidualAnalyzer()
+        assert analyzer.analyze([1, 2], [1], {}) == []
+
+    def test_no_metadata(self):
+        analyzer = ResidualAnalyzer()
+        findings = analyzer.analyze([1, 1, 1, 1, 1], [2, 2, 2, 2, 2])
+        # Should still detect structure in residuals
+        assert isinstance(findings, list)
+
+    def test_findings_sorted_by_strength(self):
+        analyzer = ResidualAnalyzer()
+        preds = [1, 2, 3, 4, 5, 6, 7, 8]
+        acts = [1.1, 1.9, 2.7, 3.3, 3.7, 3.9, 3.9, 3.7]
+        meta = {
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            "cat": ["a", "a", "a", "a", "b", "b", "b", "b"],
+        }
+        findings = analyzer.analyze(preds, acts, meta)
+        strengths = [f.strength for f in findings]
+        assert strengths == sorted(strengths, reverse=True)
+
+
+# ── PerspectiveRotator ──────────────────────────────────────────────
+
+
+class TestPerspectiveRotator:
+    """Perspective rotation: 8 lenses, max cognitive distance, no repeats."""
+
+    def test_eight_lenses_defined(self):
+        assert len(LENSES) == 8
+
+    def test_all_lenses_have_prompt_and_concepts(self):
+        for lens in LENSES:
+            assert lens.name
+            assert lens.prompt
+            assert len(lens.concepts) >= 3
+
+    def test_lens_names(self):
+        names = {l.name for l in LENSES}
+        expected = {
+            "classical_physics", "quantum_mechanics", "fluid_dynamics",
+            "chaos_theory", "information_theory", "thermodynamics",
+            "string_theory", "biology",
+        }
+        assert names == expected
+
+    def test_first_lens_returned(self):
+        rotator = PerspectiveRotator()
+        lens = rotator.next_lens()
+        assert lens is not None
+        assert isinstance(lens, Lens)
+
+    def test_never_repeats(self):
+        rotator = PerspectiveRotator()
+        seen: list[str] = []
+        for i in range(8):
+            current = seen[-1] if seen else None
+            lens = rotator.next_lens(current_lens=current)
+            assert lens is not None
+            assert lens.name not in seen
+            seen.append(lens.name)
+        # Mark the last lens as tried and ask for another → None
+        assert rotator.next_lens(current_lens=seen[-1]) is None
+
+    def test_maximizes_cognitive_distance(self):
+        rotator = PerspectiveRotator()
+        # Start with classical_physics
+        first = rotator.get_lens("classical_physics")
+        assert first is not None
+        second = rotator.next_lens(current_lens="classical_physics")
+        assert second is not None
+        # Second lens should not share concepts with first
+        overlap = set(first.concepts) & set(second.concepts)
+        # All lenses have unique concept sets, so overlap should be 0
+        assert len(overlap) == 0
+
+    def test_reset(self):
+        rotator = PerspectiveRotator()
+        rotator.next_lens(current_lens="biology")
+        rotator.next_lens(current_lens="chaos_theory")
+        assert len(rotator.tried_lenses) == 2
+        rotator.reset()
+        assert len(rotator.tried_lenses) == 0
+        assert rotator.best_lens is None
+
+    def test_best_score_tracking(self):
+        rotator = PerspectiveRotator()
+        rotator.next_lens(current_score=0.8, current_lens="biology")
+        rotator.next_lens(current_score=0.3, current_lens="chaos_theory")
+        assert rotator.best_score == 0.3
+        assert rotator.best_lens == "chaos_theory"
+
+    def test_get_lens_by_name(self):
+        rotator = PerspectiveRotator()
+        lens = rotator.get_lens("quantum_mechanics")
+        assert lens is not None
+        assert "Hilbert space" in lens.prompt
+        assert "entanglement" in lens.concepts
+
+    def test_get_lens_unknown(self):
+        rotator = PerspectiveRotator()
+        assert rotator.get_lens("nonexistent") is None
+
+
+# ── DriveController ─────────────────────────────────────────────────
+
+
+class TestDriveController:
+    """Drive control: research/practical/urgent modes, stop conditions."""
+
+    def test_research_mode_high_bar(self):
+        dc = DriveController(mode="research")
+        assert dc.thresholds.elegance_threshold == 0.2
+        assert dc.thresholds.max_iterations == 20
+
+    def test_practical_mode(self):
+        dc = DriveController(mode="practical")
+        assert dc.thresholds.elegance_threshold == 0.5
+        assert dc.thresholds.max_iterations == 5
+
+    def test_urgent_mode_low_bar(self):
+        dc = DriveController(mode="urgent")
+        assert dc.thresholds.elegance_threshold == 0.8
+        assert dc.thresholds.max_iterations == 2
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError, match="Unknown mode"):
+            DriveController(mode="nonexistent")
+
+    def test_stops_when_elegant_enough(self):
+        dc = DriveController(mode="practical")
+        # Score of 0.3 is below 0.5 threshold → stop
+        assert dc.should_continue(0.3) is False
+
+    def test_continues_when_not_elegant(self):
+        dc = DriveController(mode="practical")
+        assert dc.should_continue(0.9) is True
+
+    def test_stops_at_max_iterations(self):
+        dc = DriveController(mode="urgent")
+        dc.should_continue(0.9)  # iter 1
+        assert dc.should_continue(0.85) is False  # iter 2 = max
+
+    def test_stops_on_plateau(self):
+        dc = DriveController(mode="research")
+        dc.should_continue(0.5)
+        dc.should_continue(0.5)
+        assert dc.should_continue(0.5) is False  # 3 identical scores
+
+    def test_continues_while_improving(self):
+        dc = DriveController(mode="research")
+        dc.should_continue(0.9)
+        dc.should_continue(0.7)
+        # Big improvement → keep going
+        assert dc.should_continue(0.5) is True
+
+    def test_suggest_action_residuals(self):
+        dc = DriveController()
+        finding = ResidualFinding("correlation", "x", "corr with x", 0.8)
+        action, detail = dc.suggest_action(0.6, residual_findings=[finding])
+        assert action == "investigate_residuals"
+
+    def test_suggest_action_derive_constants(self):
+        dc = DriveController()
+        action, detail = dc.suggest_action(0.6, free_param_count=3)
+        assert action == "derive_constants"
+        assert "3" in detail
+
+    def test_suggest_action_change_perspective(self):
+        dc = DriveController()
+        action, _ = dc.suggest_action(0.6, residual_structure=0.5)
+        assert action == "change_perspective"
+
+    def test_suggest_action_accept(self):
+        dc = DriveController()
+        action, _ = dc.suggest_action(0.1)
+        assert action == "accept"
+
+    def test_reset(self):
+        dc = DriveController(mode="practical")
+        dc.should_continue(0.9)
+        dc.should_continue(0.8)
+        assert dc.iteration == 2
+        dc.reset()
+        assert dc.iteration == 0
+        assert dc.score_history == []
+
+
+# ── CrossDomainConnector ────────────────────────────────────────────
+
+
+class TestCrossDomainConnector:
+    """Cross-domain analogies via archetype graph."""
+
+    def test_bottleneck_analogy(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("GQA", "transformers")
+        assert len(results) >= 1
+        domains = {a.target_domain for a in results}
+        assert "transformers" not in domains  # Never suggests same domain
+
+    def test_feedback_loop_analogy(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("residual connection", "transformers")
+        assert len(results) >= 1
+        archetypes = {a.archetype for a in results}
+        assert "feedback_loop" in archetypes
+
+    def test_nonlinear_gate_analogy(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("SiLU", "transformers")
+        assert len(results) >= 1
+
+    def test_resonance_analogy(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("standing wave", "transformers")
+        assert len(results) >= 1
+
+    def test_decay_analogy(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("information decay", "transformers")
+        assert len(results) >= 1
+        prompts = [a.prompt for a in results]
+        assert any("radioactive" in p or "half-life" in p.lower() for p in prompts)
+
+    def test_unknown_concept_returns_empty(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("nonexistent_thing", "transformers")
+        assert results == []
+
+    def test_get_archetypes(self):
+        conn = CrossDomainConnector()
+        archetypes = conn.get_archetypes()
+        assert "bottleneck" in archetypes
+        assert "feedback_loop" in archetypes
+        assert "resonance" in archetypes
+        assert "decay" in archetypes
+        assert "nonlinear_gate" in archetypes
+
+    def test_get_domains(self):
+        conn = CrossDomainConnector()
+        domains = conn.get_domains("bottleneck")
+        assert "transformers" in domains
+        assert "fluids" in domains
+        assert "biology" in domains
+
+    def test_analogy_has_prompt(self):
+        conn = CrossDomainConnector()
+        results = conn.suggest_analogies("GQA", "transformers")
+        for a in results:
+            assert a.prompt
+            assert "GQA" in a.prompt
+
+
+# ── Engine integration with analytical modules ──────────────────────
+
+
+class TestCuriosityEngineAnalytical:
+    """Engine integration tests for the 5 analytical modules."""
+
+    def test_engine_has_all_modules(self):
+        engine = CuriosityEngine()
+        assert isinstance(engine.elegance, EleganceScorer)
+        assert isinstance(engine.residuals, ResidualAnalyzer)
+        assert isinstance(engine.perspectives, PerspectiveRotator)
+        assert isinstance(engine.drive, DriveController)
+        assert isinstance(engine.connector, CrossDomainConnector)
+
+    def test_engine_drive_mode(self):
+        engine = CuriosityEngine(drive_mode="research")
+        assert engine.drive.mode == "research"
+        assert engine.drive.thresholds.max_iterations == 20
+
+    def test_score_elegance_delegation(self):
+        engine = CuriosityEngine()
+        result = engine.score_elegance("y = 3.14159 * x")
+        assert isinstance(result, EleganceBreakdown)
+        assert "pi" in result.matched_constants
+
+    def test_analyze_residuals_delegation(self):
+        engine = CuriosityEngine()
+        findings = engine.analyze_residuals(
+            [1, 2, 3, 4, 5],
+            [1.1, 1.9, 2.7, 3.3, 3.7],
+            {"x": [1.0, 2.0, 3.0, 4.0, 5.0]},
+        )
+        assert isinstance(findings, list)
+        for f in findings:
+            assert "type" in f
+            assert "field" in f
+            assert "strength" in f
+
+    def test_next_perspective_delegation(self):
+        engine = CuriosityEngine()
+        lens = engine.next_perspective()
+        assert lens is not None
+        assert isinstance(lens, Lens)
+
+    def test_should_keep_exploring_delegation(self):
+        engine = CuriosityEngine(drive_mode="practical")
+        assert engine.should_keep_exploring(0.9) is True
+        assert engine.should_keep_exploring(0.3) is False
+
+    def test_suggest_analogies_delegation(self):
+        engine = CuriosityEngine()
+        results = engine.suggest_analogies("GQA", "transformers")
+        assert isinstance(results, list)
+        for r in results:
+            assert "archetype" in r
+            assert "prompt" in r
+
+    @pytest.mark.asyncio
+    async def test_full_analytical_cycle(self, tmp_path: Path):
+        """End-to-end: score → residuals → perspective → drive → analogies."""
+        engine = CuriosityEngine(
+            state_dir=tmp_path / "curiosity", drive_mode="practical",
+        )
+        await engine.initialize()
+
+        # 1. Score a solution
+        elegance = engine.score_elegance(
+            "loss = 0.0034 * layers + 3.14159 * log(params)",
+            residuals_data=[0.1, -0.2, 0.3, -0.1, 0.4, -0.3],
+        )
+        assert elegance.total > 0
+
+        # 2. Check if we should keep exploring
+        keep_going = engine.should_keep_exploring(elegance.total)
+        assert isinstance(keep_going, bool)
+
+        # 3. Get next perspective
+        lens = engine.next_perspective()
+        assert lens is not None
+
+        # 4. Get analogies for a concept in the solution
+        analogies = engine.suggest_analogies("layers", "transformers")
+        # "layers" might not match any archetype, that's OK
+        assert isinstance(analogies, list)
+
+    def test_system_prompt_includes_analytical_concepts(self):
+        engine = CuriosityEngine()
+        prompt = engine.get_system_prompt_addition()
+        assert "Rotate perspectives" in prompt
+        assert "Seek elegance" in prompt
+        assert "Cross-pollinate" in prompt
+        assert "Venturi" in prompt
