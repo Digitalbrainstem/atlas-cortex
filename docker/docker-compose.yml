@@ -12,14 +12,15 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - atlas-data:/data
+      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/data:/data
+      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/loras:/loras:ro
     environment:
       # LLM — runs on primary GPU (atlas-ollama, port 11434)
       - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - LLM_URL=${LLM_URL:-http://localhost:11434}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - MODEL_FAST=${MODEL_FAST:-qwen2.5:7b}
-      - MODEL_THINKING=${MODEL_THINKING:-qwen3:30b-a3b}
+      - MODEL_FAST=${MODEL_FAST:-qwen3.5:9b}
+      - MODEL_THINKING=${MODEL_THINKING:-qwen3.5:27b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
       # TTS — Kokoro primary (port 8880), Piper fallback (port 10200), Orpheus optional (port 5005)
       - TTS_PROVIDER=${TTS_PROVIDER:-orpheus}
@@ -169,10 +170,11 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - atlas-ollama-data:/root/.ollama
+      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/ollama:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-0}
+      - OLLAMA_MODELS=/root/.ollama/models
     networks:
       - atlas
     healthcheck:
@@ -240,13 +242,9 @@ networks:
     driver: bridge
 
 volumes:
-  atlas-data:
-    driver: local
   atlas-piper-data:
     driver: local
   atlas-whisper-data:
-    driver: local
-  atlas-ollama-data:
     driver: local
   atlas-orpheus-models:
     driver: local
