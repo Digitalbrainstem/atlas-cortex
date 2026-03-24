@@ -1,7 +1,8 @@
 """Tests for the tablet satellite build artefacts.
 
 Validates shell script syntax, HTML structure, systemd unit format,
-and WebSocket tablet device-type registration.
+build-image.sh OS builder, CI workflow, and WebSocket tablet device-type
+registration.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ _INSTALL_SCRIPT = os.path.join(_TABLET_DIR, "install-tablet.sh")
 _BUILD_SCRIPT = os.path.join(_TABLET_DIR, "build-image.sh")
 _SETUP_HTML = os.path.join(_TABLET_DIR, "setup.html")
 _KIOSK_SERVICE = os.path.join(_TABLET_DIR, "atlas-kiosk.service")
+_CI_WORKFLOW = os.path.join(
+    _REPO_ROOT, ".github", "workflows", "build-tablet-image.yml",
+)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────
@@ -43,7 +47,7 @@ def _temp_db(tmp_path):
 
 
 class TestInstallScript:
-    """Validate install-tablet.sh."""
+    """Validate install-tablet.sh (alternative path for existing Ubuntu)."""
 
     def test_file_exists(self):
         assert os.path.isfile(_INSTALL_SCRIPT)
@@ -115,11 +119,22 @@ class TestInstallScript:
         assert "HandleLidSwitch=ignore" in content
 
 
+# ── Build Image Script (OS Builder) ──────────────────────────────
+
+
 class TestBuildScript:
-    """Validate build-image.sh."""
+    """Validate build-image.sh — the complete OS image builder."""
+
+    @pytest.fixture(autouse=True)
+    def _load_content(self):
+        with open(_BUILD_SCRIPT) as f:
+            self.content = f.read()
 
     def test_file_exists(self):
         assert os.path.isfile(_BUILD_SCRIPT)
+
+    def test_is_executable(self):
+        assert os.access(_BUILD_SCRIPT, os.X_OK)
 
     def test_bash_syntax_valid(self):
         result = subprocess.run(
@@ -130,9 +145,121 @@ class TestBuildScript:
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
     def test_has_strict_mode(self):
-        with open(_BUILD_SCRIPT) as f:
-            content = f.read()
-        assert "set -euo pipefail" in content
+        assert "set -euo pipefail" in self.content
+
+    def test_requires_root(self):
+        assert "EUID" in self.content
+
+    def test_uses_debootstrap(self):
+        """Primary path: debootstrap (not an ISO remaster)."""
+        assert "debootstrap" in self.content
+
+    def test_targets_noble(self):
+        """Should build Ubuntu 24.04 (Noble)."""
+        assert "noble" in self.content
+
+    def test_creates_squashfs(self):
+        assert "mksquashfs" in self.content
+
+    def test_creates_grub_config(self):
+        assert "grub.cfg" in self.content
+        assert "Atlas Tablet OS" in self.content
+
+    def test_installs_linux_generic_kernel(self):
+        assert "linux-generic" in self.content
+
+    def test_installs_linux_surface_kernel(self):
+        assert "linux-image-surface" in self.content
+
+    def test_installs_openbox(self):
+        assert "openbox" in self.content
+
+    def test_installs_chromium(self):
+        assert "chromium-browser" in self.content
+
+    def test_installs_pulseaudio(self):
+        assert "pulseaudio" in self.content
+
+    def test_installs_network_manager(self):
+        assert "network-manager" in self.content
+
+    def test_installs_avahi(self):
+        assert "avahi-daemon" in self.content
+
+    def test_installs_python_flask(self):
+        """Flask needed for captive portal."""
+        assert "python3-flask" in self.content
+
+    def test_creates_atlas_user(self):
+        assert "useradd" in self.content
+
+    def test_configures_autologin(self):
+        assert "autologin" in self.content
+
+    def test_configures_kiosk_autostart(self):
+        assert "openbox" in self.content
+        assert "chromium-browser" in self.content
+        assert "--kiosk" in self.content
+
+    def test_installs_captive_portal(self):
+        assert "captive-portal" in self.content or "captive_portal" in self.content
+
+    def test_installs_satellite_agent(self):
+        assert "atlas-satellite" in self.content
+        assert "atlas_satellite" in self.content
+
+    def test_creates_satellite_config(self):
+        assert "config.json" in self.content
+        assert '"device_type": "tablet"' in self.content
+
+    def test_configures_mdns_announce(self):
+        assert "atlas-announce" in self.content
+        assert "avahi-publish" in self.content
+
+    def test_has_firstboot_service(self):
+        assert "atlas-firstboot" in self.content
+
+    def test_generates_unique_hostname(self):
+        """First-boot should assign a random hostname suffix."""
+        assert "atlas-tablet-" in self.content
+        assert "urandom" in self.content
+
+    def test_disables_lid_suspend(self):
+        assert "HandleLidSwitch=ignore" in self.content
+
+    def test_sets_device_type_env(self):
+        assert "ATLAS_DEVICE_TYPE=tablet" in self.content
+
+    def test_has_cleanup_trap(self):
+        assert "trap" in self.content
+        assert "cleanup" in self.content.lower()
+
+    def test_generates_checksum(self):
+        assert "sha256sum" in self.content
+
+    def test_outputs_iso(self):
+        assert "atlas-tablet-os-" in self.content
+        assert ".iso" in self.content
+
+    def test_supports_raw_format(self):
+        assert "--raw" in self.content
+
+    def test_has_safe_boot_option(self):
+        assert "Safe Mode" in self.content or "nomodeset" in self.content
+
+    def test_phases_documented(self):
+        """Build should have clearly labelled phases."""
+        assert "Phase 1" in self.content
+        assert "Phase 2" in self.content
+
+    def test_copies_satellite_code(self):
+        assert "atlas_satellite" in self.content
+
+    def test_creates_python_venv(self):
+        assert "python3 -m venv" in self.content
+
+    def test_installs_pip_deps(self):
+        assert "requirements.txt" in self.content
 
 
 # ── Setup HTML ────────────────────────────────────────────────────
@@ -232,6 +359,87 @@ class TestKioskService:
         assert "atlas-cortex.local:5100/avatar" in self.content
 
 
+# ── CI Workflow ───────────────────────────────────────────────────
+
+
+class TestCIWorkflow:
+    """Validate the GitHub Actions workflow for building tablet images."""
+
+    @pytest.fixture(autouse=True)
+    def _load_workflow(self):
+        with open(_CI_WORKFLOW) as f:
+            self.content = f.read()
+
+    def test_workflow_file_exists(self):
+        assert os.path.isfile(_CI_WORKFLOW)
+
+    def test_valid_yaml(self):
+        """YAML should parse without errors."""
+        import yaml  # pytest dep includes pyyaml
+
+        data = yaml.safe_load(self.content)
+        assert data is not None
+        assert "name" in data
+
+    def test_workflow_name(self):
+        assert "Build Tablet Image" in self.content
+
+    def test_has_workflow_dispatch_trigger(self):
+        assert "workflow_dispatch" in self.content
+
+    def test_has_schedule_trigger(self):
+        assert "schedule" in self.content
+        assert "cron" in self.content
+
+    def test_has_release_trigger(self):
+        assert "release" in self.content
+
+    def test_runs_on_ubuntu(self):
+        assert "ubuntu-latest" in self.content
+
+    def test_installs_debootstrap(self):
+        assert "debootstrap" in self.content
+
+    def test_installs_squashfs_tools(self):
+        assert "squashfs-tools" in self.content
+
+    def test_bootstraps_noble(self):
+        assert "noble" in self.content
+
+    def test_installs_linux_surface(self):
+        assert "linux-surface" in self.content
+
+    def test_installs_chromium(self):
+        assert "chromium-browser" in self.content
+
+    def test_installs_satellite_agent(self):
+        assert "atlas-satellite" in self.content
+
+    def test_installs_captive_portal(self):
+        assert "captive-portal" in self.content or "captive_portal" in self.content
+
+    def test_builds_squashfs(self):
+        assert "mksquashfs" in self.content
+
+    def test_builds_iso(self):
+        assert "grub-mkrescue" in self.content or "xorriso" in self.content
+
+    def test_generates_checksum(self):
+        assert "sha256sum" in self.content
+
+    def test_uploads_artifact(self):
+        assert "upload-artifact" in self.content
+
+    def test_uploads_to_release(self):
+        assert "action-gh-release" in self.content
+
+    def test_has_surface_kernel_option(self):
+        assert "include_surface_kernel" in self.content
+
+    def test_has_timeout(self):
+        assert "timeout-minutes" in self.content
+
+
 # ── Tablet Registration (WebSocket) ──────────────────────────────
 
 
@@ -248,7 +456,6 @@ class TestTabletRegistration:
     def test_tablet_capabilities_default(self):
         """Default tablet capabilities should include display and touch."""
         expected = {"mic", "speaker", "display", "touch"}
-        # Mimic what the handler constructs for a tablet register message
         raw = {
             "type": "register",
             "device_type": "tablet",
@@ -271,24 +478,35 @@ class TestTabletRegistration:
 class TestReadme:
     """Basic checks on the tablet README."""
 
+    @pytest.fixture(autouse=True)
+    def _load_readme(self):
+        readme = os.path.join(_TABLET_DIR, "README.md")
+        with open(readme) as f:
+            self.content = f.read()
+
     def test_readme_exists(self):
         readme = os.path.join(_TABLET_DIR, "README.md")
         assert os.path.isfile(readme)
 
     def test_readme_mentions_surface_go(self):
-        readme = os.path.join(_TABLET_DIR, "README.md")
-        with open(readme) as f:
-            content = f.read()
-        assert "Surface Go" in content
+        assert "Surface Go" in self.content
 
     def test_readme_has_install_instructions(self):
-        readme = os.path.join(_TABLET_DIR, "README.md")
-        with open(readme) as f:
-            content = f.read()
-        assert "install-tablet.sh" in content
+        assert "install-tablet.sh" in self.content
 
     def test_readme_mentions_mdns(self):
-        readme = os.path.join(_TABLET_DIR, "README.md")
-        with open(readme) as f:
-            content = f.read()
-        assert "mDNS" in content
+        assert "mDNS" in self.content
+
+    def test_readme_primary_path_is_image(self):
+        """Pre-built image should be the primary Quick Start path."""
+        assert "atlas-tablet-os" in self.content
+        assert "Flash" in self.content or "flash" in self.content
+
+    def test_readme_mentions_debootstrap(self):
+        assert "debootstrap" in self.content
+
+    def test_readme_has_first_boot_flow(self):
+        assert "First Boot" in self.content
+
+    def test_readme_documents_whats_in_image(self):
+        assert "What's In The Image" in self.content or "pre-installed" in self.content.lower()
