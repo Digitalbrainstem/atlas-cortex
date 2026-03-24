@@ -1,0 +1,31 @@
+[Unit]
+Description=Atlas Tablet Kiosk Browser
+After=graphical.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=atlas
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/chromium-browser \
+    --kiosk \
+    --no-first-run \
+    --disable-translate \
+    --disable-infobars \
+    --disable-suggestions-ui \
+    --disable-save-password-bubble \
+    --disable-session-crashed-bubble \
+    --disable-component-update \
+    --autoplay-policy=no-user-gesture-required \
+    --use-fake-ui-for-media-stream \
+    --enable-features=OverlayScrollbar \
+    --check-for-update-interval=31536000 \
+    --noerrdialogs \
+    --start-fullscreen \
+    http://atlas-cortex.local:5100/avatar#skin=nick
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target

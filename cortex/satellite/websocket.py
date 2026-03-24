@@ -110,6 +110,7 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
 
     Detects device type from the first message:
       - ``{"type": "register", "device_type": "esp32", ...}`` → ESP32 handler
+      - ``{"type": "register", "device_type": "tablet", ...}`` → Tablet (uses Pi protocol with display)
       - ``{"type": "ANNOUNCE", ...}`` → Pi handler (existing protocol)
     """
     await websocket.accept()
@@ -137,6 +138,31 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
             finally:
                 await esp32.on_disconnect()
             return
+
+        # ── Tablet satellite (full protocol with display) ─────────
+        # Tablets register like ESP32 but use the Pi protocol for
+        # audio streaming.  Re-write the first message as ANNOUNCE so
+        # the existing Pi handler picks it up seamlessly.
+        if msg_type == "register" and raw.get("device_type") == "tablet":
+            name = raw.get("name", "tablet-satellite")
+            satellite_id = f"tablet-{name}"
+            hardware = raw.get("hardware", "generic-x86")
+            tablet_caps = raw.get("capabilities") or [
+                "mic", "speaker", "display", "touch",
+            ]
+            if "camera" in raw:
+                tablet_caps.append("camera")
+            # Synthesise an ANNOUNCE message so the Pi handler runs
+            raw = {
+                "type": "ANNOUNCE",
+                "satellite_id": satellite_id,
+                "hostname": raw.get("hostname", name),
+                "room": raw.get("room", ""),
+                "capabilities": tablet_caps,
+                "hw_info": {"device_type": "tablet", "hardware": hardware},
+            }
+            msg_type = "ANNOUNCE"
+            logger.info("Tablet satellite connected: %s (%s)", satellite_id, hardware)
 
         # ── Pi satellite (full protocol) ──────────────────────────
         if msg_type != "ANNOUNCE":
