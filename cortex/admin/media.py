@@ -205,6 +205,7 @@ class MediaAuthRequest(BaseModel):
     auth_type: str = "oauth"
     account_name: str = ""
     is_premium: bool = False
+    user_id: str = ""
 
 
 @router.post("/media/auth/{provider}")
@@ -224,40 +225,76 @@ async def set_media_auth(
         auth_type=req.auth_type,
         account_name=req.account_name,
         is_premium=req.is_premium,
+        user_id=req.user_id,
     )
     return {"ok": True}
 
 
 @router.delete("/media/auth/{provider}")
-async def remove_media_auth(provider: str, _: dict = Depends(require_admin)):
+async def remove_media_auth(
+    provider: str,
+    user_id: str = "",
+    _: dict = Depends(require_admin),
+):
     """Remove stored auth for a media provider."""
     from cortex.satellite.display_auth import get_media_auth
 
-    return {"ok": get_media_auth().remove_auth(provider)}
+    return {"ok": get_media_auth().remove_auth(provider, user_id=user_id)}
+
+
+class SetGlobalDefaultRequest(BaseModel):
+    user_id: str
+
+
+@router.post("/media/auth/{provider}/set-global")
+async def set_global_default(
+    provider: str,
+    req: SetGlobalDefaultRequest,
+    _: dict = Depends(require_admin),
+):
+    """Copy a user's auth as the global default for a provider."""
+    from cortex.satellite.display_auth import get_media_auth
+
+    ok = get_media_auth().set_global_default(provider, req.user_id)
+    if ok:
+        return {"ok": True}
+    return {"ok": False, "error": f"No auth found for {provider}:{req.user_id}"}
 
 
 # ── YouTube OAuth device flow ────────────────────────────────────
 
 
+class YouTubeStartRequest(BaseModel):
+    user_id: str = ""
+
+
 @router.post("/media/auth/youtube/start")
-async def start_youtube_auth(_: dict = Depends(require_admin)):
+async def start_youtube_auth(
+    req: YouTubeStartRequest | None = None,
+    _: dict = Depends(require_admin),
+):
     """Start YouTube OAuth device flow.  Returns code for user to enter."""
     from cortex.satellite.display_auth import YouTubeOAuth
 
     oauth = YouTubeOAuth()
     flow = await oauth.start_device_flow()
+    user_id = req.user_id if req else ""
     return {
         "user_code": flow["user_code"],
         "verification_url": flow["verification_url"],
         "message": f"Go to {flow['verification_url']} and enter code: {flow['user_code']}",
         "device_code": flow["device_code"],
         "expires_in": flow["expires_in"],
+        "user_id": user_id,
     }
 
 
 class YouTubeCompleteRequest(BaseModel):
     device_code: str
     timeout: int = 120
+    user_id: str = ""
+    set_global: bool = False
+    account_name: str = ""
 
 
 @router.post("/media/auth/youtube/complete")
@@ -274,15 +311,21 @@ async def complete_youtube_auth(
     token = await oauth.poll_for_token(req.device_code, timeout=req.timeout)
     if token:
         mgr = get_media_auth()
+        account_name = req.account_name or (
+            f"{req.user_id}'s YouTube" if req.user_id else "YouTube Premium"
+        )
         mgr.set_auth(
             provider="youtube",
             token=token["access_token"],
             refresh_token=token.get("refresh_token", ""),
             auth_type="oauth",
-            account_name="YouTube Premium",
+            account_name=account_name,
             is_premium=True,
             expires_at=_time.time() + token.get("expires_in", 3600),
+            user_id=req.user_id,
         )
+        if req.set_global and req.user_id:
+            mgr.set_global_default("youtube", req.user_id)
         return {"ok": True, "message": "YouTube account linked!"}
 
     return {"ok": False, "message": "Authorization timed out or was denied"}
