@@ -68,18 +68,36 @@ jobs:
             mtools \
             dosfstools
 
-      # ── Phase 1: Bootstrap minimal Ubuntu rootfs ────────────────
+      # ── Cache: reuse base rootfs from previous builds ──────────
+      - name: Cache base rootfs
+        id: cache-rootfs
+        uses: actions/cache@v4
+        with:
+          path: /tmp/atlas-base-rootfs.tar.gz
+          key: tablet-rootfs-noble-v2-${{ hashFiles('satellite/tablet/build-image.sh') }}
+          restore-keys: |
+            tablet-rootfs-noble-v2-
+
+      # ── Phase 1: Bootstrap or restore rootfs ────────────────────
       - name: Bootstrap Ubuntu Noble (24.04) rootfs
         run: |
           BUILD_DIR="/tmp/atlas-tablet-build"
           ROOTFS="$BUILD_DIR/rootfs"
           sudo mkdir -p "$ROOTFS"
 
-          echo "::group::debootstrap"
-          sudo debootstrap --arch=amd64 --variant=minbase \
-            --include=systemd,systemd-sysv,dbus,sudo,locales,apt-utils \
-            noble "$ROOTFS" http://archive.ubuntu.com/ubuntu
-          echo "::endgroup::"
+          if [ -f /tmp/atlas-base-rootfs.tar.gz ]; then
+            echo "Restoring cached base rootfs..."
+            sudo tar xzf /tmp/atlas-base-rootfs.tar.gz -C "$ROOTFS"
+            echo "CACHE_HIT=true" >> $GITHUB_ENV
+          else
+            echo "Building fresh rootfs (will be cached for next build)..."
+            echo "::group::debootstrap"
+            sudo debootstrap --arch=amd64 --variant=minbase \
+              --include=systemd,systemd-sysv,dbus,sudo,locales,apt-utils \
+              noble "$ROOTFS" http://archive.ubuntu.com/ubuntu
+            echo "::endgroup::"
+            echo "CACHE_HIT=false" >> $GITHUB_ENV
+          fi
 
           echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_ENV
           echo "ROOTFS=$ROOTFS" >> $GITHUB_ENV
@@ -525,14 +543,51 @@ jobs:
           sudo chroot "$ROOTFS" systemctl enable atlas-firstboot
           sudo chroot "$ROOTFS" systemctl enable atlas-brightness
 
-      # ── Phase 10: Clean up and build image ──────────────────────
+      # ── Phase 10: Clean up, shrink, and build image ──────────────
       - name: Clean rootfs and unmount
         run: |
+          # Aggressive size reduction
+          echo "::group::Size optimization"
+          
+          # Remove apt cache
           sudo rm -rf "$ROOTFS/var/cache/apt/archives"/*.deb
           sudo rm -rf "$ROOTFS/var/lib/apt/lists"/*
+          
+          # Remove man pages and docs (~100MB)
+          sudo rm -rf "$ROOTFS/usr/share/man"/*
+          sudo rm -rf "$ROOTFS/usr/share/doc"/*
+          sudo rm -rf "$ROOTFS/usr/share/info"/*
+          sudo rm -rf "$ROOTFS/usr/share/gtk-doc"/*
+          
+          # Remove non-English locales (~80MB)
+          sudo find "$ROOTFS/usr/share/locale" -mindepth 1 -maxdepth 1 \
+            ! -name 'en' ! -name 'en_US' -exec rm -rf {} + 2>/dev/null || true
+          
+          # Remove Python cache
+          sudo find "$ROOTFS" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          sudo find "$ROOTFS" -name "*.pyc" -delete 2>/dev/null || true
+          
+          # Remove unnecessary kernel modules (keep only needed for Surface Go + common tablets)
+          # Keep: i915 (Intel GPU), surface*, hid-multitouch, snd-*, wifi (iwlwifi), usb
+          # This is aggressive — comment out if hardware doesn't work
+          # sudo find "$ROOTFS/lib/modules" -name "*.ko*" | grep -v -E 'i915|surface|hid|snd|iwl|usb|ext4|vfat|nls|input|evdev|bluetooth|btusb|cfg80211|mac80211' | xargs sudo rm -f 2>/dev/null || true
+          
+          # Remove tmp
           sudo rm -rf "$ROOTFS/tmp"/*
           sudo rm -f  "$ROOTFS/etc/resolv.conf"
-
+          
+          echo "::endgroup::"
+          
+          # Save base rootfs for cache (before Atlas-specific files)
+          if [ "$CACHE_HIT" = "false" ]; then
+            echo "Saving base rootfs to cache..."
+            sudo tar czf /tmp/atlas-base-rootfs.tar.gz -C "$ROOTFS" .
+            echo "Cache saved: $(du -sh /tmp/atlas-base-rootfs.tar.gz | cut -f1)"
+          fi
+          
+          # Report size
+          echo "Rootfs size: $(sudo du -sh "$ROOTFS" | cut -f1)"
+          
           sudo umount -lf "$ROOTFS/run"     2>/dev/null || true
           sudo umount -lf "$ROOTFS/dev/pts" 2>/dev/null || true
           sudo umount -lf "$ROOTFS/dev"     2>/dev/null || true
