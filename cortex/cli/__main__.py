@@ -116,6 +116,15 @@ async def _run_diagnose(_args: argparse.Namespace) -> int:
     return await run_diagnose()
 
 
+async def _run_reflect(_args: argparse.Namespace) -> int:
+    from cortex.curiosity import CuriosityEngine
+    engine = CuriosityEngine()
+    await engine.initialize()
+    report = await engine.reflect()
+    print(report)
+    return 0
+
+
 def main() -> int:
     # Check deps before importing anything that needs them
     from cortex.cli import _check_cli_deps
@@ -137,6 +146,7 @@ def main() -> int:
         "agent": _run_agent,
         "status": _run_status,
         "diagnose": _run_diagnose,
+        "reflect": _run_reflect,
     }
 
     handler = handlers.get(args.command)
