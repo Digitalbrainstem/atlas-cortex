@@ -498,3 +498,301 @@ class TestAdminMediaAuthEndpoints:
             for r in router.routes
         )
         assert found, "DELETE /media/auth/{provider} route not found"
+
+    def test_router_has_youtube_start(self):
+        from cortex.admin.media import router
+
+        paths = [getattr(r, "path", "") for r in router.routes]
+        assert "/media/auth/youtube/start" in paths
+
+    def test_router_has_youtube_complete(self):
+        from cortex.admin.media import router
+
+        paths = [getattr(r, "path", "") for r in router.routes]
+        assert "/media/auth/youtube/complete" in paths
+
+
+# ── YouTubeOAuth ─────────────────────────────────────────────────
+
+from cortex.satellite.display_auth import YouTubeOAuth  # noqa: E402
+
+
+class TestYouTubeOAuth:
+    """Test the OAuth device flow with mocked Google endpoints."""
+
+    def test_class_constants(self):
+        oauth = YouTubeOAuth()
+        assert "googleapis.com" in oauth.DEVICE_CODE_URL
+        assert "googleapis.com" in oauth.TOKEN_URL
+        assert oauth.CLIENT_ID
+        assert oauth.CLIENT_SECRET
+        assert "youtube" in oauth.SCOPES
+
+    async def test_start_device_flow(self):
+        oauth = YouTubeOAuth()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "device_code": "dev_abc",
+            "user_code": "ABCD-EFGH",
+            "verification_url": "https://google.com/device",
+            "expires_in": 1800,
+            "interval": 5,
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.start_device_flow()
+
+        assert result["device_code"] == "dev_abc"
+        assert result["user_code"] == "ABCD-EFGH"
+        assert result["verification_url"] == "https://google.com/device"
+        assert result["expires_in"] == 1800
+        assert result["interval"] == 5
+
+    async def test_poll_for_token_success(self):
+        """Simulate: first poll → pending, second poll → success."""
+        oauth = YouTubeOAuth()
+
+        responses = [
+            {"error": "authorization_pending"},
+            {
+                "access_token": "ya29.token",
+                "refresh_token": "1//refresh",
+                "expires_in": 3600,
+            },
+        ]
+        call_count = 0
+
+        mock_client = AsyncMock()
+
+        async def mock_post(url, data=None):
+            nonlocal call_count
+            resp = MagicMock()
+            resp.json.return_value = responses[min(call_count, len(responses) - 1)]
+            call_count += 1
+            return resp
+
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.poll_for_token("dev_abc", interval=0, timeout=5)
+
+        assert result is not None
+        assert result["access_token"] == "ya29.token"
+        assert result["refresh_token"] == "1//refresh"
+
+    async def test_poll_for_token_denied(self):
+        oauth = YouTubeOAuth()
+
+        mock_client = AsyncMock()
+
+        async def mock_post(url, data=None):
+            resp = MagicMock()
+            resp.json.return_value = {"error": "access_denied"}
+            return resp
+
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.poll_for_token("dev_abc", interval=0, timeout=5)
+
+        assert result is None
+
+    async def test_poll_for_token_expired(self):
+        oauth = YouTubeOAuth()
+
+        mock_client = AsyncMock()
+
+        async def mock_post(url, data=None):
+            resp = MagicMock()
+            resp.json.return_value = {"error": "expired_token"}
+            return resp
+
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.poll_for_token("dev_abc", interval=0, timeout=5)
+
+        assert result is None
+
+    async def test_poll_for_token_slow_down(self):
+        """Verify interval increases when Google returns slow_down."""
+        oauth = YouTubeOAuth()
+        call_count = 0
+
+        mock_client = AsyncMock()
+
+        async def mock_post(url, data=None):
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            if call_count == 1:
+                resp.json.return_value = {"error": "slow_down"}
+            else:
+                resp.json.return_value = {
+                    "access_token": "tok",
+                    "refresh_token": "ref",
+                    "expires_in": 3600,
+                }
+            return resp
+
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.poll_for_token("dev_abc", interval=0, timeout=10)
+
+        assert result is not None
+        assert result["access_token"] == "tok"
+
+    async def test_poll_for_token_timeout(self):
+        """Verify timeout returns None when it expires without success."""
+        oauth = YouTubeOAuth()
+
+        mock_client = AsyncMock()
+
+        async def mock_post(url, data=None):
+            resp = MagicMock()
+            resp.json.return_value = {"error": "authorization_pending"}
+            return resp
+
+        mock_client.post = mock_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.poll_for_token("dev_abc", interval=0, timeout=0)
+
+        assert result is None
+
+    async def test_refresh_token_success(self):
+        oauth = YouTubeOAuth()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "ya29.new_token",
+            "expires_in": 3600,
+        }
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.refresh_token("1//old_refresh")
+
+        assert result is not None
+        assert result["access_token"] == "ya29.new_token"
+
+    async def test_refresh_token_failure(self):
+        oauth = YouTubeOAuth()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            result = await oauth.refresh_token("1//bad_refresh")
+
+        assert result is None
+
+
+# ── YouTube OAuth admin endpoint wiring ──────────────────────────
+
+
+class TestYouTubeOAuthEndpoints:
+    """Verify the admin endpoints call the right OAuth methods."""
+
+    async def test_start_youtube_auth_endpoint(self):
+        from cortex.admin.media import start_youtube_auth
+
+        mock_flow = {
+            "device_code": "dc_123",
+            "user_code": "WXYZ-1234",
+            "verification_url": "https://google.com/device",
+            "expires_in": 1800,
+            "interval": 5,
+        }
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.start_device_flow",
+            new_callable=AsyncMock,
+            return_value=mock_flow,
+        ):
+            result = await start_youtube_auth(_={})
+
+        assert result["user_code"] == "WXYZ-1234"
+        assert result["device_code"] == "dc_123"
+        assert "google.com/device" in result["verification_url"]
+        assert "WXYZ-1234" in result["message"]
+
+    async def test_complete_youtube_auth_success(self, tmp_path, monkeypatch):
+        from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
+
+        monkeypatch.setattr(
+            "cortex.satellite.display_auth.AUTH_FILE",
+            tmp_path / "media_auth.json",
+        )
+        monkeypatch.setattr("cortex.satellite.display_auth._manager", None)
+
+        mock_token = {
+            "access_token": "ya29.ok",
+            "refresh_token": "1//ref",
+            "expires_in": 3600,
+        }
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.poll_for_token",
+            new_callable=AsyncMock,
+            return_value=mock_token,
+        ):
+            req = YouTubeCompleteRequest(device_code="dc_123", timeout=5)
+            result = await complete_youtube_auth(req=req, _={})
+
+        assert result["ok"] is True
+        assert "linked" in result["message"].lower()
+
+        # Verify token was stored
+        from cortex.satellite.display_auth import get_media_auth
+
+        mgr = get_media_auth()
+        assert mgr.is_authenticated("youtube")
+        assert mgr.is_premium("youtube")
+
+    async def test_complete_youtube_auth_denied(self, tmp_path, monkeypatch):
+        from cortex.admin.media import YouTubeCompleteRequest, complete_youtube_auth
+
+        monkeypatch.setattr(
+            "cortex.satellite.display_auth.AUTH_FILE",
+            tmp_path / "media_auth.json",
+        )
+        monkeypatch.setattr("cortex.satellite.display_auth._manager", None)
+
+        with patch(
+            "cortex.satellite.display_auth.YouTubeOAuth.poll_for_token",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            req = YouTubeCompleteRequest(device_code="dc_123", timeout=5)
+            result = await complete_youtube_auth(req=req, _={})
+
+        assert result["ok"] is False
+        assert "timed out" in result["message"].lower() or "denied" in result["message"].lower()
