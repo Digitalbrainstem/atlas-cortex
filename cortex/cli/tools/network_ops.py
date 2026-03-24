@@ -280,9 +280,6 @@ class HTTPDebugTool(AgentTool):
 
         redirects: list[str] = []
 
-        class _RedirectTracker(httpx.EventHook):
-            """Not a real event hook; we track via response history instead."""
-
         try:
             t_start = time.monotonic()
             async with httpx.AsyncClient(

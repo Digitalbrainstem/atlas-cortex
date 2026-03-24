@@ -1,5 +1,6 @@
 """Development tools: test runner, build, lint, docker, database, packages,
-refactor, diff, process manager, env management, code analysis, benchmarks.
+refactor, diff, process manager, env management, code analysis, benchmarks,
+documentation generation, changelog.
 
 Provides project development workflow tools for the agent tool system.
 """
@@ -16,6 +17,7 @@ import re
 import signal
 import sqlite3
 import statistics
+import textwrap
 import time
 from pathlib import Path
 from typing import Any
