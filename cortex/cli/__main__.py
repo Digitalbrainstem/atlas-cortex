@@ -62,6 +62,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-iterations", type=int, default=50,
         help="Maximum agent iterations (default: 50)",
     )
+    agent_p.add_argument(
+        "--dispatch", action="store_true",
+        help="Dispatch mode: run multiple tasks (provide multiple task args)",
+    )
+    agent_p.add_argument(
+        "--parallel", action="store_true",
+        help="Force parallel execution (requires multiple GPUs)",
+    )
+    agent_p.add_argument(
+        "--sequential", action="store_true",
+        help="Force sequential execution",
+    )
 
     # ── status ───────────────────────────────────────────────────
     sub.add_parser("status", help="Show system status")
@@ -96,6 +108,30 @@ async def _run_ask(args: argparse.Namespace) -> int:
 
 
 async def _run_agent(args: argparse.Namespace) -> int:
+    if getattr(args, "dispatch", False):
+        # Dispatch mode — multiple independent tasks
+        from cortex.cli.dispatch import AgentDispatcher
+
+        dispatcher = AgentDispatcher()
+        await dispatcher.initialize()
+
+        strategy = "auto"
+        if getattr(args, "parallel", False):
+            strategy = "parallel"
+        elif getattr(args, "sequential", False):
+            strategy = "sequential"
+
+        results = await dispatcher.dispatch(
+            tasks=args.task,
+            strategy=strategy,
+            model=args.model,
+            max_iterations=args.max_iterations,
+        )
+
+        failed = sum(1 for r in results if r.status == "failed")
+        return 1 if failed else 0
+
+    # Single task mode (existing behavior)
     from cortex.cli.agent import run_agent
     task = " ".join(args.task)
     return await run_agent(
