@@ -832,9 +832,10 @@ step "Phase 8: Building remastered ISO"
 # ── Re-squash the customized rootfs ──────────────────────────────
 info "Compressing customized rootfs (this takes several minutes)..."
 
-# Remove layered squashfs from ISO structure — we merge everything into one
+# Remove old layered squashfs
 rm -f "$ISO_DIR/casper/minimal.squashfs" "$ISO_DIR/casper/minimal.live.squashfs"
 
+# Write single merged squashfs — casper finds *.squashfs in /casper/
 mksquashfs "$ROOTFS" "$ISO_DIR/casper/filesystem.squashfs" \
     -comp xz -b 1M -Xdict-size 100% -no-duplicates -quiet
 
@@ -884,22 +885,22 @@ set default=0
 set timeout=3
 
 menuentry "Atlas Tablet OS" {
-    linux /casper/vmlinuz boot=casper toram quiet splash consoleblank=0
+    linux /casper/vmlinuz boot=casper ignore_uuid toram quiet splash consoleblank=0
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Safe Mode)" {
-    linux /casper/vmlinuz boot=casper toram nomodeset consoleblank=0
+    linux /casper/vmlinuz boot=casper ignore_uuid toram nomodeset consoleblank=0
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Debug - console only)" {
-    linux /casper/vmlinuz boot=casper toram consoleblank=0 atlas.nox=1 systemd.unit=multi-user.target
+    linux /casper/vmlinuz boot=casper ignore_uuid toram consoleblank=0 atlas.nox=1 systemd.unit=multi-user.target
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Install to Disk)" {
-    linux /casper/vmlinuz boot=casper toram quiet splash consoleblank=0 atlas.install=1
+    linux /casper/vmlinuz boot=casper ignore_uuid toram quiet splash consoleblank=0 atlas.install=1
     initrd /casper/initrd
 }
 GRUBCFG
