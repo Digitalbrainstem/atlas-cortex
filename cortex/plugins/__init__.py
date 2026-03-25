@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .base import CommandMatch, CommandResult, CortexPlugin
+from .base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 

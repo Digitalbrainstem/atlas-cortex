@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from cortex.integrations.lists.backends import ListBackend, SQLiteListBackend
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -147,11 +147,17 @@ class ListPlugin(CortexPlugin):
     plugin_id = "lists"
     display_name = "Smart Lists"
     plugin_type = "list_backend"
+    # Lists use the local SQLite backend — no external config needed
+    config_fields = []
 
     def __init__(self, conn: Any) -> None:
         self._conn = conn
         self._registry = ListRegistry(conn)
         self._backend = self._registry.backend
+
+    @property
+    def health_message(self) -> str:
+        return "Ready — local list storage"
 
     async def setup(self, config: dict) -> bool:
         return True

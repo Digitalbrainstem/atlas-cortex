@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,28 @@ class NewsPlugin(CortexPlugin):
     plugin_type = "action"
     version = "1.0.0"
     author = "Atlas"
+    config_fields = [
+        ConfigField(
+            key="api_key",
+            label="NewsAPI Key",
+            field_type="password",
+            required=False,
+            placeholder="Enter your NewsAPI key...",
+            help_text="Free at https://newsapi.org — without a key, headlines are fetched from RSS feeds.",
+        ),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
         self._api_key: str = ""
         self._sources: list[dict[str, str]] = list(_DEFAULT_RSS_SOURCES)
         self._cache: _CacheEntry | None = None
+
+    @property
+    def health_message(self) -> str:
+        if not self._api_key:
+            return "Using RSS feeds (no API key) — add a NewsAPI key for better results"
+        return "Connected to NewsAPI"
 
     # ── Lifecycle ────────────────────────────────────────────
 

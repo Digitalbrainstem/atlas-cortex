@@ -9,7 +9,7 @@ from typing import Any
 
 from cortex.integrations.knowledge.privacy import AccessGate
 from cortex.integrations.knowledge.processor import DocumentChunk
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +167,15 @@ class KnowledgePlugin(CortexPlugin):
     plugin_id = "knowledge"
     display_name = "Personal Knowledge"
     plugin_type = "knowledge"
+    # Knowledge uses the local SQLite FTS5 index — no external config needed
+    config_fields = []
 
     def __init__(self, conn: Any) -> None:
         self._index = KnowledgeIndex(conn)
+
+    @property
+    def health_message(self) -> str:
+        return "Ready — local document index"
 
     async def setup(self, config: dict) -> bool:
         return True
