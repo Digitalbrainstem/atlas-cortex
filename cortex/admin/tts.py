@@ -17,7 +17,7 @@ router = APIRouter()
 
 @router.get("/tts/voices")
 async def list_tts_voices(admin: dict = Depends(require_admin)):
-    """List available TTS voices from Kokoro + Orpheus + Piper."""
+    """List available TTS voices from Qwen3-TTS + Kokoro + Orpheus + Piper."""
     from cortex.voice.wyoming import WyomingClient
     all_voices = []
 
@@ -28,6 +28,24 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
         "i": "it", "j": "ja", "k": "ko", "p": "pt",
         "z": "zh",
     }
+
+    # Qwen3-TTS voices (primary, highest quality)
+    try:
+        from cortex.voice.providers.qwen3_tts import Qwen3TTSProvider
+        qwen_host = os.environ.get("QWEN_TTS_HOST", "localhost")
+        qwen_port = int(os.environ.get("QWEN_TTS_PORT", "8766"))
+        qwen = Qwen3TTSProvider({"QWEN_TTS_HOST": qwen_host, "QWEN_TTS_PORT": str(qwen_port)})
+        qwen_voices = await qwen.list_voices()
+        for v in qwen_voices:
+            all_voices.append({
+                "name": v["id"],
+                "provider": "qwen3_tts",
+                "description": f"{v['name']} ({v.get('style', 'natural')}, {v.get('gender', 'unknown')})",
+                "language": v.get("language", "en"),
+                "installed": True,
+            })
+    except Exception:
+        pass
 
     # Kokoro voices (primary)
     try:

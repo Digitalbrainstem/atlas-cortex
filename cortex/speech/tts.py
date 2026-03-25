@@ -1,7 +1,7 @@
 """Text-to-speech synthesis service.
 
 Multi-provider TTS with automatic fallback:
-  Orpheus (GPU, highest quality) → Kokoro (CPU, fast) → Piper (CPU, last resort).
+  Qwen3-TTS (GPU, highest quality) → Fish Audio (stories, GPU) → Orpheus (GPU) → Kokoro (CPU, fast) → Piper (CPU, last resort).
 """
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ from cortex.speech.voices import to_orpheus_voice, KOKORO_VOICE
 logger = logging.getLogger(__name__)
 
 # Provider configuration — mirrors cortex/satellite/websocket.py env vars
-_TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "orpheus")
+_TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "qwen3_tts")
+_QWEN_TTS_HOST = os.environ.get("QWEN_TTS_HOST", "localhost")
+_QWEN_TTS_PORT = int(os.environ.get("QWEN_TTS_PORT", "8766"))
 _ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
 _KOKORO_HOST = os.environ.get("KOKORO_HOST", "localhost")
 _KOKORO_PORT = int(os.environ.get("KOKORO_PORT", "8880"))
@@ -40,8 +42,8 @@ async def synthesize_speech(
 
     Returns ``(pcm_audio, sample_rate, provider_name)``.
 
-    Provider priority: Orpheus (GPU) → Kokoro → Piper.
-    When *fast* is True, prefer Kokoro (CPU, ~200 ms) over Orpheus (GPU, ~5 s)
+    Provider priority: Qwen3-TTS (GPU) → Orpheus (GPU) → Kokoro (CPU) → Piper (CPU).
+    When *fast* is True, prefer Kokoro (CPU, ~200 ms) over GPU providers
     for latency-sensitive paths like instant answers and fillers.
     """
     from cortex.voice.wyoming import WyomingClient
@@ -51,7 +53,7 @@ async def synthesize_speech(
         try:
             from cortex.voice.kokoro import KokoroClient
             kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else KOKORO_VOICE
+            kokoro_voice = voice if voice and not voice.startswith(("orpheus_", "qwen3_")) else KOKORO_VOICE
             raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
             if raw:
                 pcm, rate = extract_pcm(raw, info.get("rate", 24000))
@@ -59,8 +61,39 @@ async def synthesize_speech(
         except Exception as e:
             logger.warning("Kokoro TTS failed: %s", e)
 
+    # --- Qwen3-TTS (primary GPU, highest quality) ---
+    if _TTS_PROVIDER in ("qwen3_tts", "auto"):
+        try:
+            import aiohttp
+            qwen_url = f"http://{_QWEN_TTS_HOST}:{_QWEN_TTS_PORT}"
+            # Resolve speaker name from voice ID
+            speaker = voice or "Ryan"
+            if speaker.startswith("qwen3_"):
+                speaker = speaker[len("qwen3_"):]
+            payload = {
+                "text": text,
+                "language": "English",
+                "speaker": speaker,
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{qwen_url}/api/tts/custom-voice",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status == 200:
+                        raw = await resp.read()
+                        if raw:
+                            pcm, rate = extract_pcm(raw, 24000)
+                            return pcm, rate, "qwen3_tts"
+                    else:
+                        error = await resp.text()
+                        logger.warning("Qwen3-TTS failed (%d): %s", resp.status, error[:200])
+        except Exception as e:
+            logger.warning("Qwen3-TTS failed: %s", e)
+
     # --- Orpheus (CUDA GPU, higher quality) ---
-    if _TTS_PROVIDER in ("orpheus", "auto"):
+    if _TTS_PROVIDER in ("orpheus", "qwen3_tts", "auto"):
         try:
             import aiohttp
             bare_voice = to_orpheus_voice(voice)
@@ -88,12 +121,12 @@ async def synthesize_speech(
         except Exception as e:
             logger.warning("Orpheus TTS failed: %s", e)
 
-    # --- Kokoro (fallback if Orpheus fails) ---
+    # --- Kokoro (fallback if GPU providers fail) ---
     if not fast:
         try:
             from cortex.voice.kokoro import KokoroClient
             kokoro = KokoroClient(_KOKORO_HOST, _KOKORO_PORT, timeout=15.0)
-            kokoro_voice = voice if voice and not voice.startswith("orpheus_") else KOKORO_VOICE
+            kokoro_voice = voice if voice and not voice.startswith(("orpheus_", "qwen3_")) else KOKORO_VOICE
             raw, info = await kokoro.synthesize(text, voice=kokoro_voice, response_format="wav")
             if raw:
                 pcm, rate = extract_pcm(raw, info.get("rate", 24000))
@@ -104,7 +137,7 @@ async def synthesize_speech(
     # --- Piper (last resort) ---
     try:
         piper = WyomingClient(_PIPER_HOST, _PIPER_PORT, timeout=15.0)
-        piper_voice = voice if voice and not voice.startswith("orpheus_") else None
+        piper_voice = voice if voice and not voice.startswith(("orpheus_", "qwen3_")) else None
         audio, info = await piper.synthesize(text, voice=piper_voice)
         return audio, info.get("rate", 22050), "piper"
     except Exception as e:

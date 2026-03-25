@@ -115,7 +115,8 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
         _print(f"  Deployment: Dual-GPU\n")
         _print("  ★ Recommended:")
         _print(f"    • LLM:  {llm_dev.get('name', '?')} ({llm_dev.get('vram_mb', 0) // 1024}GB, {llm_dev.get('compute_api', '?').upper()}) → {fast_model}")
-        _print(f"    • TTS:  {tts_dev.get('name', '?')} ({tts_dev.get('vram_mb', 0) // 1024}GB, {tts_dev.get('compute_api', '?').upper()}) → Orpheus / Kokoro")
+        _print(f"    • TTS:  {tts_dev.get('name', '?')} ({tts_dev.get('vram_mb', 0) // 1024}GB, {tts_dev.get('compute_api', '?').upper()}) → Qwen3-TTS (primary) / Orpheus / Kokoro")
+        _print(f"    • Fish Audio: Optional (for story narration with multi-character voices)")
         _print(f"    • LoRA training: {llm_dev.get('name', '?')} (overnight)")
         if loras:
             _print(f"    • LoRA adapters: {', '.join(loras)}")
@@ -129,6 +130,7 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
         _print(f"  Deployment: Single-GPU\n")
         _print("  ★ Recommended:")
         _print(f"    • LLM + TTS: {gpu_dev.get('name', '?')} ({gpu_dev.get('vram_mb', 0) // 1024}GB) → {fast_model}")
+        _print("    • TTS: Qwen3-TTS (primary, 6GB+ VRAM) with Kokoro (CPU fallback)")
         _print("    • LLM and TTS take turns on the same GPU")
         if loras:
             _print(f"    • LoRA adapters: {', '.join(loras)}")
@@ -138,7 +140,8 @@ def run_installer(data_dir: Path | None = None, non_interactive: bool = False) -
         _print("  Deployment: CPU-only\n")
         _print("  ★ Recommended:")
         _print(f"    • Model: {fast_model} (smallest available)")
-        _print("    • TTS: Piper (CPU, fast)")
+        _print("    • TTS: Kokoro (CPU, fast) with Piper fallback")
+        _print("    • Qwen3-TTS requires GPU — not available in CPU-only mode")
         _print("    • Expect slower responses (5-15 seconds)")
 
     if not non_interactive and gpus:
