@@ -67,18 +67,15 @@ async def synthesize_speech(
             import aiohttp
             qwen_url = f"http://{_QWEN_TTS_HOST}:{_QWEN_TTS_PORT}"
             # Resolve speaker name from voice ID
-            speaker = voice or "Ryan"
+            speaker = voice or "demo_speaker0"
             if speaker.startswith("qwen3_"):
                 speaker = speaker[len("qwen3_"):]
-            payload = {
-                "text": text,
-                "language": "English",
-                "speaker": speaker,
-            }
+            # ValyrianTech API: GET /synthesize_speech/?text=&voice=&speed=
+            params = {"text": text, "voice": speaker, "speed": 1.0}
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{qwen_url}/api/tts/custom-voice",
-                    json=payload,
+                async with session.get(
+                    f"{qwen_url}/synthesize_speech/",
+                    params=params,
                     timeout=aiohttp.ClientTimeout(total=60),
                 ) as resp:
                     if resp.status == 200:

@@ -337,8 +337,8 @@ _VRAM_TIERS = [
         "thinking_context": 262144,
     }),
     (24000, {
-        "fast": "qwen3.5:27b",
-        "fast_fallback": "qwen3.5:27b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:14b",
         "thinking": "qwen3.5:27b",
         "embedding": "nomic-embed-text",
         "loras": ["coding.lora", "reasoning.lora", "math.lora", "atlas.lora"],
@@ -358,8 +358,8 @@ _VRAM_TIERS = [
         "note": "27B fits at Q4 (~16.5GB), 9B for fast responses",
     }),
     (8000, {
-        "fast": "qwen3.5:9b",
-        "fast_fallback": "qwen3.5:9b",
+        "fast": "atlas-ultra:9b",
+        "fast_fallback": "qwen2.5:7b",
         "thinking": "qwen3.5:9b",
         "embedding": "nomic-embed-text",
         "loras": ["coding.lora", "reasoning.lora"],
@@ -368,7 +368,7 @@ _VRAM_TIERS = [
         "thinking_context": 32768,
     }),
     (4000, {
-        "fast": "qwen3.5:9b",
+        "fast": "atlas-core:2b",
         "fast_fallback": "qwen2.5:3b",
         "thinking": "qwen3.5:9b",
         "embedding": "nomic-embed-text",
@@ -378,7 +378,7 @@ _VRAM_TIERS = [
         "thinking_context": 16384,
     }),
     (0, {
-        "fast": "qwen2.5:1.5b",
+        "fast": "atlas-core:2b",
         "fast_fallback": "qwen2.5:1.5b",
         "thinking": "qwen2.5:3b",
         "embedding": "nomic-embed-text",
@@ -506,7 +506,7 @@ def recommend_deployment(hardware: dict[str, Any]) -> dict[str, Any]:
             "llm_device": None,
             "tts_device": None,
             "specialist_device": None,
-            "models": _VRAM_TIERS[-1][1],
+            "models": recommend_models(hardware),
             "notes": [
                 "No discrete GPU detected — running CPU-only",
                 "Expect slower responses (5-15 seconds)",
