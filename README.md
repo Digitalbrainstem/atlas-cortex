@@ -6,7 +6,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-2825%2B%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-3660%2B%20passing-brightgreen.svg)](#testing)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -232,10 +232,15 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 git clone https://github.com/Betanu701/atlas-cortex.git
 cd atlas-cortex
 
-# Start with Docker Compose
+# Start with Docker Compose (includes Qwen3-TTS, Ollama, Whisper, Kokoro, Piper, and more)
 docker compose -f docker/docker-compose.yml up -d
 
+# For NVIDIA GPU support:
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu-nvidia.yml up -d
+
 # Atlas is now running at http://localhost:5100
+# Chat UI: http://localhost:5100/chat
+# Admin panel: http://localhost:5100/admin/
 ```
 
 ### Quick Start (Manual)
@@ -293,6 +298,8 @@ Open **`http://localhost:5100/admin/`** in your browser.
 > ⚠️ **Change the default password immediately** via the admin panel.
 >
 > 📖 **[Full Admin Panel Guide →](docs/admin-guide.md)** — walkthrough of every page with screenshots
+>
+> 📖 **[API Reference (144+ endpoints) →](docs/api-reference.md)** — complete endpoint documentation
 
 ### Discover Your Services
 
@@ -377,7 +384,7 @@ curl http://localhost:5100/admin/dashboard \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-> 📖 **[Full endpoint list (30+ endpoints) →](docs/admin-guide.md#admin-api-reference)**
+> 📖 **[Full endpoint list (144+ endpoints) →](docs/api-reference.md)**
 
 ## 📁 Project Structure
 
@@ -447,7 +454,7 @@ atlas-cortex/
 ├── docs/                          # Architecture, roadmap, guides (35+ files)
 ├── mocks/                         # GPU-free development servers
 ├── seeds/                         # Initial data (command patterns)
-├── tests/                         # 2,825+ tests
+├── tests/                         # 3,660+ tests
 ├── requirements.txt
 └── pytest.ini
 ```
@@ -465,7 +472,7 @@ python -m pytest tests/test_safety.py -v
 python -m pytest tests/test_voice.py -v
 ```
 
-**Current status: 2,825+ tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, multi-room, scheduling, routines, proactive, intercom, media, stories, CLI, and web app modules.
+**Current status: 3,660+ tests passing** across pipeline, providers, safety, voice, discovery, integrations, filler, memory, learning, evolution, avatar, admin, spatial, Wyoming, WebDAV, CalDAV, backup, multi-room, scheduling, routines, proactive, intercom, media, stories, CLI, and web app modules.
 
 ## 📊 Implementation Status
 
@@ -555,6 +562,9 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Avatar System](docs/avatar-system.md) | Lip-sync, visemes, emotion expressions |
 | [Backup & Restore](docs/backup-restore.md) | Automated backups, one-command restore |
 | [Admin Panel Guide](docs/admin-guide.md) | Full walkthrough with screenshots |
+| [API Reference](docs/api-reference.md) | All 144+ API endpoints |
+| [Plugin Guide](docs/plugins-guide.md) | Plugin system for admins and developers |
+| [Persistent Storage](docs/persistent-storage.md) | Docker volumes and data paths |
 | [Satellite System](docs/satellite-system.md) | Satellite speaker/mic architecture |
 | [Alarms & Timers](docs/alarms-timers-reminders.md) | NL time parsing, recurrence, notification routing |
 | [Routines](docs/routines-automations.md) | Triggers, templates, conversational builder |

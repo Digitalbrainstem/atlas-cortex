@@ -110,14 +110,17 @@ Every message flows through layers sequentially; **first match wins**:
 
 ### Voice Engine (`cortex/speech/`)
 
-**TTS hierarchy:** Qwen3-TTS (primary, GPU) → Fish Audio S2 (story character voices, GPU) → Orpheus (emotional, GPU) → Kokoro (CPU) → Piper (CPU, fast fallback).
+**TTS hierarchy:** Qwen3-TTS (primary, RTX 4060) → Fish Audio S2 (story character voices, GPU) → Orpheus (backup, GPU) → Kokoro (CPU) → Piper (CPU, fast fallback).
 
 Provider factory: `get_tts_provider()` in `cortex/voice/providers/__init__.py`.
-Default voice: `af_bella`. Env vars: `TTS_PROVIDER`, `KOKORO_HOST`, `KOKORO_PORT`, `KOKORO_VOICE`.
+Default voice: `af_bella`. Qwen3-TTS voices include Ryan, Aiden, and others.
+Env vars: `TTS_PROVIDER=qwen3_tts`, `QWEN_TTS_HOST`, `QWEN_TTS_PORT=7860`, `KOKORO_HOST`, `KOKORO_PORT`, `KOKORO_VOICE`.
 
 ### Plugin System (`cortex/plugins/`)
 
 Layer 2 plugins extend `CortexPlugin` (in `cortex/plugins/base.py`) and register with `PluginRegistry`. Each plugin implements `match()` → `CommandMatch` and `handle()` → `CommandResult`. Dispatch tries plugins in registration order.
+
+**ConfigField system:** Plugins declare `config_fields: list[ConfigField]` for schema-driven admin forms. Field types: `text`, `password`, `url`, `toggle`, `select`, `number`. The `health_message` property provides human-readable status. The admin panel renders configuration forms automatically from the schema.
 
 **21 built-in plugins:** weather, dictionary, wikipedia, conversions, movie, cooking, news, translation, stocks, sports, sound library, scheduling, routines, daily briefing, STEM games (Number Quest, Science Safari, Word Wizard), stories, intercom, media, + core 3 (HA, lists, knowledge).
 
@@ -145,13 +148,35 @@ HOT/COLD architecture: HOT path is synchronous read (BM25 via SQLite FTS5 + opti
 | `cortex/stories/` | Story generator, character voices, TTS hot-swap |
 | `cortex/evolution/` | LoRA training, model scout, drift monitor |
 | `cortex/cli/` | Atlas CLI agent (REPL, 31 tools, ReAct loop) |
-| `cortex/admin/` | Admin API domain routers (9 sub-routers) |
+| `cortex/admin/` | Admin API domain routers (19 sub-routers, 144+ endpoints) |
 | `cortex/orchestrator/` | Request coordination (STT→pipeline→TTS) |
 | `cortex/speech/` | Multi-provider TTS with hot-swap, STT |
 
 ### Database (`cortex/db.py`)
 
 SQLite with WAL mode and foreign keys enabled. Schema has 50+ tables. `init_db()` is idempotent. `get_db()` returns per-thread connections. Tests use `set_db_path()` to point at in-memory or temp databases.
+
+### LoRA System (`cortex/evolution/`)
+
+LoRAs are **discovered** at startup via `discover_and_register()` — not composed automatically. The `model_registry` DB table tracks all known models and LoRA adapters. Admin API (`/admin/loras/compose`) composes a LoRA into an Ollama model on demand. Groups: `ultra-9b-v2/` (11 domains), `core-4b-h100/`, `focused-9b/` (specialty).
+
+### Public Chat (`/chat`)
+
+The `/chat` endpoint serves a public-facing chat SPA (from `admin/dist/chat.html`). User profiles support PIN, password, or passkey authentication via `/api/chat/auth`. Not behind admin auth — designed for household members.
+
+### Docker Containers
+
+The full Docker stack (`docker/docker-compose.yml`) includes:
+- `atlas-cortex` — Main server + admin UI (port 5100, host networking)
+- `atlas-ollama` — LLM inference (port 11434)
+- `atlas-qwen-tts` — Primary TTS via Qwen3-TTS (port 7860, NVIDIA GPU)
+- `atlas-fish-tts` — Story character voices via Fish Audio S2 (port 8860, NVIDIA GPU)
+- `atlas-orpheus` — Backup TTS (port 5005, NVIDIA GPU)
+- `atlas-kokoro` — Fast CPU TTS (port 8880)
+- `atlas-piper` — Ultra-fast fallback TTS (port 10200)
+- `atlas-whisper` — STT via whisper.cpp Vulkan (port 10300)
+
+GPU overrides: `docker-compose.gpu-nvidia.yml`, `docker-compose.gpu-amd.yml`, `docker-compose.gpu-intel.yml`
 
 ### Admin Panel (`admin/`)
 

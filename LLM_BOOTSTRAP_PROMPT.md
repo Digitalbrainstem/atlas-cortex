@@ -42,7 +42,7 @@ python -m cortex.server
 ## Step 3: Run Tests
 
 ```bash
-# All tests (2,825+ pass)
+# All tests (3,660+ pass)
 python -m pytest tests/ -q
 
 # Specific module
@@ -64,17 +64,17 @@ Known pre-existing failures (not regressions):
 - **Part 1**: Core Engine — 4-layer pipeline, providers, memory (HOT/COLD), safety, avatar, profiles, context, backup
 - **Part 2**: Integration — HA, discovery, voice pipeline, self-learning, knowledge (WebDAV/CalDAV), lists, offsite backup
 - **Part 2.5**: Satellite system (wake word deferred)
-- **Part 2.7**: Plugin infrastructure — 21 built-in plugins
+- **Part 2.7**: Plugin infrastructure — 21 built-in plugins, ConfigField schema-driven admin UI
 - **Part 3**: Alarms, timers, reminders — NL time parser, notification routing
 - **Part 4**: Routines & automations — triggers (voice/cron/HA events), templates
 - **Part 5**: Proactive intelligence — rule engine, weather/energy/anomaly/calendar providers, daily briefing
 - **Part 6**: Learning & education — Socratic tutoring, quiz gen (through Calc III), 3 STEM games
 - **Part 7**: Intercom — announce, broadcast, zones, two-way calling, drop-in
 - **Part 8**: Media — YouTube Music, Plex, Audiobookshelf, podcasts, local library, playback router
-- **Part 9**: Self-evolution — conversation analysis, LoRA training (ROCm/AMD), model scout, A/B testing, drift monitor
+- **Part 9**: Self-evolution — conversation analysis, LoRA discovery & registration (discover_and_register, model_registry DB), model scout, A/B testing, drift monitor
 - **Part 10**: Story time — generator, character voices (Fish Audio S2), TTS hot-swap, interactive stories
 - **Part 11**: Atlas CLI — REPL, 31 agent tools, ReAct loop, context management, sessions
-- **Part 12**: Standalone web app — browser chat, WebSocket streaming, voice I/O, avatar, dashboard
+- **Part 12**: Standalone web app — browser chat, WebSocket streaming, voice I/O, avatar, dashboard, public `/chat` page with user profiles (PIN/passkey auth)
 
 ### Admin Panel Views (20 total)
 Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Satellites, SatelliteDetail, Plugins, Scheduling, Routines, Learning, Proactive, Media, Intercom, Evolution, Stories, System
@@ -127,6 +127,25 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - `mocks/data/voice_benchmark_results.json` — voice pipeline timing (35 questions)
 - `mocks/conftest.py` — pytest fixtures for auto-starting mocks
 
+### Plugin System
+- **ConfigField** (`cortex/plugins/base.py`) — schema-driven config for admin forms
+- `config_fields: list[ConfigField]` on each plugin declares typed form fields
+- Field types: `text`, `password`, `url`, `toggle`, `select`, `number`
+- `health_message` property returns human-readable status for admin panel
+- Plugins discovered automatically; admin UI renders forms from schema
+
+### LoRA System
+- LoRAs are **discovered** at startup via `discover_and_register()` — not composed automatically
+- `model_registry` DB table tracks all known models and LoRA adapters
+- Admin API (`/admin/loras/compose`) to compose a LoRA into an Ollama model on demand
+- Groups: `ultra-9b-v2/` (11 domains), `core-4b-h100/` (11 domains), `focused-9b/` (specialty)
+
+### Public Chat
+- `/chat` serves a public-facing chat SPA (from `admin/dist/chat.html`)
+- User profiles with PIN, password, or passkey authentication
+- `/api/chat/users`, `/api/chat/auth`, `/api/chat/session` endpoints
+- Not behind admin auth — designed for household members
+
 ## Directory Structure (Key Modules)
 
 ```
@@ -135,7 +154,7 @@ cortex/
 ├── pipe.py                      # Open WebUI Pipe function
 ├── db.py                        # SQLite schema (50+ tables)
 ├── auth.py                      # JWT authentication
-├── admin/                       # Admin API domain routers (9 sub-routers)
+├── admin/                       # Admin API domain routers (19 sub-routers, 144+ endpoints)
 ├── orchestrator/                # Request coordination (STT→pipeline→TTS)
 │   ├── voice.py                 # STT → pipeline → TTS flow
 │   ├── text.py                  # Sentence splitting, auto-listen
