@@ -160,7 +160,7 @@ apt-get install -y -qq linux-generic live-boot
 
 # ── Display: Xorg + Openbox (no full DE) ─────────────────────────
 apt-get install -y -qq \
-    xorg xinit openbox \
+    xorg xinit openbox xterm \
     chromium-browser \
     unclutter xdotool
 
@@ -185,7 +185,8 @@ apt-get install -y -qq \
     curl wget git \
     openssh-server \
     usbutils pciutils \
-    less nano locales
+    less nano locales \
+    parted dosfstools e2fsprogs rsync
 
 # ── GRUB bootloader ──────────────────────────────────────────────
 apt-get install -y -qq \
@@ -405,6 +406,12 @@ mkdir -p "$AUTOSTART_DIR"
 cat > "$AUTOSTART_DIR/autostart" << 'KIOSK'
 # Atlas Tablet Kiosk — Openbox autostart
 # Launched automatically when X starts on tty1.
+
+# Check if we booted with atlas.install=1 (Install to Disk mode)
+if grep -q 'atlas.install=1' /proc/cmdline 2>/dev/null; then
+    xterm -fullscreen -e "sudo install-to-disk" &
+    exit 0
+fi
 
 # Hide cursor after 3 seconds idle
 unclutter -idle 3 &
@@ -653,6 +660,11 @@ chroot "$ROOTFS" systemctl enable atlas-brightness
 
 ok "Display configured"
 
+# ── Install-to-disk script ────────────────────────────────────────
+cp "$SCRIPT_DIR/install-to-disk.sh" "$ROOTFS/usr/local/bin/install-to-disk"
+chmod +x "$ROOTFS/usr/local/bin/install-to-disk"
+ok "Install-to-disk script installed"
+
 # ══════════════════════════════════════════════════════════════════
 # PHASE 10: Clean up rootfs
 # ══════════════════════════════════════════════════════════════════
@@ -709,7 +721,7 @@ set default=0
 set timeout=3
 
 menuentry "Atlas Tablet OS" {
-    linux /live/vmlinuz boot=live toram quiet splash
+    linux /live/vmlinuz boot=live toram quiet splash i915.enable_psr=0
     initrd /live/initrd.img
 }
 
@@ -719,7 +731,7 @@ menuentry "Atlas Tablet OS (Safe Mode)" {
 }
 
 menuentry "Atlas Tablet OS (Install to Disk)" {
-    linux /live/vmlinuz boot=live toram quiet splash atlas.install=1
+    linux /live/vmlinuz boot=live toram quiet splash i915.enable_psr=0 atlas.install=1
     initrd /live/initrd.img
 }
 GRUBCFG
