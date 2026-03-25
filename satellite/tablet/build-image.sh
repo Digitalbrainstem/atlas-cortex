@@ -257,12 +257,18 @@ rm -rf /usr/share/doc/* \
        /usr/share/backgrounds/x*  \
        /usr/share/themes/Greybird-dark-accessibility \
        /usr/share/themes/Greybird-accessibility \
-       /usr/share/locale/!(en|en_US|locale.alias) \
-       /usr/share/help/!(C|en) \
        /var/cache/apt/archives/*.deb \
        /var/log/*.log \
        /tmp/* \
        2>/dev/null || true
+
+# Strip non-English locales (save ~100MB)
+find /usr/share/locale -mindepth 1 -maxdepth 1 \
+    ! -name 'en' ! -name 'en_US' ! -name 'locale.alias' \
+    -exec rm -rf {} + 2>/dev/null || true
+find /usr/share/help -mindepth 1 -maxdepth 1 \
+    ! -name 'C' ! -name 'en' \
+    -exec rm -rf {} + 2>/dev/null || true
 
 apt-get clean
 CHROOT_PACKAGES
