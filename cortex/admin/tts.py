@@ -33,7 +33,7 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
     try:
         from cortex.voice.providers.qwen3_tts import Qwen3TTSProvider
         qwen_host = os.environ.get("QWEN_TTS_HOST", "localhost")
-        qwen_port = int(os.environ.get("QWEN_TTS_PORT", "8766"))
+        qwen_port = int(os.environ.get("QWEN_TTS_PORT", "7860"))
         qwen = Qwen3TTSProvider({"QWEN_TTS_HOST": qwen_host, "QWEN_TTS_PORT": str(qwen_port)})
         qwen_voices = await qwen.list_voices()
         for v in qwen_voices:
