@@ -157,6 +157,22 @@ async def stream_llm_response(
         model_thinking=model_thinking,
     )
 
+    # LoRA override: use a domain-specific composed model if available
+    try:
+        from cortex.evolution.lora_manager import get_lora_manager
+        from cortex.cli.lora_router import LoRARouter
+
+        lora_mgr = get_lora_manager()
+        if lora_mgr:
+            domain = LoRARouter().classify(message)
+            if domain and domain != "general":
+                lora_model = lora_mgr.get_model_for_domain(domain)
+                if lora_model:
+                    logger.debug("LoRA override: %s -> %s (domain=%s)", model, lora_model, domain)
+                    model = lora_model
+    except Exception as exc:
+        logger.debug("LoRA routing skipped: %s", exc)
+
     # Build message list
     messages = build_messages(message, context, filler, memory_context, system_prompt)
 

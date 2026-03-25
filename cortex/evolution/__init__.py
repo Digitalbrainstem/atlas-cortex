@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from cortex.evolution.analysis import ConversationAnalyzer
 from cortex.evolution.engine import EvolutionEngine
+from cortex.evolution.lora_manager import LoRAManager
 from cortex.evolution.registry import ModelRegistry
 
 import json
@@ -29,6 +30,7 @@ __all__ = [
     "EmotionalEvolution",
     "EmotionalState",
     "EvolutionEngine",
+    "LoRAManager",
     "ModelRegistry",
 ]
 
