@@ -123,6 +123,11 @@ const routes = [
     name: 'intercom',
     component: () => import('../views/IntercomView.vue'),
   },
+  {
+    path: '/legacy',
+    name: 'legacy',
+    component: () => import('../views/LegacyView.vue'),
+  },
 ];
 
 const router = createRouter({
