@@ -66,10 +66,12 @@ async def synthesize_speech(
         try:
             import aiohttp
             qwen_url = f"http://{_QWEN_TTS_HOST}:{_QWEN_TTS_PORT}"
-            # Resolve speaker name from voice ID
-            speaker = voice or "demo_speaker0"
-            if speaker.startswith("qwen3_"):
-                speaker = speaker[len("qwen3_"):]
+            # Resolve speaker name from voice ID — only use Qwen-compatible voices
+            speaker = "demo_speaker0"  # default Qwen voice
+            if voice and voice.startswith("qwen3_"):
+                speaker = voice[len("qwen3_"):]
+            elif voice and voice.startswith("demo_"):
+                speaker = voice
             # ValyrianTech API: GET /synthesize_speech/?text=&voice=&speed=
             params = {"text": text, "voice": speaker, "speed": 1.0}
             async with aiohttp.ClientSession() as session:
