@@ -22,14 +22,18 @@ services:
       - MODEL_FAST=${MODEL_FAST:-qwen3.5:9b}
       - MODEL_THINKING=${MODEL_THINKING:-qwen3.5:27b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
-      # TTS — Kokoro primary (port 8880), Piper fallback (port 10200), Orpheus optional (port 5005)
-      - TTS_PROVIDER=${TTS_PROVIDER:-orpheus}
+      # TTS — Qwen3-TTS primary (port 8766), Kokoro fast (port 8880), Orpheus (port 5005), Piper fallback (port 10200), Fish Audio stories (port 8860)
+      - TTS_PROVIDER=${TTS_PROVIDER:-qwen3_tts}
+      - QWEN_TTS_HOST=${QWEN_TTS_HOST:-localhost}
+      - QWEN_TTS_PORT=${QWEN_TTS_PORT:-8766}
       - KOKORO_HOST=${KOKORO_HOST:-localhost}
       - KOKORO_PORT=${KOKORO_PORT:-8880}
       - KOKORO_VOICE=${KOKORO_VOICE:-af_bella}
       - ORPHEUS_FASTAPI_URL=${ORPHEUS_FASTAPI_URL:-http://localhost:5005}
       - PIPER_HOST=${PIPER_HOST:-localhost}
       - PIPER_PORT=${PIPER_PORT:-10200}
+      - FISH_AUDIO_HOST=${FISH_AUDIO_HOST:-localhost}
+      - FISH_AUDIO_PORT=${FISH_AUDIO_PORT:-8860}
       # STT — whisper.cpp Vulkan (port 10300)
       - STT_BACKEND=${STT_BACKEND:-whisper_cpp}
       - STT_HOST=${STT_HOST:-localhost}
@@ -44,10 +48,12 @@ services:
         condition: service_started
       atlas-ollama:
         condition: service_started
+      atlas-qwen-tts:
+        condition: service_started
 
   # ── Piper TTS — Wyoming protocol (port 10200) ──────────────────
   # CPU-only fallback TTS. ~140MB RAM, sub-second synthesis.
-  # Used for instant responses when Orpheus latency is too high.
+  # Used for instant responses when GPU TTS latency is too high.
   atlas-piper:
     image: lscr.io/linuxserver/piper:latest
     container_name: atlas-piper
@@ -188,6 +194,7 @@ services:
   # All-in-one Orpheus TTS: llama.cpp CUDA for inference, SNAC for audio.
   # Single NVIDIA GPU (RTX 4060 8GB target). GGUF model (~2.2GB VRAM).
   # Model auto-downloaded on first run via init container.
+  # Fallback when Qwen3-TTS is unavailable.
   atlas-orpheus:
     build:
       context: ./orpheus-vllm
@@ -236,6 +243,62 @@ services:
         echo "Orpheus model already exists";
       fi'
     restart: "no"
+
+  # ── Qwen3-TTS — primary GPU TTS (port 8766) ────────────────────
+  # neosun/qwen3-tts:2.0.0 — highest quality, 9 speakers, 10 languages,
+  # voice design, voice cloning. ~14GB Docker image with embedded models.
+  # Requires NVIDIA GPU with 6GB+ VRAM.
+  atlas-qwen-tts:
+    image: neosun/qwen3-tts:2.0.0
+    container_name: atlas-qwen-tts
+    ports:
+      - "8766:8766"
+    environment:
+      - CUDA_DEVICE=cuda:0
+      - NVIDIA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks:
+      - atlas
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8766/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ── Fish Speech — story narration TTS (port 8860) ───────────────
+  # fishaudio/fish-speech — multi-speaker dialogue, voice cloning.
+  # Optional service for story mode and character voice narration.
+  atlas-fish-tts:
+    image: fishaudio/fish-speech:latest
+    container_name: atlas-fish-tts
+    ports:
+      - "8860:8080"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks:
+      - atlas
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/models || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
 networks:
   atlas:

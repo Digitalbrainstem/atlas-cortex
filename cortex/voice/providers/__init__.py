@@ -20,10 +20,10 @@ def get_tts_provider(config: dict | None = None) -> TTSProvider:
 
     Provider selection order:
       1. ``TTS_PROVIDER`` env-var (or config key)
-      2. Default → kokoro (primary, CPU)
+      2. Default → qwen3_tts (primary, GPU, highest quality)
     """
     cfg = config or _env_config()
-    name = cfg.get("TTS_PROVIDER", "kokoro").lower()
+    name = cfg.get("TTS_PROVIDER", "qwen3_tts").lower()
     if name not in _PROVIDER_REGISTRY:
         raise ValueError(
             f"Unknown TTS provider '{name}'. "
@@ -36,6 +36,8 @@ def _env_config() -> dict:
     """Build a config dict from environment variables."""
     keys = (
         "TTS_PROVIDER",
+        "QWEN_TTS_HOST",
+        "QWEN_TTS_PORT",
         "KOKORO_HOST",
         "KOKORO_PORT",
         "KOKORO_VOICE",
@@ -43,6 +45,9 @@ def _env_config() -> dict:
         "ORPHEUS_MODEL",
         "ORPHEUS_FASTAPI_URL",
         "PIPER_URL",
+        "FISH_AUDIO_HOST",
+        "FISH_AUDIO_PORT",
+        "FISH_AUDIO_API_KEY",
     )
     return {k: v for k in keys if (v := os.environ.get(k))}
 
@@ -54,16 +59,19 @@ def _env_config() -> dict:
 from cortex.voice.providers.kokoro import KokoroTTSProvider    # noqa: E402
 from cortex.voice.providers.orpheus import OrpheusTTSProvider  # noqa: E402
 from cortex.voice.providers.piper import PiperTTSProvider      # noqa: E402
+from cortex.voice.providers.qwen3_tts import Qwen3TTSProvider  # noqa: E402
 
 register_provider("kokoro", KokoroTTSProvider)
 register_provider("orpheus", OrpheusTTSProvider)
 register_provider("piper", PiperTTSProvider)
+register_provider("qwen3_tts", Qwen3TTSProvider)
 
 __all__ = [
     "TTSProvider",
     "KokoroTTSProvider",
     "OrpheusTTSProvider",
     "PiperTTSProvider",
+    "Qwen3TTSProvider",
     "get_tts_provider",
     "register_provider",
 ]

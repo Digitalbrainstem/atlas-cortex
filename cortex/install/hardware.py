@@ -463,7 +463,9 @@ def recommend_deployment(hardware: dict[str, Any]) -> dict[str, Any]:
 
         notes = [
             f"LLM on {primary['name']} ({primary['vram_mb'] // 1024}GB) via {primary.get('compute_api', '?').upper()}",
-            f"TTS + specialist models on {secondary['name']} ({secondary['vram_mb'] // 1024}GB) via {secondary.get('compute_api', '?').upper()}",
+            f"TTS (Qwen3-TTS + Orpheus) on {secondary['name']} ({secondary['vram_mb'] // 1024}GB) via {secondary.get('compute_api', '?').upper()}",
+            "Qwen3-TTS is the default primary TTS (highest quality, 6GB+ VRAM)",
+            "Fish Audio available for story narration (optional, shares TTS GPU)",
             "LoRA training can run overnight on the LLM GPU",
         ]
         if primary.get("vendor") != secondary.get("vendor"):
@@ -492,6 +494,7 @@ def recommend_deployment(hardware: dict[str, Any]) -> dict[str, Any]:
             "models": recommend_models(hardware),
             "notes": [
                 f"All models share {gpu['name']} ({gpu['vram_mb'] // 1024}GB)",
+                "Qwen3-TTS is default TTS (6GB+ VRAM recommended)",
                 "TTS and LLM take turns on the same GPU",
             ],
             "docker_compose_variant": _docker_variant(gpu),
@@ -508,7 +511,8 @@ def recommend_deployment(hardware: dict[str, Any]) -> dict[str, Any]:
                 "No discrete GPU detected — running CPU-only",
                 "Expect slower responses (5-15 seconds)",
                 "Use smaller models: qwen2.5:1.5b or qwen2.5:3b",
-                "TTS: Piper (CPU, fast) recommended over GPU-based TTS",
+                "TTS: Kokoro (CPU, fast) recommended; Qwen3-TTS requires GPU",
+                "Piper available as last-resort CPU fallback",
             ],
             "docker_compose_variant": "cpu",
         }

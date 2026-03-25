@@ -172,7 +172,7 @@ fi
 
 # Copy the ISO structure for later repacking (excluding squashfs files — we'll rebuild them)
 info "Copying ISO structure..."
-rsync -a --exclude='*.squashfs' "$ISO_MNT/" "$ISO_DIR/"
+rsync -a --exclude='*.squashfs' --exclude='pool/' --exclude='dists/' --exclude='install/' "$ISO_MNT/" "$ISO_DIR/"
 mkdir -p "$ISO_DIR/casper"
 
 umount "$ISO_MNT"

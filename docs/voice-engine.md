@@ -54,25 +54,28 @@ class TTSProvider:
 
 | Provider | Status | Emotion Support | Streaming | Quality | Resource | Best For |
 |----------|--------|----------------|-----------|---------|----------|----------|
-| **Kokoro** (primary) | ✅ Active | ⚠️ Voice-based (no inline tags) | ✅ | Excellent — natural, expressive, 82M params | CPU: ~100MB RAM | Primary voice engine, fast CPU synthesis |
-| **Orpheus TTS** | ✅ Available | ✅ Inline tags: `<laugh>`, `<sigh>`, emotion descriptors | ✅ | Excellent — human-like paralinguals | 3B: 6-8GB (Q4) | Emotional speech when GPU available |
-| **Piper** | ✅ Available | ❌ Basic SSML only | ✅ | Good — fast, robotic for complex emotion | CPU only, ~100MB RAM | Ultra-low-latency fallback |
-| **Parler-TTS** | 📋 Planned | ✅ Prompt-based style control | ✅ | Excellent | ~2-4GB | Alternate voice engine |
-| **Coqui XTTS** | 📋 Planned | ✅ Reference audio style transfer | ✅ | Very good — multilingual, voice cloning | ~4-6GB | Multilingual, voice cloning |
+| **Qwen3-TTS** (primary) | ✅ Active | ✅ Instruction-based style/emotion control | ✅ | Excellent — 1.7B params, 10 languages, 9 speakers | GPU: 6GB+ VRAM | Primary voice engine, highest quality |
+| **Fish Audio S2** | ✅ Active | ✅ Multi-speaker dialogue | ✅ | Excellent — voice cloning, multi-character | GPU: 4GB+ VRAM | Story narration, character voices |
+| **Orpheus TTS** | ✅ Available | ✅ Inline tags: `<laugh>`, `<sigh>`, emotion descriptors | ✅ | Excellent — human-like paralinguals | 3B: 6-8GB (Q4) | Emotional speech, GPU backup |
+| **Kokoro** | ✅ Available | ⚠️ Voice-based (no inline tags) | ✅ | Excellent — natural, expressive, 82M params | CPU: ~100MB RAM | Fast CPU fallback |
+| **Piper** | ✅ Available | ❌ Basic SSML only | ✅ | Good — fast, robotic for complex emotion | CPU only, ~100MB RAM | Ultra-low-latency last resort |
 
 ### Current Production Stack
 
-Kokoro runs as a standalone FastAPI service (Docker container `kokoro-tts`, port 8880). It provides:
-- **Sub-2s synthesis** for typical sentences on CPU
-- **24kHz 16-bit PCM** output (resampled to 16kHz for satellite streaming)
-- **Multiple voices** including `af_bella` (default), `am_adam`, and language-specific variants
-- **200ms base + 180ms/word** timing model (measured from production hardware)
+Qwen3-TTS is the primary TTS engine, running as a Docker container (`atlas-qwen-tts`, port 8766). It provides:
+- **9 built-in speakers** across English, Chinese, Japanese, and Korean
+- **Instruction-based control** — describe emotion/style in natural language
+- **Voice design** — create new voices from text descriptions
+- **Voice cloning** — clone any voice from 3 seconds of audio
+
+Kokoro remains the fast CPU fallback for latency-sensitive paths (fillers, instant answers).
 
 ```
-User speaks → STT processes audio (GPU: B580, whisper.cpp Vulkan)
+User speaks → STT processes audio (GPU: whisper.cpp)
               → Atlas pipeline runs (CPU)
-              → LLM generates response text (GPU: B580, Ollama qwen2.5:7b)
-              → Kokoro TTS generates speech (CPU, port 8880)
+              → LLM generates response text (GPU: Ollama)
+              → Qwen3-TTS generates speech (GPU, port 8766)
+              → Fallback: Kokoro (CPU, port 8880) or Piper (CPU, port 10200)
               → Audio streams to satellite while TTS still generating
 ```
 
@@ -80,16 +83,22 @@ User speaks → STT processes audio (GPU: B580, whisper.cpp Vulkan)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TTS_PROVIDER` | `kokoro` | Primary TTS engine (`kokoro`, `orpheus`, `piper`, `auto`) |
+| `TTS_PROVIDER` | `qwen3_tts` | Primary TTS engine (`qwen3_tts`, `orpheus`, `kokoro`, `piper`, `auto`) |
+| `QWEN_TTS_HOST` | `localhost` | Qwen3-TTS server hostname |
+| `QWEN_TTS_PORT` | `8766` | Qwen3-TTS server port |
 | `KOKORO_HOST` | `localhost` | Kokoro server hostname |
 | `KOKORO_PORT` | `8880` | Kokoro server port |
 | `KOKORO_VOICE` | `af_bella` | Default Kokoro voice ID |
+| `FISH_AUDIO_HOST` | `localhost` | Fish Audio S2 hostname |
+| `FISH_AUDIO_PORT` | `8860` | Fish Audio S2 port |
 
 ### Fallback Chain
 
-1. **Kokoro** (default) — fast CPU synthesis, natural quality
-2. **Orpheus** — used when emotional tags needed and GPU available
-3. **Piper** — ultra-fast fallback if both Kokoro and Orpheus fail
+1. **Qwen3-TTS** (default) — GPU, highest quality, 9 speakers, 10 languages
+2. **Fish Audio S2** — GPU, multi-character story narration
+3. **Orpheus** — GPU, emotional tags (`<laugh>`, `<sigh>`)
+4. **Kokoro** — CPU, fast fallback (~200ms)
+5. **Piper** — CPU, ultra-fast last resort
 
 ---
 
