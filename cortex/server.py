@@ -443,7 +443,7 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     if _safety_middleware is not None:
         system_prompt = _safety_middleware.build_system_prompt(user_id, metadata)
 
-    pipeline = await run_pipeline(
+    pipeline = run_pipeline(
         message=user_message,
         provider=provider,
         user_id=user_id,
