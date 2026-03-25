@@ -222,7 +222,7 @@ apt-get install -y -qq \
 # ── Audio (PipeWire is default on Xubuntu 24.04 — add compat + Surface firmware)
 apt-get install -y -qq \
     pipewire-pulse alsa-utils \
-    sof-firmware
+    firmware-sof-signed
 
 # ── mDNS / discovery ─────────────────────────────────────────────
 apt-get install -y -qq \
