@@ -85,12 +85,13 @@ ARCH="amd64"
 DATE=$(date +%Y%m%d)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CORTEX_VERSION=$(grep '__version__ =' "$REPO_DIR/cortex/version.py" 2>/dev/null | sed 's/.*"\(.*\)"/\1/' || echo "0.1.0")
 SATELLITE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="/tmp/atlas-tablet-build-$$"
 ROOTFS="$BUILD_DIR/rootfs"
 ISO_DIR="$BUILD_DIR/iso"
-OUTPUT_ISO="atlas-tablet-os-${DATE}.iso"
-OUTPUT_IMG="atlas-tablet-os-${DATE}.img"
+OUTPUT_ISO="atlas-tablet-os-v${CORTEX_VERSION}-${DATE}.iso"
+OUTPUT_IMG="atlas-tablet-os-v${CORTEX_VERSION}-${DATE}.img"
 
 info "Suite:   Ubuntu ${SUITE} (24.04 LTS)"
 info "Arch:    ${ARCH}"
@@ -220,9 +221,8 @@ echo "deb [arch=amd64] https://pkg.surfacelinux.com/debian release main" \
     > /etc/apt/sources.list.d/linux-surface.list
 
 apt-get update -qq
-apt-get install -y -qq linux-image-surface linux-headers-surface iptsd libwacom-surface || {
-    echo "WARNING: linux-surface install failed — Surface Go may need manual kernel install"
-}
+apt-get install -y -qq linux-image-surface linux-headers-surface iptsd libwacom-surface \
+    || echo "WARNING: linux-surface install failed — Surface Go may need manual kernel install"
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 CHROOT_SURFACE
