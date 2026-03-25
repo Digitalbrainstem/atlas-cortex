@@ -236,6 +236,35 @@ apt-get install -y -qq \
 # ── Clean apt cache ──────────────────────────────────────────────
 apt-get clean
 rm -rf /var/lib/apt/lists/*
+
+# ── Strip bloat (kiosk doesn't need these) ───────────────────────
+# Remove XFCE apps we don't use (Chromium is our only app)
+apt-get remove --purge -y -qq \
+    thunderbird* libreoffice* simple-scan* \
+    transmission-gtk* parole* ristretto* \
+    xfce4-screensaver xfce4-screenshooter \
+    gnome-mines gnome-sudoku sgt-puzzles \
+    gimp* hexchat* pidgin* \
+    xfburn* mousepad* catfish* \
+    2>/dev/null || true
+apt-get autoremove -y -qq 2>/dev/null || true
+
+# Remove docs, man pages, wallpapers, themes we don't need
+rm -rf /usr/share/doc/* \
+       /usr/share/man/* \
+       /usr/share/info/* \
+       /usr/share/lintian/* \
+       /usr/share/backgrounds/x*  \
+       /usr/share/themes/Greybird-dark-accessibility \
+       /usr/share/themes/Greybird-accessibility \
+       /usr/share/locale/!(en|en_US|locale.alias) \
+       /usr/share/help/!(C|en) \
+       /var/cache/apt/archives/*.deb \
+       /var/log/*.log \
+       /tmp/* \
+       2>/dev/null || true
+
+apt-get clean
 CHROOT_PACKAGES
 
 ok "Additional packages installed"
@@ -801,7 +830,7 @@ info "Compressing customized rootfs (this takes several minutes)..."
 rm -f "$ISO_DIR/casper/minimal.squashfs" "$ISO_DIR/casper/minimal.live.squashfs"
 
 mksquashfs "$ROOTFS" "$ISO_DIR/casper/filesystem.squashfs" \
-    -comp gzip -b 256K -no-duplicates -quiet
+    -comp xz -b 1M -Xdict-size 100% -no-duplicates -quiet
 
 ok "Squashfs created: $(du -sh "$ISO_DIR/casper/filesystem.squashfs" | cut -f1)"
 
