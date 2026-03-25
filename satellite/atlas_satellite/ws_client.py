@@ -156,6 +156,22 @@ class SatelliteWSClient:
             "satellite_id": self.satellite_id,
         })
 
+    async def send_cmd_ack(self, cmd_id: int | str, result: str) -> None:
+        """Send acknowledgment for a remote management command."""
+        await self._send({
+            "type": "CMD_ACK",
+            "cmd_id": cmd_id,
+            "result": result,
+        })
+
+    async def send_log_upload(self, cmd_id: int | str, logs: str) -> None:
+        """Upload collected logs back to the server."""
+        await self._send({
+            "type": "LOG_UPLOAD",
+            "cmd_id": cmd_id,
+            "logs": logs,
+        })
+
     async def listen(self) -> None:
         """Listen for messages from server. Blocks until disconnected."""
         if not self._ws:

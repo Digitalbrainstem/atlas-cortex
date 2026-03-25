@@ -209,7 +209,7 @@ const capabilities = computed(() => {
   try { return JSON.parse(satellite.value.capabilities) } catch { return null }
 })
 
-onMounted(() => { fetchSatellite(); fetchLedConfig(); fetchTtsVoices() })
+onMounted(() => { fetchSatellite(); fetchLedConfig(); fetchTtsVoices(); loadCommandHistory() })
 
 async function fetchSatellite() {
   loading.value = true
@@ -312,6 +312,76 @@ async function removeSatellite() {
     await api.delete(`/admin/satellites/${satId.value}`)
     router.push({ name: 'satellites' })
   } catch (e) { error.value = e.message }
+}
+
+// ── Remote Management ──
+const remoteScript = ref('')
+const remoteScriptTimeout = ref(30)
+const remoteScriptRunning = ref(false)
+const remoteScriptResult = ref(null)
+const configKey = ref('')
+const configValue = ref('')
+const kioskUrl = ref('')
+const commandHistory = ref([])
+const loadingHistory = ref(false)
+
+async function sendRemoteCommand(type, payload = {}) {
+  error.value = ''
+  try {
+    const result = await api.post(`/admin/satellites/${satId.value}/command`, { type, payload })
+    success.value = `${type} command ${result.status === 'sent' ? 'sent' : 'queued'} (ID: ${result.id})`
+    await loadCommandHistory()
+    return result
+  } catch (e) { error.value = e.message }
+}
+
+async function runScript() {
+  if (!remoteScript.value.trim()) return
+  remoteScriptRunning.value = true
+  remoteScriptResult.value = null
+  try {
+    await sendRemoteCommand('EXEC_SCRIPT', {
+      script: remoteScript.value,
+      timeout: remoteScriptTimeout.value,
+    })
+  } finally { remoteScriptRunning.value = false }
+}
+
+async function pushConfig() {
+  if (!configKey.value.trim()) return
+  let val = configValue.value
+  try { val = JSON.parse(val) } catch { /* keep as string */ }
+  await sendRemoteCommand('CONFIG_UPDATE', { [configKey.value]: val })
+  configKey.value = ''
+  configValue.value = ''
+}
+
+async function setKioskUrl() {
+  if (!kioskUrl.value.trim()) return
+  await sendRemoteCommand('KIOSK_URL', { url: kioskUrl.value })
+}
+
+async function updateAgent() {
+  if (!confirm('Pull latest code, reinstall, and restart agent?')) return
+  await sendRemoteCommand('UPDATE_AGENT')
+}
+
+async function rebootDevice() {
+  if (!confirm('Are you sure you want to reboot this device?')) return
+  await sendRemoteCommand('REBOOT')
+}
+
+async function requestLogs() {
+  await sendRemoteCommand('LOG_REQUEST', { lines: 200 })
+}
+
+async function loadCommandHistory() {
+  loadingHistory.value = true
+  try {
+    const result = await api.get(`/admin/satellites/${satId.value}/commands?limit=20`)
+    commandHistory.value = result.commands || []
+  } catch { /* ignore */ }
+  finally { loadingHistory.value = false }
 }
 </script>
 
@@ -504,6 +574,77 @@ async function removeSatellite() {
           <button class="btn btn-secondary" @click="playFiller('satellite')" :disabled="fillerPlaying">
             📡 Play on Satellite
           </button>
+        </div>
+      </section>
+
+      <!-- Remote Management -->
+      <section class="card remote-mgmt-card" style="grid-column: 1 / -1;">
+        <h2>🛰️ Remote Management</h2>
+
+        <!-- Quick Actions -->
+        <div class="mgmt-section">
+          <h3>Quick Actions</h3>
+          <div class="btn-row">
+            <button class="btn btn-secondary" @click="updateAgent">⬆️ Update Agent</button>
+            <button class="btn btn-secondary" @click="sendRemoteCommand('RESTART_SERVICE', { service: 'atlas-satellite' })">🔄 Restart Service</button>
+            <button class="btn btn-secondary" @click="requestLogs">📋 Request Logs</button>
+            <button class="btn btn-danger" @click="rebootDevice">⚡ Reboot Device</button>
+          </div>
+        </div>
+
+        <!-- Script Runner -->
+        <div class="mgmt-section">
+          <h3>Script Runner</h3>
+          <textarea v-model="remoteScript" rows="3" class="tts-input" placeholder="echo 'hello from satellite'"></textarea>
+          <div class="btn-row" style="align-items: center;">
+            <label style="white-space: nowrap;">Timeout:
+              <input type="number" v-model.number="remoteScriptTimeout" min="1" max="300" style="width: 60px; padding: 0.3rem;" /> s
+            </label>
+            <button class="btn btn-primary" @click="runScript" :disabled="remoteScriptRunning || !remoteScript.trim()">
+              {{ remoteScriptRunning ? '⏳ Running...' : '▶ Run' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Config Push -->
+        <div class="mgmt-section">
+          <h3>Push Config</h3>
+          <div class="btn-row">
+            <input v-model="configKey" placeholder="key (e.g. volume)" style="flex: 1; padding: 0.4rem;" />
+            <input v-model="configValue" placeholder="value (e.g. 0.8)" style="flex: 1; padding: 0.4rem;" />
+            <button class="btn btn-secondary" @click="pushConfig" :disabled="!configKey.trim()">Push</button>
+          </div>
+        </div>
+
+        <!-- Kiosk URL -->
+        <div class="mgmt-section">
+          <h3>Kiosk URL</h3>
+          <div class="btn-row">
+            <input v-model="kioskUrl" placeholder="https://homeassistant.local/dashboard" style="flex: 1; padding: 0.4rem;" />
+            <button class="btn btn-secondary" @click="setKioskUrl" :disabled="!kioskUrl.trim()">Set URL</button>
+          </div>
+        </div>
+
+        <!-- Command History -->
+        <div class="mgmt-section">
+          <h3>Command History
+            <button class="btn-sm" @click="loadCommandHistory" :disabled="loadingHistory">🔄</button>
+          </h3>
+          <div v-if="commandHistory.length" class="cmd-history">
+            <table class="cmd-table">
+              <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Result</th><th>Time</th></tr></thead>
+              <tbody>
+                <tr v-for="cmd in commandHistory" :key="cmd.id">
+                  <td>{{ cmd.id }}</td>
+                  <td>{{ cmd.command_type }}</td>
+                  <td><span class="status-badge" :class="cmd.status">{{ cmd.status }}</span></td>
+                  <td class="result-cell">{{ (cmd.result || '—').substring(0, 80) }}</td>
+                  <td>{{ new Date(cmd.created_at).toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="muted">No commands yet</p>
         </div>
       </section>
 
@@ -795,4 +936,13 @@ select {
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+
+/* Remote Management */
+.mgmt-section { margin-bottom: 1rem; }
+.mgmt-section h3 { margin: 0.75rem 0 0.4rem; font-size: 0.9rem; color: var(--text-secondary); }
+.cmd-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.cmd-table th, .cmd-table td { padding: 0.35rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+.cmd-table th { color: var(--text-secondary); font-weight: 600; }
+.result-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-history { max-height: 250px; overflow-y: auto; }
 </style>
