@@ -393,9 +393,14 @@ def step_browser(win: curses.window) -> bool:
 
     row = _draw_progress(win, row, 0, "Installing Chromium...")
 
-    # Run snap install in background and poll
+    # Install Chromium deb from xtradeb PPA (not snap — snap has audio sandbox issues)
+    # Step 1: Add PPA
+    _run_privileged(["add-apt-repository", "-y", "ppa:xtradeb/apps"], timeout=60)
+    _run_privileged(["apt-get", "update", "-qq"], timeout=120)
+
+    # Step 2: Install
     proc = subprocess.Popen(
-        "snap", "install", "chromium"],
+        ["apt-get", "install", "-y", "-qq", "chromium"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -404,9 +409,9 @@ def step_browser(win: curses.window) -> bool:
     progress_row = row - 1
     pct = 5
     while proc.poll() is None:
-        pct = min(pct + 3, 95)
+        pct = min(pct + 2, 95)
         _draw_progress(win, progress_row, pct, "Installing Chromium...")
-        time.sleep(1.5)
+        time.sleep(2.0)
 
     stdout, stderr = proc.communicate()
 
@@ -422,7 +427,7 @@ def step_browser(win: curses.window) -> bool:
         row += 1
         win.addstr(row, 4, "You can install manually later with:", curses.color_pair(4))
         row += 1
-        win.addstr(row, 6, "sudo snap install chromium", curses.color_pair(5))
+        win.addstr(row, 6, "sudo apt install chromium", curses.color_pair(5))
 
     row += 1
     _wait_for_key(win, row)
