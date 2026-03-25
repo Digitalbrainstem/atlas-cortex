@@ -49,6 +49,7 @@ CHROMIUM_FLAGS = [
     "chromium",
     "--kiosk",
     "--no-first-run",
+    "--no-sandbox",
     "--disable-translate",
     "--disable-infobars",
     "--disable-session-crashed-bubble",
@@ -56,6 +57,7 @@ CHROMIUM_FLAGS = [
     "--disable-component-update",
     "--check-for-update-interval=31536000",
     "--autoplay-policy=no-user-gesture-required",
+    "--use-fake-ui-for-media-stream",
 ]
 
 
