@@ -1,11 +1,12 @@
-"""LoRA routing stub for Atlas CLI.
+"""LoRA routing for Atlas CLI.
 
-Classifies tasks by domain for future expert LoRA hot-swapping.
-Currently a stub — returns the domain classification but does not
-actually swap adapters.
+Classifies tasks by domain and resolves the best Ollama model to use.
+When composed LoRA models are available (via :class:`LoRAManager`), the
+router returns the domain-specific model name; otherwise it falls back
+to the base model.
 """
 
-# Module ownership: LoRA domain routing (stub)
+# Module ownership: LoRA domain routing
 from __future__ import annotations
 
 import logging
@@ -16,11 +17,12 @@ log = logging.getLogger(__name__)
 
 
 class LoRARouter:
-    """Classify tasks by domain for future LoRA hot-swapping.
+    """Classify tasks by domain and resolve composed LoRA models.
 
-    Currently a stub — returns the domain classification but doesn't
-    actually swap LoRAs.  The infrastructure is ready for when expert
-    LoRA adapters are trained and available.
+    When a :class:`~cortex.evolution.lora_manager.LoRAManager` is
+    available the router returns the composed model name for the
+    classified domain.  Without a manager it still returns the domain
+    string (backward-compatible).
     """
 
     DOMAINS: dict[str, list[re.Pattern[str]]] = {
@@ -61,18 +63,52 @@ class LoRARouter:
         return "general"
 
     async def route(self, task: str, provider: Any) -> str:
-        """Classify *task* and (in future) swap the LoRA adapter.
+        """Classify *task* and return the best model name.
 
-        Currently returns just the domain string.
+        If a :class:`LoRAManager` is active and has a composed model
+        for the classified domain, the composed model name is returned.
+        Otherwise returns the domain string for backward compatibility.
         """
         domain = self.classify(task)
-        # Future: provider.set_lora(domain) once adapters exist
+        if domain == "general":
+            return domain
+
+        from cortex.evolution.lora_manager import get_lora_manager
+
+        mgr = get_lora_manager()
+        if mgr:
+            model = mgr.get_model_for_domain(domain)
+            if model:
+                log.info("Routed to LoRA model %s (domain=%s)", model, domain)
+                return model
         return domain
+
+    def resolve_model(self, message: str, base_model: str) -> str:
+        """Classify *message* and return either a LoRA model or *base_model*.
+
+        Designed for inline use in the pipeline where a concrete model
+        name is always needed.
+        """
+        domain = self.classify(message)
+        if domain == "general":
+            return base_model
+
+        from cortex.evolution.lora_manager import get_lora_manager
+
+        mgr = get_lora_manager()
+        if mgr:
+            model = mgr.get_model_for_domain(domain)
+            if model:
+                log.debug("LoRA override: %s -> %s", base_model, model)
+                return model
+        return base_model
 
     @property
     def available_loras(self) -> list[str]:
-        """List available LoRA adapters (from filesystem or Ollama).
+        """List available composed LoRA model names."""
+        from cortex.evolution.lora_manager import get_lora_manager
 
-        Returns an empty list until adapters are trained and deployed.
-        """
-        return []  # stub — no adapters available yet
+        mgr = get_lora_manager()
+        if mgr:
+            return [cm.model_name for cm in mgr.list_active()]
+        return []
