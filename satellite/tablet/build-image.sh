@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────
-# Atlas Tablet OS — Image Builder
+# Atlas Tablet OS — Image Builder (Xubuntu Remaster)
 #
-# Builds a complete, ready-to-flash OS image for x86_64 tablets.
-# Uses debootstrap to create a minimal Ubuntu rootfs with everything
-# pre-installed: Openbox kiosk, Chromium, Atlas satellite agent,
-# captive portal, linux-surface kernel, PulseAudio, mDNS.
+# Builds a complete, ready-to-flash OS image for x86_64 tablets by
+# remastering the official Xubuntu 24.04.4 Minimal ISO.
 #
-# The result is a bootable ISO/disk image. Flash it, boot the tablet,
-# connect to WiFi on the touchscreen — Atlas avatar appears. Done.
+# Xubuntu Minimal provides out of the box: XFCE desktop, display
+# stack (Xorg), Intel GPU drivers, touchscreen (libinput), power
+# management, NetworkManager. We customize it with: Chromium kiosk,
+# Atlas satellite agent, captive portal WiFi setup, auto-login,
+# screen blank disable, mDNS, install-to-disk.
+#
+# This replaces the old cloud-image-based builder which suffered
+# from missing GPU drivers, black screens, fstab issues, SSH key
+# failures, and console blanking — all because the cloud image was
+# never meant for physical hardware with displays.
 #
 # Requirements (build machine only):
-#   sudo apt install debootstrap squashfs-tools xorriso grub-pc-bin \
-#       grub-efi-amd64-bin mtools dosfstools
+#   sudo apt install squashfs-tools xorriso grub-pc-bin \
+#       grub-efi-amd64-bin mtools dosfstools wget
 #
 # Usage:
-#   sudo ./build-image.sh              # Build ISO
-#   sudo ./build-image.sh --iso        # Build ISO (default)
-#   sudo ./build-image.sh --raw        # Build raw disk image (dd-flashable)
+#   sudo ./build-image.sh              # Build ISO (default)
+#   sudo ./build-image.sh --iso        # Build ISO (explicit)
+#   sudo ./build-image.sh --help       # Show help
 #
 # Output:
-#   atlas-tablet-os-YYYYMMDD.iso   (~1.5 GB)
-#   atlas-tablet-os-YYYYMMDD.img   (raw disk, if --raw)
+#   atlas-tablet-os-v${VERSION}-${TIMESTAMP}.iso  (~3 GB)
 # ──────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -35,7 +40,7 @@ err()   { echo -e "${RED}✖${NC}  $*"; }
 step()  { echo -e "\n${BOLD}── $* ──${NC}"; }
 
 echo -e "${BLUE}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║   Atlas Tablet OS — Image Builder            ║${NC}"
+echo -e "${BLUE}║   Atlas Tablet OS — Image Builder (Xubuntu)  ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -46,22 +51,19 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # ── Parse args ────────────────────────────────────────────────────
-OUTPUT_FORMAT="iso"
 for arg in "$@"; do
     case "$arg" in
-        --raw) OUTPUT_FORMAT="raw" ;;
-        --iso) OUTPUT_FORMAT="iso" ;;
+        --iso) ;; # default, no-op
         --help|-h)
-            echo "Usage: sudo $0 [--iso|--raw]"
+            echo "Usage: sudo $0 [--iso]"
             echo "  --iso  Build bootable ISO (default)"
-            echo "  --raw  Build raw disk image (dd to USB/drive)"
             exit 0 ;;
     esac
 done
 
 # ── Check prerequisites ──────────────────────────────────────────
 step "Checking build tools"
-REQUIRED_TOOLS=(mksquashfs xorriso grub-mkrescue wget)
+REQUIRED_TOOLS=(mksquashfs unsquashfs xorriso grub-mkrescue wget)
 MISSING=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
@@ -80,7 +82,6 @@ fi
 ok "All build tools present"
 
 # ── Configuration ─────────────────────────────────────────────────
-SUITE="noble"  # Ubuntu 24.04 LTS
 ARCH="amd64"
 BUILD_TS=$(date -u +%Y%m%d.%H%M)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -90,12 +91,16 @@ SATELLITE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="/tmp/atlas-tablet-build-$$"
 ROOTFS="$BUILD_DIR/rootfs"
 ISO_DIR="$BUILD_DIR/iso"
+ISO_MNT="$BUILD_DIR/iso-mount"
 OUTPUT_ISO="atlas-tablet-os-v${CORTEX_VERSION}-${BUILD_TS}.iso"
-OUTPUT_IMG="atlas-tablet-os-v${CORTEX_VERSION}-${BUILD_TS}.img"
 
-info "Suite:   Ubuntu ${SUITE} (24.04 LTS)"
-info "Arch:    ${ARCH}"
-info "Output:  ${OUTPUT_FORMAT} → $([ "$OUTPUT_FORMAT" = "iso" ] && echo "$OUTPUT_ISO" || echo "$OUTPUT_IMG")"
+XUBUNTU_ISO_URL="https://cdimage.ubuntu.com/xubuntu/releases/noble/release/xubuntu-24.04.4-minimal-amd64.iso"
+XUBUNTU_ISO_FILE="/tmp/xubuntu-24.04.4-minimal-amd64.iso"
+XUBUNTU_ISO_SHA256="a3af2c005da22f82e498e2a81b9bb362e8c59daf2a8ffcf5c4ca81d82ef7fe16"
+
+info "Base:    Xubuntu 24.04.4 Minimal (${ARCH})"
+info "Version: ${CORTEX_VERSION}"
+info "Output:  ${OUTPUT_ISO}"
 
 cleanup() {
     info "Cleaning up build directory..."
@@ -104,28 +109,63 @@ cleanup() {
     umount -lf "$ROOTFS/proc" 2>/dev/null || true
     umount -lf "$ROOTFS/sys" 2>/dev/null || true
     umount -lf "$ROOTFS/run" 2>/dev/null || true
+    umount -lf "$ISO_MNT" 2>/dev/null || true
     rm -rf "$BUILD_DIR"
 }
 trap cleanup EXIT
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 1: Download official Ubuntu minimal cloud rootfs
+# PHASE 1: Download Xubuntu Minimal ISO
 # ══════════════════════════════════════════════════════════════════
-step "Phase 1: Downloading Ubuntu ${SUITE} minimal cloud image"
+step "Phase 1: Downloading Xubuntu 24.04.4 Minimal ISO"
 
-mkdir -p "$ROOTFS" "$ISO_DIR"
+mkdir -p "$ROOTFS" "$ISO_DIR" "$ISO_MNT"
 
-CLOUD_URL="https://cloud-images.ubuntu.com/minimal/releases/${SUITE}/release"
-ROOTFS_TAR="ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz"
+# Cache the ISO in /tmp to avoid re-downloading
+NEED_DOWNLOAD=true
+if [ -f "$XUBUNTU_ISO_FILE" ]; then
+    info "Found cached ISO at ${XUBUNTU_ISO_FILE}"
+    if [ -n "$XUBUNTU_ISO_SHA256" ]; then
+        ACTUAL_SHA=$(sha256sum "$XUBUNTU_ISO_FILE" | awk '{print $1}')
+        if [ "$ACTUAL_SHA" = "$XUBUNTU_ISO_SHA256" ]; then
+            ok "SHA256 matches — using cached ISO"
+            NEED_DOWNLOAD=false
+        else
+            warn "SHA256 mismatch — re-downloading"
+        fi
+    else
+        ok "Using cached ISO (no SHA256 to verify)"
+        NEED_DOWNLOAD=false
+    fi
+fi
 
-info "Downloading ${ROOTFS_TAR} (~200MB)..."
-wget -q --show-progress "${CLOUD_URL}/${ROOTFS_TAR}" -O "$BUILD_DIR/rootfs.tar.xz"
+if [ "$NEED_DOWNLOAD" = true ]; then
+    info "Downloading Xubuntu 24.04.4 Minimal ISO (~2.7GB)..."
+    wget -q --show-progress "$XUBUNTU_ISO_URL" -O "$XUBUNTU_ISO_FILE"
+    ok "Download complete"
+fi
 
-info "Extracting..."
-tar xJf "$BUILD_DIR/rootfs.tar.xz" -C "$ROOTFS"
-rm "$BUILD_DIR/rootfs.tar.xz"
+# Mount the ISO and extract squashfs
+info "Mounting ISO..."
+mount -o loop,ro "$XUBUNTU_ISO_FILE" "$ISO_MNT"
 
-ok "Cloud rootfs extracted: $(du -sh "$ROOTFS" | cut -f1)"
+if [ ! -f "$ISO_MNT/casper/filesystem.squashfs" ]; then
+    err "Cannot find /casper/filesystem.squashfs in the ISO!"
+    err "This doesn't look like a Xubuntu minimal ISO."
+    exit 1
+fi
+
+info "Extracting squashfs filesystem (this takes a few minutes)..."
+unsquashfs -d "$ROOTFS" -f "$ISO_MNT/casper/filesystem.squashfs"
+
+# Copy the ISO structure for later repacking (excluding the large squashfs)
+info "Copying ISO structure..."
+rsync -a --exclude='casper/filesystem.squashfs' "$ISO_MNT/" "$ISO_DIR/"
+mkdir -p "$ISO_DIR/casper"
+
+umount "$ISO_MNT"
+
+ok "Xubuntu rootfs extracted: $(du -sh "$ROOTFS" | cut -f1)"
 
 # ── Mount pseudo-filesystems for chroot ───────────────────────────
 mount --bind /dev  "$ROOTFS/dev"
@@ -138,17 +178,10 @@ mount -t tmpfs tmpfs "$ROOTFS/run"
 rm -f "$ROOTFS/etc/resolv.conf" 2>/dev/null || true
 cp /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
 
-# ── Configure apt sources ────────────────────────────────────────
-cat > "$ROOTFS/etc/apt/sources.list" << SOURCES
-deb http://archive.ubuntu.com/ubuntu ${SUITE} main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu ${SUITE}-updates main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu ${SUITE}-security main restricted universe multiverse
-SOURCES
-
 # ══════════════════════════════════════════════════════════════════
-# PHASE 2: Install all packages inside chroot
+# PHASE 2: Customize the rootfs (chroot)
 # ══════════════════════════════════════════════════════════════════
-step "Phase 2: Installing packages"
+step "Phase 2: Installing additional packages"
 
 chroot "$ROOTFS" /bin/bash << 'CHROOT_PACKAGES'
 set -euo pipefail
@@ -156,43 +189,34 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 
-# ── Linux kernel ──────────────────────────────────────────────────
-apt-get install -y -qq linux-generic live-boot
-
-# ── Display: Xorg + Openbox (no full DE) ─────────────────────────
+# ── Chromium, SSH, kiosk tools ────────────────────────────────────
 apt-get install -y -qq \
-    xorg xinit openbox xterm \
     chromium-browser \
-    unclutter xdotool \
-    mesa-utils libgl1-mesa-dri \
-    xserver-xorg-video-intel \
-    libva2 libva-drm2 intel-media-va-driver
+    openssh-server \
+    python3 python3-venv python3-pip python3-dev python3-flask \
+    build-essential libasound2-dev
 
 # ── Audio ─────────────────────────────────────────────────────────
 apt-get install -y -qq \
     pulseaudio pulseaudio-utils alsa-utils
 
-# ── Networking ────────────────────────────────────────────────────
+# ── mDNS / discovery ─────────────────────────────────────────────
 apt-get install -y -qq \
-    network-manager \
-    avahi-daemon avahi-utils \
-    iw wireless-tools wpasupplicant rfkill
+    avahi-daemon avahi-utils
 
-# ── Python + build essentials ─────────────────────────────────────
+# ── Kiosk helpers ─────────────────────────────────────────────────
 apt-get install -y -qq \
-    python3 python3-pip python3-venv python3-dev \
-    python3-flask \
-    build-essential libasound2-dev
+    unclutter xdotool
 
 # ── Utilities ─────────────────────────────────────────────────────
 apt-get install -y -qq \
     curl wget git \
-    openssh-server \
     usbutils pciutils \
     less nano locales \
-    parted dosfstools e2fsprogs rsync
+    parted dosfstools e2fsprogs rsync \
+    casper
 
-# ── GRUB bootloader ──────────────────────────────────────────────
+# ── GRUB bootloader (for install-to-disk) ────────────────────────
 apt-get install -y -qq \
     grub-pc grub-efi-amd64-bin grub-efi-amd64-signed \
     shim-signed
@@ -202,43 +226,18 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 CHROOT_PACKAGES
 
-ok "Packages installed"
+ok "Additional packages installed"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 3: Install linux-surface kernel (Surface Go support)
+# PHASE 2b: System configuration
 # ══════════════════════════════════════════════════════════════════
-step "Phase 3: Adding linux-surface kernel"
-
-chroot "$ROOTFS" /bin/bash << 'CHROOT_SURFACE'
-set -euo pipefail
-export DEBIAN_FRONTEND=noninteractive
-
-# Import linux-surface GPG key
-curl -fsSL https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
-    | gpg --dearmor > /etc/apt/trusted.gpg.d/linux-surface.gpg
-
-echo "deb [arch=amd64] https://pkg.surfacelinux.com/debian release main" \
-    > /etc/apt/sources.list.d/linux-surface.list
-
-apt-get update -qq
-apt-get install -y -qq linux-image-surface linux-headers-surface iptsd libwacom-surface \
-    || echo "WARNING: linux-surface install failed — Surface Go may need manual kernel install"
-apt-get clean
-rm -rf /var/lib/apt/lists/*
-CHROOT_SURFACE
-
-ok "linux-surface kernel added"
-
-# ══════════════════════════════════════════════════════════════════
-# PHASE 4: Create atlas user and configure system
-# ══════════════════════════════════════════════════════════════════
-step "Phase 4: System configuration"
+step "Phase 2b: System configuration"
 
 chroot "$ROOTFS" /bin/bash << 'CHROOT_CONFIG'
 set -euo pipefail
 
 # ── Create atlas user ────────────────────────────────────────────
-useradd -m -s /bin/bash -G audio,video,input,netdev,sudo atlas
+useradd -m -s /bin/bash -G audio,video,input,netdev,sudo atlas 2>/dev/null || true
 echo "atlas:atlas-setup" | chpasswd
 
 # ── Locale ────────────────────────────────────────────────────────
@@ -293,11 +292,10 @@ systemctl enable ssh
 systemctl enable NetworkManager
 systemctl enable avahi-daemon
 
-# ── fstab (empty for live-boot — squashfs overlay handles mounts) ─
+# ── fstab (empty for live boot — casper overlay handles mounts) ──
 cat > /etc/fstab << 'FSTAB'
 # Atlas Tablet OS (live-boot)
-# No disk mounts needed — live-boot manages the overlay filesystem.
-# install-to-disk will generate proper fstab entries.
+# No disk mounts — live-boot overlay manages everything.
 FSTAB
 
 # ── Disable console screen blanking (prevents black screen) ──────
@@ -321,10 +319,63 @@ CHROOT_CONFIG
 
 ok "System configured"
 
+# ── XFCE power manager: disable all blanking/sleep ────────────────
+XFCE_PM_DIR="$ROOTFS/home/atlas/.config/xfce4/xfconf/xfce-perchannel-xml"
+mkdir -p "$XFCE_PM_DIR"
+cat > "$XFCE_PM_DIR/xfce4-power-manager.xml" << 'XFCEPM'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-power-manager" version="1.0">
+  <property name="xfce4-power-manager" type="empty">
+    <property name="show-tray-icon" type="bool" value="false"/>
+    <property name="blank-on-ac" type="int" value="0"/>
+    <property name="blank-on-battery" type="int" value="0"/>
+    <property name="dpms-enabled" type="bool" value="false"/>
+    <property name="dpms-on-ac-sleep" type="uint" value="0"/>
+    <property name="dpms-on-ac-off" type="uint" value="0"/>
+    <property name="dpms-on-battery-sleep" type="uint" value="0"/>
+    <property name="dpms-on-battery-off" type="uint" value="0"/>
+    <property name="brightness-on-ac" type="uint" value="100"/>
+    <property name="brightness-on-battery" type="uint" value="100"/>
+    <property name="inactivity-on-ac" type="uint" value="0"/>
+    <property name="inactivity-on-battery" type="uint" value="0"/>
+    <property name="inactivity-sleep-mode-on-ac" type="uint" value="1"/>
+    <property name="inactivity-sleep-mode-on-battery" type="uint" value="1"/>
+    <property name="lid-action-on-ac" type="uint" value="0"/>
+    <property name="lid-action-on-battery" type="uint" value="0"/>
+  </property>
+</channel>
+XFCEPM
+ok "XFCE power manager configured"
+
 # ══════════════════════════════════════════════════════════════════
-# PHASE 5: Install Atlas satellite agent
+# PHASE 2c: linux-surface kernel (OPTIONAL — Surface Go support)
 # ══════════════════════════════════════════════════════════════════
-step "Phase 5: Installing Atlas satellite agent"
+step "Phase 2c: Adding linux-surface kernel (optional add-on)"
+
+chroot "$ROOTFS" /bin/bash << 'CHROOT_SURFACE'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# Import linux-surface GPG key
+curl -fsSL https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
+    | gpg --dearmor > /etc/apt/trusted.gpg.d/linux-surface.gpg
+
+echo "deb [arch=amd64] https://pkg.surfacelinux.com/debian release main" \
+    > /etc/apt/sources.list.d/linux-surface.list
+
+apt-get update -qq
+apt-get install -y -qq linux-image-surface linux-headers-surface iptsd libwacom-surface \
+    || echo "WARNING: linux-surface install failed — Surface Go may need manual kernel install"
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+CHROOT_SURFACE
+
+ok "linux-surface kernel added (installed on top of Xubuntu kernel)"
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 3: Install Atlas satellite agent
+# ══════════════════════════════════════════════════════════════════
+step "Phase 3: Installing Atlas satellite agent"
 
 INSTALL_DIR="$ROOTFS/opt/atlas-satellite"
 mkdir -p "$INSTALL_DIR/atlas_satellite/platforms"
@@ -375,9 +426,9 @@ SATCFG
 ok "Satellite agent installed"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 6: Install captive portal (first-boot WiFi setup)
+# PHASE 4: Install captive portal (first-boot WiFi setup)
 # ══════════════════════════════════════════════════════════════════
-step "Phase 6: Installing captive portal"
+step "Phase 4: Installing captive portal"
 
 PORTAL_DIR="$ROOTFS/opt/atlas-captive-portal"
 mkdir -p "$PORTAL_DIR/templates"
@@ -417,9 +468,9 @@ chroot "$ROOTFS" systemctl enable atlas-captive-portal
 ok "Captive portal installed"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 7: Configure kiosk mode (Openbox + Chromium)
+# PHASE 5: Configure kiosk mode (XFCE + Chromium)
 # ══════════════════════════════════════════════════════════════════
-step "Phase 7: Configuring kiosk mode"
+step "Phase 5: Configuring kiosk mode"
 
 # ── Xorg Intel GPU config (Surface Go HD 615) ────────────────────
 mkdir -p "$ROOTFS/etc/X11/xorg.conf.d"
@@ -440,26 +491,24 @@ Section "ServerFlags"
 EndSection
 XORGCONF
 
-# ── Openbox autostart ─────────────────────────────────────────────
-AUTOSTART_DIR="$ROOTFS/home/atlas/.config/openbox"
-mkdir -p "$AUTOSTART_DIR"
-cat > "$AUTOSTART_DIR/autostart" << 'KIOSK'
-# Atlas Tablet Kiosk — Openbox autostart
-# Launched automatically when X starts on tty1.
+# ── Atlas kiosk script (launched by XFCE autostart) ──────────────
+cat > "$ROOTFS/usr/local/bin/atlas-kiosk" << 'KIOSKSCRIPT'
+#!/bin/bash
+# Atlas Tablet Kiosk — launched by XFCE autostart
 
-# Check if we booted with atlas.install=1 (Install to Disk mode)
+# Check if we booted with atlas.install=1
 if grep -q 'atlas.install=1' /proc/cmdline 2>/dev/null; then
-    xterm -fullscreen -e "sudo install-to-disk" &
+    xfce4-terminal --fullscreen -e "sudo install-to-disk"
     exit 0
 fi
 
-# Hide cursor after 3 seconds idle
-unclutter -idle 3 &
-
-# Disable screen blanking and power management
+# Disable screen blanking
 xset s off
 xset -dpms
 xset s noblank
+
+# Hide cursor after 3 seconds
+unclutter -idle 3 &
 
 # Wait for network (up to 60s)
 for i in $(seq 1 60); do
@@ -490,15 +539,14 @@ except Exception:
 " 2>/dev/null || true)
 fi
 
-# If no server found, Chromium opens the captive portal page.
-# Once WiFi connects and server is discovered, it will redirect.
+# No server? Open captive portal for WiFi setup
 if [ -z "$ATLAS_URL" ]; then
     KIOSK_URL="http://10.42.0.1/"
 else
     KIOSK_URL="${ATLAS_URL}/avatar#skin=nick"
 fi
 
-# Launch Chromium in kiosk mode
+# Launch Chromium kiosk
 chromium-browser \
     --kiosk \
     --no-first-run \
@@ -517,47 +565,39 @@ chromium-browser \
     --disable-gpu-compositing \
     --ozone-platform=x11 \
     "$KIOSK_URL" &
-KIOSK
+
+wait
+KIOSKSCRIPT
+chmod +x "$ROOTFS/usr/local/bin/atlas-kiosk"
+
+# ── XFCE autostart entry ─────────────────────────────────────────
+XFCE_AUTOSTART_DIR="$ROOTFS/home/atlas/.config/autostart"
+mkdir -p "$XFCE_AUTOSTART_DIR"
+cat > "$XFCE_AUTOSTART_DIR/atlas-kiosk.desktop" << 'KIOSK_DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Atlas Kiosk
+Exec=/usr/local/bin/atlas-kiosk
+X-GNOME-Autostart-enabled=true
+KIOSK_DESKTOP
+
+# ── Openbox fallback autostart (if XFCE isn't present) ───────────
+OPENBOX_DIR="$ROOTFS/home/atlas/.config/openbox"
+mkdir -p "$OPENBOX_DIR"
+cat > "$OPENBOX_DIR/autostart" << 'OPENBOX_FALLBACK'
+# Atlas Tablet Kiosk — Openbox fallback autostart
+# Used only if XFCE is not available for some reason.
+exec /usr/local/bin/atlas-kiosk
+OPENBOX_FALLBACK
+
 chown -R 1000:1000 "$ROOTFS/home/atlas/.config"
 
-# ── .bash_profile: auto-start X on tty1 ─────────────────────────
-cat > "$ROOTFS/home/atlas/.bash_profile" << 'PROFILE'
-# Disable console screen blanking immediately
-setterm --blank 0 --powerdown 0 2>/dev/null || true
-
-# Debug mode: don't start X (atlas.nox=1 in kernel cmdline)
-if grep -q 'atlas.nox=1' /proc/cmdline 2>/dev/null; then
-    echo ""
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║   Atlas Tablet OS — Debug Console            ║"
-    echo "╚══════════════════════════════════════════════╝"
-    echo ""
-    echo "  X server disabled (atlas.nox=1)."
-    echo "  WiFi: nmtui"
-    echo "  Logs: journalctl -f"
-    echo "  Start X manually: startx"
-    echo ""
-    return
-fi
-
-if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    startx -- -nocursor 2>&1 | tee /tmp/xorg-startup.log
-fi
-PROFILE
-chown 1000:1000 "$ROOTFS/home/atlas/.bash_profile"
-
-# ── .xinitrc: launch Openbox ─────────────────────────────────────
-cat > "$ROOTFS/home/atlas/.xinitrc" << 'XINITRC'
-exec openbox-session
-XINITRC
-chown 1000:1000 "$ROOTFS/home/atlas/.xinitrc"
-
-ok "Kiosk mode configured"
+ok "Kiosk mode configured (XFCE autostart + Openbox fallback)"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 8: Install systemd services
+# PHASE 6: Install systemd services
 # ══════════════════════════════════════════════════════════════════
-step "Phase 8: Systemd services"
+step "Phase 6: Systemd services"
 
 # ── Atlas satellite agent service ─────────────────────────────────
 cat > "$ROOTFS/etc/systemd/system/atlas-satellite.service" << 'SATUNIT'
@@ -675,24 +715,7 @@ TimeoutStartSec=120
 WantedBy=multi-user.target
 FBUNIT
 
-# ── Enable services ──────────────────────────────────────────────
-chroot "$ROOTFS" systemctl enable atlas-announce
-chroot "$ROOTFS" systemctl enable atlas-firstboot
-# atlas-satellite is enabled by firstboot after ID generation
-
-ok "Services configured"
-
-# ══════════════════════════════════════════════════════════════════
-# PHASE 9: Set max brightness + tablet display tweaks
-# ══════════════════════════════════════════════════════════════════
-step "Phase 9: Display tweaks"
-
-cat > "$ROOTFS/etc/udev/rules.d/99-atlas-tablet.rules" << 'UDEV'
-# Atlas Tablet: auto-detect orientation from accelerometer
-# Surface Go default: landscape
-UDEV
-
-# Script to max out backlight on boot
+# ── Brightness service ───────────────────────────────────────────
 cat > "$ROOTFS/usr/local/bin/atlas-brightness" << 'BRIGHTNESS'
 #!/usr/bin/env bash
 for bl in /sys/class/backlight/*/brightness; do
@@ -716,19 +739,28 @@ ExecStart=/usr/local/bin/atlas-brightness
 WantedBy=multi-user.target
 BLUNIT
 
-chroot "$ROOTFS" systemctl enable atlas-brightness
-
-ok "Display configured"
-
 # ── Install-to-disk script ────────────────────────────────────────
 cp "$SCRIPT_DIR/install-to-disk.sh" "$ROOTFS/usr/local/bin/install-to-disk"
 chmod +x "$ROOTFS/usr/local/bin/install-to-disk"
-ok "Install-to-disk script installed"
+
+# ── Tablet udev rules ────────────────────────────────────────────
+cat > "$ROOTFS/etc/udev/rules.d/99-atlas-tablet.rules" << 'UDEV'
+# Atlas Tablet: auto-detect orientation from accelerometer
+# Surface Go default: landscape
+UDEV
+
+# ── Enable services ──────────────────────────────────────────────
+chroot "$ROOTFS" systemctl enable atlas-announce
+chroot "$ROOTFS" systemctl enable atlas-firstboot
+chroot "$ROOTFS" systemctl enable atlas-brightness
+# atlas-satellite is enabled by firstboot after ID generation
+
+ok "Services configured"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 10: Clean up rootfs
+# PHASE 7: Clean up rootfs
 # ══════════════════════════════════════════════════════════════════
-step "Phase 10: Cleaning rootfs"
+step "Phase 7: Cleaning rootfs"
 
 # Remove apt cache, logs, tmp
 rm -rf "$ROOTFS/var/cache/apt/archives"/*.deb
@@ -746,63 +778,64 @@ umount -lf "$ROOTFS/sys"         2>/dev/null || true
 ok "Rootfs cleaned"
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 11: Build bootable ISO
+# PHASE 8: Repack — build the remastered ISO
 # ══════════════════════════════════════════════════════════════════
-step "Phase 11: Building bootable image"
+step "Phase 8: Building remastered ISO"
 
-# ── Create squashfs ───────────────────────────────────────────────
-info "Compressing rootfs (this takes a few minutes)..."
-mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
-
-mksquashfs "$ROOTFS" "$ISO_DIR/live/filesystem.squashfs" \
+# ── Re-squash the customized rootfs ──────────────────────────────
+info "Compressing customized rootfs (this takes several minutes)..."
+mksquashfs "$ROOTFS" "$ISO_DIR/casper/filesystem.squashfs" \
     -comp gzip -b 256K -no-duplicates -quiet
 
-ok "Squashfs created: $(du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
+ok "Squashfs created: $(du -sh "$ISO_DIR/casper/filesystem.squashfs" | cut -f1)"
 
-# ── Copy kernel + initrd ─────────────────────────────────────────
-# Prefer the Surface kernel if available, else generic
-VMLINUZ=$(ls -1t "$ROOTFS/boot"/vmlinuz-*surface* 2>/dev/null | head -1 || \
-          ls -1t "$ROOTFS/boot"/vmlinuz-* 2>/dev/null | head -1)
-INITRD=$(ls -1t "$ROOTFS/boot"/initrd.img-*surface* 2>/dev/null | head -1 || \
-         ls -1t "$ROOTFS/boot"/initrd.img-* 2>/dev/null | head -1)
+# ── Update filesystem.size ───────────────────────────────────────
+du -sx --block-size=1 "$ROOTFS" | cut -f1 > "$ISO_DIR/casper/filesystem.size"
+
+# ── Copy kernel + initrd to casper ───────────────────────────────
+# Prefer the Surface kernel if available, else use what Xubuntu provides
+VMLINUZ=$(ls -1t "$ROOTFS/boot"/vmlinuz-*surface* 2>/dev/null | head -1)
+if [ -z "$VMLINUZ" ]; then
+    VMLINUZ=$(ls -1t "$ROOTFS/boot"/vmlinuz-* 2>/dev/null | head -1)
+fi
+INITRD=$(ls -1t "$ROOTFS/boot"/initrd.img-*surface* 2>/dev/null | head -1)
+if [ -z "$INITRD" ]; then
+    INITRD=$(ls -1t "$ROOTFS/boot"/initrd.img-* 2>/dev/null | head -1)
+fi
 
 if [ -z "$VMLINUZ" ] || [ -z "$INITRD" ]; then
     err "No kernel/initrd found in rootfs!"
     exit 1
 fi
 
-cp "$VMLINUZ" "$ISO_DIR/live/vmlinuz"
-cp "$INITRD"  "$ISO_DIR/live/initrd.img"
+cp "$VMLINUZ" "$ISO_DIR/casper/vmlinuz"
+cp "$INITRD"  "$ISO_DIR/casper/initrd"
 ok "Kernel: $(basename "$VMLINUZ")"
 
 # ── GRUB config ───────────────────────────────────────────────────
+mkdir -p "$ISO_DIR/boot/grub"
 cat > "$ISO_DIR/boot/grub/grub.cfg" << 'GRUBCFG'
 set default=0
 set timeout=3
 
 menuentry "Atlas Tablet OS" {
-    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0
-    initrd /live/initrd.img
+    linux /casper/vmlinuz boot=casper toram quiet splash consoleblank=0
+    initrd /casper/initrd
 }
 
-menuentry "Atlas Tablet OS (Safe Mode - basic graphics)" {
-    linux /live/vmlinuz boot=live toram nomodeset plymouth.enable=0 consoleblank=0
-    initrd /live/initrd.img
+menuentry "Atlas Tablet OS (Safe Mode)" {
+    linux /casper/vmlinuz boot=casper toram nomodeset consoleblank=0
+    initrd /casper/initrd
 }
 
-menuentry "Atlas Tablet OS (Safe Mode - Intel forced)" {
-    linux /live/vmlinuz boot=live toram i915.modeset=1 i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0
-    initrd /live/initrd.img
-}
-
-menuentry "Atlas Tablet OS (Debug - no X, console only)" {
-    linux /live/vmlinuz boot=live toram i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0 atlas.nox=1
-    initrd /live/initrd.img
+menuentry "Atlas Tablet OS (Debug - console only)" {
+    linux /casper/vmlinuz boot=casper toram consoleblank=0 atlas.nox=1 systemd.unit=multi-user.target
+    initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Install to Disk)" {
-    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0 atlas.install=1
-    initrd /live/initrd.img
+    linux /casper/vmlinuz boot=casper toram quiet splash consoleblank=0 atlas.install=1
+    initrd /casper/initrd
 }
 GRUBCFG
 
@@ -814,37 +847,13 @@ grub-mkrescue -o "$OUTPUT_ISO" "$ISO_DIR" \
 
 ok "ISO built: $(du -sh "$OUTPUT_ISO" | cut -f1)"
 
-# ── Optional: raw disk image ─────────────────────────────────────
-if [ "$OUTPUT_FORMAT" = "raw" ]; then
-    step "Building raw disk image"
-
-    SQUASHFS_SIZE=$(stat -c%s "$ISO_DIR/live/filesystem.squashfs")
-    IMG_SIZE_MB=$(( (SQUASHFS_SIZE / 1048576) + 512 ))
-
-    dd if=/dev/zero of="$OUTPUT_IMG" bs=1M count="$IMG_SIZE_MB" status=none
-
-    # Create partition table
-    parted -s "$OUTPUT_IMG" mklabel gpt
-    parted -s "$OUTPUT_IMG" mkpart EFI fat32 1MiB 100MiB
-    parted -s "$OUTPUT_IMG" set 1 esp on
-    parted -s "$OUTPUT_IMG" mkpart ATLASROOT ext4 100MiB 100%
-
-    ok "Raw image: $(du -sh "$OUTPUT_IMG" | cut -f1)"
-    info "Flash with: sudo dd if=$OUTPUT_IMG of=/dev/sdX bs=4M status=progress"
-fi
-
 # ══════════════════════════════════════════════════════════════════
-# PHASE 12: Generate checksum
+# PHASE 9: Generate checksum
 # ══════════════════════════════════════════════════════════════════
 step "Generating checksum"
 
-if [ "$OUTPUT_FORMAT" = "iso" ]; then
-    sha256sum "$OUTPUT_ISO" > "${OUTPUT_ISO}.sha256"
-    cat "${OUTPUT_ISO}.sha256"
-else
-    sha256sum "$OUTPUT_IMG" > "${OUTPUT_IMG}.sha256"
-    cat "${OUTPUT_IMG}.sha256"
-fi
+sha256sum "$OUTPUT_ISO" > "${OUTPUT_ISO}.sha256"
+cat "${OUTPUT_ISO}.sha256"
 
 # ══════════════════════════════════════════════════════════════════
 # Done
@@ -854,19 +863,13 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║   Atlas Tablet OS — Build Complete! ✓        ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-if [ "$OUTPUT_FORMAT" = "iso" ]; then
-    echo "  Output: ${OUTPUT_ISO} ($(du -sh "$OUTPUT_ISO" | cut -f1))"
-    echo ""
-    echo "  Flash to USB:"
-    echo "    sudo dd if=${OUTPUT_ISO} of=/dev/sdX bs=4M status=progress"
-    echo ""
-    echo "  Or use balenaEtcher / Rufus."
-else
-    echo "  Output: ${OUTPUT_IMG} ($(du -sh "$OUTPUT_IMG" | cut -f1))"
-    echo ""
-    echo "  Flash to USB or internal drive:"
-    echo "    sudo dd if=${OUTPUT_IMG} of=/dev/sdX bs=4M status=progress"
-fi
+echo "  Base:    Xubuntu 24.04.4 Minimal (remastered)"
+echo "  Output:  ${OUTPUT_ISO} ($(du -sh "$OUTPUT_ISO" | cut -f1))"
 echo ""
-echo "  Boot the tablet → WiFi setup on screen → Atlas avatar appears."
-echo "  No further installation needed."
+echo "  Flash to USB:"
+echo "    sudo dd if=${OUTPUT_ISO} of=/dev/sdX bs=4M status=progress"
+echo ""
+echo "  Or use balenaEtcher / Rufus."
+echo ""
+echo "  Boot the tablet → XFCE desktop → Chromium kiosk with Atlas avatar."
+echo "  WiFi auto-setup if no network is found."
