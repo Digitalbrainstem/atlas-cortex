@@ -64,3 +64,5 @@ data/distillation/h100_backup/datasets/*.jsonl
 # Stack Exchange raw data
 data/stackexchange/
 atlas-blog-drafts/
+*.iso
+wget-log*

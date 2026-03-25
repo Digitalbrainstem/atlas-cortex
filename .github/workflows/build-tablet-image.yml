@@ -118,7 +118,7 @@ jobs:
           apt-get update -qq
 
           # Kernel
-          apt-get install -y -qq linux-generic
+          apt-get install -y -qq linux-generic live-boot
 
           # Display (Openbox kiosk, no full DE)
           apt-get install -y -qq xorg xinit openbox chromium-browser unclutter xdotool
