@@ -233,6 +233,12 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
             elif msg_type == "BARGE_IN":
                 await _handle_barge_in(conn, raw_msg)
 
+            elif msg_type == "CMD_ACK":
+                await _handle_cmd_ack(conn, raw_msg)
+
+            elif msg_type == "LOG_UPLOAD":
+                await _handle_log_upload(conn, raw_msg)
+
             else:
                 logger.warning(
                     "Unknown message type from %s: %s", satellite_id, msg_type
@@ -611,3 +617,138 @@ async def send_config(satellite_id: str, config: dict) -> bool:
         await conn.send({"type": "CONFIG", **config})
         return True
     return False
+
+
+# ── Remote management commands ────────────────────────────────────
+
+REMOTE_CMD_TYPES = {
+    "CONFIG_UPDATE",
+    "EXEC_SCRIPT",
+    "RESTART_SERVICE",
+    "UPDATE_AGENT",
+    "KIOSK_URL",
+    "REBOOT",
+    "LOG_REQUEST",
+}
+
+_EXEC_SCRIPT_MAX_TIMEOUT = 300
+
+
+async def send_remote_command(
+    satellite_id: str,
+    command_type: str,
+    payload: dict | None = None,
+) -> dict:
+    """Send a remote management command to a satellite.
+
+    Stores the command in the DB for audit trail, sends it over
+    WebSocket, and returns the DB row as a dict.
+    """
+    if command_type not in REMOTE_CMD_TYPES:
+        raise ValueError(f"Unknown command type: {command_type}")
+
+    payload = payload or {}
+
+    # Enforce timeout limits on EXEC_SCRIPT
+    if command_type == "EXEC_SCRIPT":
+        timeout = payload.get("timeout", 30)
+        payload["timeout"] = max(1, min(int(timeout), _EXEC_SCRIPT_MAX_TIMEOUT))
+
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO satellite_commands (satellite_id, command_type, payload, status) "
+        "VALUES (?, ?, ?, 'pending')",
+        (satellite_id, command_type, json.dumps(payload)),
+    )
+    cmd_id = cur.lastrowid
+    db.commit()
+
+    conn = _connected_satellites.get(satellite_id)
+    if conn:
+        await conn.send({
+            "type": command_type,
+            "cmd_id": cmd_id,
+            "payload": payload,
+        })
+        db.execute(
+            "UPDATE satellite_commands SET status = 'sent' WHERE id = ?",
+            (cmd_id,),
+        )
+        db.commit()
+        status = "sent"
+    else:
+        status = "pending"
+
+    return {
+        "id": cmd_id,
+        "satellite_id": satellite_id,
+        "command_type": command_type,
+        "payload": payload,
+        "status": status,
+    }
+
+
+async def _handle_cmd_ack(conn: SatelliteConnection, msg: dict) -> None:
+    """Process a CMD_ACK from a satellite."""
+    cmd_id = msg.get("cmd_id")
+    result = msg.get("result", "")
+    if cmd_id is None:
+        return
+    try:
+        db = get_db()
+        db.execute(
+            "UPDATE satellite_commands SET status = 'ack', result = ?, "
+            "completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (str(result) if not isinstance(result, str) else result, int(cmd_id)),
+        )
+        db.commit()
+        logger.info("CMD_ACK for cmd %s from %s: %s", cmd_id, conn.satellite_id, result)
+    except Exception:
+        logger.exception("Failed to process CMD_ACK for cmd %s", cmd_id)
+
+
+async def _handle_log_upload(conn: SatelliteConnection, msg: dict) -> None:
+    """Process uploaded logs from a satellite LOG_REQUEST."""
+    cmd_id = msg.get("cmd_id")
+    logs = msg.get("logs", "")
+    if cmd_id is None:
+        return
+    try:
+        db = get_db()
+        db.execute(
+            "UPDATE satellite_commands SET status = 'ack', result = ?, "
+            "completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (logs, int(cmd_id)),
+        )
+        db.commit()
+        logger.info("Log upload for cmd %s from %s (%d chars)", cmd_id, conn.satellite_id, len(logs))
+    except Exception:
+        logger.exception("Failed to store log upload for cmd %s", cmd_id)
+
+
+def get_command_history(
+    satellite_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """Retrieve command history for a satellite."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, satellite_id, command_type, payload, status, result, "
+        "created_at, completed_at FROM satellite_commands "
+        "WHERE satellite_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+        (satellite_id, limit, offset),
+    ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "satellite_id": r[1],
+            "command_type": r[2],
+            "payload": json.loads(r[3]) if r[3] else {},
+            "status": r[4],
+            "result": r[5],
+            "created_at": r[6],
+            "completed_at": r[7],
+        }
+        for r in rows
+    ]
