@@ -49,10 +49,22 @@ const previewAudio = ref(null)
 const showAllLanguages = ref(false)
 
 const LANG_LABELS = { en: 'English', es: 'Spanish', fr: 'French', de: 'German', hi: 'Hindi', it: 'Italian', ja: 'Japanese', ko: 'Korean', pt: 'Portuguese', zh: 'Chinese' }
+const providerFilter = ref('all')
+
+const availableProviders = computed(() => {
+  const providers = [...new Set(voices.value.map(v => v.provider))]
+  return ['all', ...providers.sort()]
+})
 
 const filteredVoices = computed(() => {
-  if (showAllLanguages.value) return voices.value
-  return voices.value.filter(v => !v.language || v.language === 'en')
+  let list = voices.value
+  if (!showAllLanguages.value) {
+    list = list.filter(v => !v.language || v.language === 'en')
+  }
+  if (providerFilter.value !== 'all') {
+    list = list.filter(v => v.provider === providerFilter.value)
+  }
+  return list
 })
 
 onMounted(() => {
@@ -183,7 +195,8 @@ async function previewVoice(voiceName) {
     }
     await audio.play()
   } catch (e) {
-    error.value = `Preview failed: ${e.message}`
+    const provider = voices.value.find(v => v.name === voiceName)?.provider || 'unknown'
+    error.value = `Preview unavailable — ${provider} provider is not running`
     previewingVoice.value = ''
   }
 }
@@ -244,11 +257,19 @@ function formatBytes(bytes) {
         <div v-if="voices.length" class="voice-list">
           <div class="voice-list-header-row">
             <div class="voice-list-header">Available Voices</div>
-            <label class="lang-toggle">
-              <input type="checkbox" v-model="showAllLanguages" />
-              <span>Show all languages</span>
-              <span v-if="!showAllLanguages" class="lang-badge">English only</span>
-            </label>
+            <div class="voice-filters">
+              <div class="provider-tabs">
+                <button v-for="prov in availableProviders" :key="prov"
+                  class="provider-tab" :class="{ active: providerFilter === prov }"
+                  @click="providerFilter = prov">
+                  {{ prov === 'all' ? '🔊 All' : prov.charAt(0).toUpperCase() + prov.slice(1) }}
+                </button>
+              </div>
+              <label class="lang-toggle">
+                <input type="checkbox" v-model="showAllLanguages" />
+                <span>All languages</span>
+              </label>
+            </div>
           </div>
           <div class="voice-grid">
             <div v-for="v in filteredVoices" :key="v.name" class="voice-card" :class="{ active: v.name === systemDefaultVoice }">
@@ -257,7 +278,10 @@ function formatBytes(bytes) {
                   {{ v.name }}
                   <span v-if="showAllLanguages && v.language" class="lang-tag">{{ LANG_LABELS[v.language] || v.language }}</span>
                 </div>
-                <div class="voice-card-meta">{{ v.provider }}{{ v.description && v.description !== v.name ? ' · ' + v.description : '' }}</div>
+                <div class="voice-card-meta">
+                  <span class="provider-badge">{{ v.provider }}</span>
+                  <span v-if="v.description && v.description !== v.name"> · {{ v.description }}</span>
+                </div>
               </div>
               <div class="voice-card-actions">
                 <button
@@ -522,6 +546,38 @@ function formatBytes(bytes) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.voice-filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.provider-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+.provider-tab {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.provider-tab:hover { background: rgba(100,108,255,0.1); color: #ccc; }
+.provider-tab.active { background: rgba(100,108,255,0.2); color: #a0a8ff; border-color: #646cff; }
+.provider-badge {
+  background: rgba(100,108,255,0.12);
+  color: #a0a8ff;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: capitalize;
 }
 .lang-toggle {
   display: flex;
