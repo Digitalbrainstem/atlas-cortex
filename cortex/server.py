@@ -604,6 +604,19 @@ async def authenticate_chat_user(request: Request):
 
     user = mgr.get_user(user_id)
     if not user:
+        # Guest access — create an anonymous session with no DB user
+        if user_id == "guest":
+            guest_tier = os.environ.get("CORTEX_GUEST_CONTENT_TIER", "adult")
+            token = mgr.generate_session_token("guest")
+            return {
+                "ok": True,
+                "token": token,
+                "user": {
+                    "user_id": "guest",
+                    "display_name": "Guest",
+                    "content_tier": guest_tier,
+                },
+            }
         return JSONResponse({"ok": False, "error": "User not found"})
 
     user_info = {
@@ -662,6 +675,17 @@ async def verify_chat_session(token: str = ""):
     mgr = get_user_auth()
     user_id = mgr.verify_session_token(token)
     if user_id:
+        # Guest sessions are valid without a DB user record
+        if user_id == "guest":
+            guest_tier = os.environ.get("CORTEX_GUEST_CONTENT_TIER", "adult")
+            return {
+                "ok": True,
+                "user": {
+                    "user_id": "guest",
+                    "display_name": "Guest",
+                    "content_tier": guest_tier,
+                },
+            }
         user = mgr.get_user(user_id)
         if user:
             return {
