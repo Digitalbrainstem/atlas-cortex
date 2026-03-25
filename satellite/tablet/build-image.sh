@@ -249,19 +249,31 @@ apt-get install -y -qq \
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 
-# ── Strip bloat (kiosk doesn't need these) ───────────────────────
-# Remove XFCE apps we don't use (Chromium is our only app)
+# ── Strip bloat (kiosk only needs XFCE desktop + Chromium) ───────
+# Mail, multimedia, accessories, office, games — all gone
 apt-get remove --purge -y -qq \
     thunderbird* libreoffice* simple-scan* \
     transmission-gtk* parole* ristretto* \
     xfce4-screensaver xfce4-screenshooter \
+    xfce4-taskmanager xfce4-dict \
     gnome-mines gnome-sudoku sgt-puzzles \
     gimp* hexchat* pidgin* \
     xfburn* mousepad* catfish* \
+    atril* engrampa* mate-calc* \
+    gnome-software* snap-store* \
+    xfce4-mailwatch-plugin xfce4-weather-plugin \
+    xfce4-notes-plugin xfce4-cpugraph-plugin \
+    xfce4-netload-plugin xfce4-systemload-plugin \
+    xfce4-clipman-plugin xfce4-timer-plugin \
+    xfce4-eyes-plugin \
+    evince* file-roller* \
+    firefox* \
+    fonts-noto-cjk fonts-noto-cjk-extra \
+    hunspell* mythes* hyphen-* \
     2>/dev/null || true
 apt-get autoremove -y -qq 2>/dev/null || true
 
-# Remove docs, man pages, wallpapers, themes we don't need
+# Remove docs, man pages, wallpapers, themes, icons we don't need
 rm -rf /usr/share/doc/* \
        /usr/share/man/* \
        /usr/share/info/* \
@@ -269,6 +281,13 @@ rm -rf /usr/share/doc/* \
        /usr/share/backgrounds/x*  \
        /usr/share/themes/Greybird-dark-accessibility \
        /usr/share/themes/Greybird-accessibility \
+       /usr/share/icons/elementary* \
+       /usr/share/icons/LoginIcons \
+       /usr/share/icons/ubuntu-mono-* \
+       /usr/share/wallpapers \
+       /usr/share/sounds \
+       /usr/share/example-content \
+       /usr/share/fonts/truetype/noto \
        /var/cache/apt/archives/*.deb \
        /var/log/*.log \
        /tmp/* \
