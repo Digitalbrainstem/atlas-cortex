@@ -29,6 +29,7 @@ const adminItems = [
   { name: 'Proactive', route: 'proactive', icon: '⚡' },
   { name: 'Media', route: 'media', icon: '🎵' },
   { name: 'Intercom', route: 'intercom', icon: '📢' },
+  { name: 'Legacy', route: 'legacy', icon: '📡' },
   { name: 'Evolution', route: 'evolution', icon: '🧬' },
   { name: 'System', route: 'system', icon: '⚙️' },
 ];
