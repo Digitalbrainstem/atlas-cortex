@@ -285,20 +285,38 @@ managed=true
 wifi.scan-rand-mac-address=no
 NMCONF
 
-# ── Enable SSH ────────────────────────────────────────────────────
+# ── Enable SSH + generate host keys ──────────────────────────────
+ssh-keygen -A
 systemctl enable ssh
 
 # ── Enable NetworkManager and avahi ──────────────────────────────
 systemctl enable NetworkManager
 systemctl enable avahi-daemon
 
-# ── fstab (minimal — will be updated by first-boot if needed) ────
+# ── fstab (empty for live-boot — squashfs overlay handles mounts) ─
 cat > /etc/fstab << 'FSTAB'
-# Atlas Tablet OS
-# Filesystem is on the USB/disk the image was flashed to.
-# UUID will be updated on first boot if needed.
-LABEL=ATLASROOT  /  ext4  errors=remount-ro  0  1
+# Atlas Tablet OS (live-boot)
+# No disk mounts needed — live-boot manages the overlay filesystem.
+# install-to-disk will generate proper fstab entries.
 FSTAB
+
+# ── Disable console screen blanking (prevents black screen) ──────
+cat > /etc/systemd/system/disable-blanking.service << 'BLANKUNIT'
+[Unit]
+Description=Disable console screen blanking
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/setterm --blank 0 --powerdown 0 --powersave off
+ExecStart=/bin/sh -c 'echo 0 > /sys/module/kernel/parameters/consoleblank'
+StandardOutput=tty
+TTYPath=/dev/console
+
+[Install]
+WantedBy=multi-user.target
+BLANKUNIT
+systemctl enable disable-blanking
 CHROOT_CONFIG
 
 ok "System configured"
@@ -504,6 +522,24 @@ chown -R 1000:1000 "$ROOTFS/home/atlas/.config"
 
 # ── .bash_profile: auto-start X on tty1 ─────────────────────────
 cat > "$ROOTFS/home/atlas/.bash_profile" << 'PROFILE'
+# Disable console screen blanking immediately
+setterm --blank 0 --powerdown 0 2>/dev/null || true
+
+# Debug mode: don't start X (atlas.nox=1 in kernel cmdline)
+if grep -q 'atlas.nox=1' /proc/cmdline 2>/dev/null; then
+    echo ""
+    echo "╔══════════════════════════════════════════════╗"
+    echo "║   Atlas Tablet OS — Debug Console            ║"
+    echo "╚══════════════════════════════════════════════╝"
+    echo ""
+    echo "  X server disabled (atlas.nox=1)."
+    echo "  WiFi: nmtui"
+    echo "  Logs: journalctl -f"
+    echo "  Start X manually: startx"
+    echo ""
+    return
+fi
+
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
     startx -- -nocursor 2>&1 | tee /tmp/xorg-startup.log
 fi
@@ -745,22 +781,27 @@ set default=0
 set timeout=3
 
 menuentry "Atlas Tablet OS" {
-    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0
+    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0
     initrd /live/initrd.img
 }
 
 menuentry "Atlas Tablet OS (Safe Mode - basic graphics)" {
-    linux /live/vmlinuz boot=live toram nomodeset plymouth.enable=0
+    linux /live/vmlinuz boot=live toram nomodeset plymouth.enable=0 consoleblank=0
     initrd /live/initrd.img
 }
 
 menuentry "Atlas Tablet OS (Safe Mode - Intel forced)" {
-    linux /live/vmlinuz boot=live toram i915.modeset=1 i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0
+    linux /live/vmlinuz boot=live toram i915.modeset=1 i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0
+    initrd /live/initrd.img
+}
+
+menuentry "Atlas Tablet OS (Debug - no X, console only)" {
+    linux /live/vmlinuz boot=live toram i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0 atlas.nox=1
     initrd /live/initrd.img
 }
 
 menuentry "Atlas Tablet OS (Install to Disk)" {
-    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 atlas.install=1
+    linux /live/vmlinuz boot=live toram quiet i915.enable_psr=0 i915.enable_dc=0 plymouth.enable=0 consoleblank=0 atlas.install=1
     initrd /live/initrd.img
 }
 GRUBCFG
