@@ -201,17 +201,12 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 
-# ── Chromium (install via snap since Ubuntu 24.04 dropped the deb) ─
-# Snap doesn't work in chroot — install snapd and pre-seed chromium
-apt-get install -y -qq snapd
-# Pre-seed the chromium snap for first boot
-snap download chromium 2>/dev/null || true
-# If snap download worked, pre-seed it
-if ls chromium_*.snap 1>/dev/null 2>&1; then
-    snap ack chromium_*.assert 2>/dev/null || true
-    snap install --classic chromium_*.snap 2>/dev/null || true
-    rm -f chromium_*.snap chromium_*.assert
-fi
+# ── Chromium (real deb from xtradeb PPA — NOT snap) ──────────────
+# Ubuntu 24.04's chromium-browser is a snap wrapper. The xtradeb PPA
+# provides a real .deb package with full audio/hardware access.
+add-apt-repository -y ppa:xtradeb/apps 2>/dev/null || true
+apt-get update -qq
+apt-get install -y -qq chromium
 
 # ── SSH, kiosk tools ──────────────────────────────────────────────
 apt-get install -y -qq \
@@ -677,16 +672,6 @@ if [ -z "$ATLAS_URL" ]; then
     KIOSK_URL="http://10.42.0.1/"
 else
     KIOSK_URL="${ATLAS_URL}/avatar#skin=nick"
-fi
-
-# Install Chromium snap on first boot if needed
-if ! command -v chromium &>/dev/null && ! command -v chromium-browser &>/dev/null; then
-    snap install chromium 2>/dev/null &
-    # Wait for snap install (max 120s)
-    for i in $(seq 1 120); do
-        command -v chromium &>/dev/null && break
-        sleep 1
-    done
 fi
 
 # Find the right chromium binary
