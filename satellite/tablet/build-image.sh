@@ -229,7 +229,8 @@ apt-get install -y -qq \
 
 # ── Kiosk helpers ─────────────────────────────────────────────────
 apt-get install -y -qq \
-    unclutter xdotool
+    unclutter xdotool \
+    onboard
 
 # ── Utilities ─────────────────────────────────────────────────────
 apt-get install -y -qq \
@@ -320,7 +321,17 @@ cat > /etc/lightdm/lightdm.conf.d/50-atlas-autologin.conf << 'LIGHTDM'
 autologin-user=atlas
 autologin-user-timeout=0
 user-session=xfce
+greeter-show-manual-login=false
+greeter-hide-users=false
 LIGHTDM
+
+# LightDM autologin requires user in autologin group
+groupadd -rf autologin
+groupadd -rf nopasswdlogin
+usermod -aG autologin,nopasswdlogin atlas
+
+# PAM: allow passwordless login for nopasswdlogin group
+sed -i '1a auth        sufficient  pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/lightdm 2>/dev/null || true
 
 # Also set getty autologin as fallback for console mode
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
@@ -329,6 +340,10 @@ cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf << 'AUTOLOGIN'
 ExecStart=
 ExecStart=-/sbin/agetty --autologin atlas --noclear %I $TERM
 AUTOLOGIN
+
+# ── Passwordless sudo for atlas (needed for snap install, kiosk) ──
+echo "atlas ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/atlas-nopasswd
+chmod 440 /etc/sudoers.d/atlas-nopasswd
 
 # ── Disable lid-close suspend (tablets have covers) ──────────────
 mkdir -p /etc/systemd/logind.conf.d/
@@ -582,8 +597,9 @@ fi
 SETUP_DONE="$HOME/.atlas-setup-complete"
 SETUP_TUI="/opt/atlas-satellite/atlas-setup-tui.py"
 if [ ! -f "$SETUP_DONE" ] && [ -f "$SETUP_TUI" ]; then
-    xfce4-terminal --fullscreen --hide-menubar --hide-toolbar \
-        -e "python3 $SETUP_TUI"
+    # Run TUI as root (sudo is passwordless) so snap/systemctl work without prompts
+    xfce4-terminal --maximize --hide-menubar --hide-toolbar --hide-scrollbar \
+        -e "sudo python3 $SETUP_TUI --user atlas"
     exit 0
 fi
 

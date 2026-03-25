@@ -31,7 +31,14 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-SETUP_DONE = os.path.expanduser("~/.atlas-setup-complete")
+# When run as root (via sudo), --user tells us whose home to use for sentinel
+_REAL_USER = "atlas"
+for i, arg in enumerate(sys.argv):
+    if arg == "--user" and i + 1 < len(sys.argv):
+        _REAL_USER = sys.argv[i + 1]
+_REAL_HOME = os.path.expanduser(f"~{_REAL_USER}")
+
+SETUP_DONE = os.path.join(_REAL_HOME, ".atlas-setup-complete")
 SATELLITE_CONFIG = "/opt/atlas-satellite/config.json"
 SATELLITE_SERVICE = "atlas-satellite"
 ATLAS_PORT = 5100
@@ -66,7 +73,10 @@ def _run(cmd: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _run_sudo(cmd: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
+def _run_privileged(cmd: list[str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    """Run a command that needs root — skips sudo if already root."""
+    if os.geteuid() == 0:
+        return _run(cmd, timeout=timeout)
     return _run(["sudo"] + cmd, timeout=timeout)
 
 
@@ -383,7 +393,7 @@ def step_browser(win: curses.window) -> bool:
 
     # Run snap install in background and poll
     proc = subprocess.Popen(
-        ["sudo", "snap", "install", "chromium"],
+        "snap", "install", "chromium"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -421,156 +431,109 @@ def step_browser(win: curses.window) -> bool:
 # Step 3 — Atlas Server Discovery
 # ---------------------------------------------------------------------------
 
-def _discover_mdns() -> str | None:
-    """Try to find Atlas server via avahi-resolve."""
-    try:
-        result = _run(
-            ["avahi-resolve", "-n", "atlas-cortex.local"],
-            timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split()
-            if len(parts) >= 2:
-                return parts[1]
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return None
+def _discover_all_servers() -> list[dict[str, str]]:
+    """Find all Atlas servers on the network. Returns list of {ip, source, version}."""
+    found: dict[str, dict[str, str]] = {}
 
-
-def _discover_avahi_browse() -> str | None:
-    """Try avahi-browse for _atlas-cortex._tcp."""
+    # avahi-browse for _atlas-cortex._tcp
     try:
-        result = _run(
-            ["avahi-browse", "-t", "-r", "-p", "_atlas-cortex._tcp"],
-            timeout=8,
-        )
+        result = _run(["avahi-browse", "-t", "-r", "-p", "_atlas-cortex._tcp"], timeout=8)
         if result.returncode == 0:
             for line in result.stdout.splitlines():
                 if line.startswith("="):
                     fields = line.split(";")
                     if len(fields) >= 8:
-                        return fields[7]
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        ip = fields[7]
+                        if ip and ip not in found:
+                            found[ip] = {"ip": ip, "source": "mDNS", "version": ""}
+    except Exception:
         pass
-    return None
 
+    # avahi-resolve for atlas-cortex.local
+    try:
+        result = _run(["avahi-resolve", "-n", "atlas-cortex.local"], timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split()
+            if len(parts) >= 2:
+                ip = parts[1]
+                if ip not in found:
+                    found[ip] = {"ip": ip, "source": "mDNS", "version": ""}
+    except Exception:
+        pass
 
-def _discover_subnet_scan() -> str | None:
-    """Fallback: scan local subnet for Atlas on port 5100."""
+    # Subnet scan
     local_ip = _get_local_ip()
-    if local_ip == "127.0.0.1":
-        return None
-    prefix = ".".join(local_ip.split(".")[:3])
-    for last_octet in range(1, 255):
-        ip = f"{prefix}.{last_octet}"
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.3)
-            if s.connect_ex((ip, ATLAS_PORT)) == 0:
-                s.close()
-                # Verify it's actually Atlas
-                try:
+    if local_ip != "127.0.0.1":
+        prefix = ".".join(local_ip.split(".")[:3])
+        for last_octet in range(1, 255):
+            ip = f"{prefix}.{last_octet}"
+            if ip in found:
+                continue
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.15)
+                if s.connect_ex((ip, ATLAS_PORT)) == 0:
+                    s.close()
                     import urllib.request
-                    req = urllib.request.Request(
-                        f"http://{ip}:{ATLAS_PORT}/health",
-                        method="GET",
-                    )
+                    req = urllib.request.Request(f"http://{ip}:{ATLAS_PORT}/health")
                     req.add_header("User-Agent", "atlas-setup")
                     with urllib.request.urlopen(req, timeout=2) as resp:
                         if resp.status == 200:
-                            return ip
-                except Exception:
-                    pass
-            else:
-                s.close()
-        except Exception:
-            pass
-    return None
+                            found[ip] = {"ip": ip, "source": "scan", "version": ""}
+                else:
+                    s.close()
+            except Exception:
+                pass
 
+    # Test each and get version
+    for ip, info in found.items():
+        ok, version = _test_atlas_connection(f"http://{ip}:{ATLAS_PORT}")
+        if ok:
+            info["version"] = version
 
-def _test_atlas_connection(url: str) -> tuple[bool, str]:
-    """Test that an Atlas server is responding. Returns (ok, version_or_error)."""
-    import urllib.request
-    import urllib.error
-
-    health_url = url.rstrip("/") + "/health"
-    try:
-        req = urllib.request.Request(health_url, method="GET")
-        req.add_header("User-Agent", "atlas-setup")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            body = resp.read().decode()
-            try:
-                data = json.loads(body)
-                version = data.get("version", "unknown")
-            except json.JSONDecodeError:
-                version = "unknown"
-            return True, version
-    except urllib.error.URLError as exc:
-        return False, str(exc.reason)
-    except Exception as exc:
-        return False, str(exc)
+    return [v for v in found.values() if v.get("version")]
 
 
 def step_discover(win: curses.window) -> str | None:
-    """Find the Atlas server. Returns the base URL or None."""
+    """Find Atlas servers on the network, let user pick. Returns base URL or None."""
     win.clear()
     row = _draw_header(win, 3)
     win.addstr(row, 4, "Find Atlas Server", curses.color_pair(1) | curses.A_BOLD)
     row += 2
 
-    # mDNS discovery
     win.addstr(row, 4, "Searching for Atlas on your network...", curses.color_pair(4))
     win.refresh()
-    row += 1
+    row += 2
 
-    atlas_ip: str | None = None
+    servers = _discover_all_servers()
 
-    # Try avahi-browse first (finds service type)
-    win.addstr(row, 6, "Trying mDNS service discovery...", curses.color_pair(5))
-    win.refresh()
-    atlas_ip = _discover_avahi_browse()
-    row += 1
-
-    if not atlas_ip:
-        win.addstr(row, 6, "Trying avahi hostname resolution...", curses.color_pair(5))
-        win.refresh()
-        atlas_ip = _discover_mdns()
+    if len(servers) == 1:
+        s = servers[0]
+        row = _draw_status(win, row, f"Found: {s['ip']}:{ATLAS_PORT} ({s['source']}, {s['version']})", ok=True)
         row += 1
+        _wait_for_key(win, row)
+        return f"http://{s['ip']}:{ATLAS_PORT}"
 
-    if not atlas_ip:
-        win.addstr(row, 6, "Scanning local subnet (this may take a moment)...", curses.color_pair(5))
-        win.refresh()
-        atlas_ip = _discover_subnet_scan()
-        row += 1
-
-    if atlas_ip:
-        row = _draw_status(
-            win, row,
-            f"Found: {atlas_ip}:{ATLAS_PORT}",
-            ok=True,
-        )
-        row += 1
-
-        base_url = f"http://{atlas_ip}:{ATLAS_PORT}"
-        win.addstr(row, 4, "Testing connection...", curses.color_pair(4))
-        win.refresh()
-        ok, version = _test_atlas_connection(base_url)
-        row += 1
-
-        if ok:
-            row = _draw_status(win, row, f"Atlas {version} responding", ok=True)
+    elif len(servers) > 1:
+        win.addstr(row, 4, f"Found {len(servers)} Atlas servers:", curses.color_pair(1) | curses.A_BOLD)
+        row += 2
+        for i, s in enumerate(servers):
+            win.addstr(row, 6, f"  {i + 1}. {s['ip']}:{ATLAS_PORT}", curses.color_pair(1))
+            win.addstr(row, 40, f"({s['source']}, {s['version']})", curses.color_pair(5))
             row += 1
-            _wait_for_key(win, row)
-            return base_url
-        else:
-            row = _draw_status(win, row, f"Connection test failed: {version}", ok=False)
-            row += 1
-    else:
-        row = _draw_status(win, row, "Atlas server not found automatically", ok=False)
         row += 1
+        choice = _get_input(win, row, f"Select server (1-{len(servers)}): ")
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(servers):
+                return f"http://{servers[idx]['ip']}:{ATLAS_PORT}"
+        except (ValueError, IndexError):
+            pass
+        return f"http://{servers[0]['ip']}:{ATLAS_PORT}"
 
-    # Manual entry
-    row += 1
+    # No servers found — manual entry
+    row = _draw_status(win, row, "No Atlas server found automatically", ok=False)
+    row += 2
     win.addstr(row, 4, "Enter Atlas server URL manually:", curses.color_pair(5) | curses.A_BOLD)
     row += 1
     win.addstr(row, 4, "(e.g. http://192.168.1.100:5100)", curses.color_pair(4))
@@ -597,16 +560,13 @@ def step_discover(win: curses.window) -> str | None:
 
     if ok:
         row = _draw_status(win, row, f"Atlas {version} responding", ok=True)
-        row += 1
-        _wait_for_key(win, row)
-        return manual
     else:
         row = _draw_status(win, row, f"Failed: {version}", ok=False)
-        row += 1
-        win.addstr(row, 4, "Saving URL anyway — you can fix later.", curses.color_pair(4))
-        row += 1
-        _wait_for_key(win, row)
-        return manual
+        win.addstr(row + 1, 4, "Saving URL anyway — you can fix later.", curses.color_pair(4))
+
+    row += 1
+    _wait_for_key(win, row)
+    return manual
 
 
 # ---------------------------------------------------------------------------
@@ -647,13 +607,13 @@ def step_satellite(win: curses.window, server_url: str | None) -> bool:
     win.refresh()
 
     config_dir = os.path.dirname(SATELLITE_CONFIG)
-    _run_sudo(["mkdir", "-p", config_dir])
+    _run_privileged(["mkdir", "-p", config_dir])
 
     # Write to temp then move (need sudo for /opt)
     tmp_path = "/tmp/atlas-satellite-config.json"
     with open(tmp_path, "w") as f:
         json.dump(config, f, indent=2)
-    result = _run_sudo(["cp", tmp_path, SATELLITE_CONFIG])
+    result = _run_privileged(["cp", tmp_path, SATELLITE_CONFIG])
     os.unlink(tmp_path)
 
     row += 1
@@ -667,8 +627,8 @@ def step_satellite(win: curses.window, server_url: str | None) -> bool:
     win.addstr(row, 4, "Enabling satellite service...", curses.color_pair(4))
     win.refresh()
 
-    enable_result = _run_sudo(["systemctl", "enable", SATELLITE_SERVICE], timeout=15)
-    start_result = _run_sudo(["systemctl", "start", SATELLITE_SERVICE], timeout=15)
+    enable_result = _run_privileged(["systemctl", "enable", SATELLITE_SERVICE], timeout=15)
+    start_result = _run_privileged(["systemctl", "start", SATELLITE_SERVICE], timeout=15)
 
     row += 1
     if start_result.returncode == 0:
