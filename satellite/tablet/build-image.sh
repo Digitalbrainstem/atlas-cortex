@@ -162,7 +162,10 @@ apt-get install -y -qq linux-generic live-boot
 apt-get install -y -qq \
     xorg xinit openbox xterm \
     chromium-browser \
-    unclutter xdotool
+    unclutter xdotool \
+    mesa-utils libgl1-mesa-dri \
+    xserver-xorg-video-intel \
+    libva2 libva-drm2 intel-media-va-driver
 
 # ── Audio ─────────────────────────────────────────────────────────
 apt-get install -y -qq \
@@ -400,6 +403,25 @@ ok "Captive portal installed"
 # ══════════════════════════════════════════════════════════════════
 step "Phase 7: Configuring kiosk mode"
 
+# ── Xorg Intel GPU config (Surface Go HD 615) ────────────────────
+mkdir -p "$ROOTFS/etc/X11/xorg.conf.d"
+cat > "$ROOTFS/etc/X11/xorg.conf.d/20-intel.conf" << 'XORGCONF'
+Section "Device"
+    Identifier  "Intel Graphics"
+    Driver      "intel"
+    Option      "TearFree"    "true"
+    Option      "AccelMethod" "sna"
+    Option      "DRI"         "3"
+EndSection
+
+Section "ServerFlags"
+    Option "BlankTime"  "0"
+    Option "StandbyTime" "0"
+    Option "SuspendTime" "0"
+    Option "OffTime"     "0"
+EndSection
+XORGCONF
+
 # ── Openbox autostart ─────────────────────────────────────────────
 AUTOSTART_DIR="$ROOTFS/home/atlas/.config/openbox"
 mkdir -p "$AUTOSTART_DIR"
@@ -474,6 +496,8 @@ chromium-browser \
     --check-for-update-interval=31536000 \
     --noerrdialogs \
     --start-fullscreen \
+    --disable-gpu-compositing \
+    --ozone-platform=x11 \
     "$KIOSK_URL" &
 KIOSK
 chown -R 1000:1000 "$ROOTFS/home/atlas/.config"
@@ -481,7 +505,7 @@ chown -R 1000:1000 "$ROOTFS/home/atlas/.config"
 # ── .bash_profile: auto-start X on tty1 ─────────────────────────
 cat > "$ROOTFS/home/atlas/.bash_profile" << 'PROFILE'
 if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
-    startx -- -nocursor 2>/dev/null
+    startx -- -nocursor 2>&1 | tee /tmp/xorg-startup.log
 fi
 PROFILE
 chown 1000:1000 "$ROOTFS/home/atlas/.bash_profile"
