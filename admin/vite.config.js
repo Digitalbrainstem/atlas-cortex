@@ -1,9 +1,18 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
   base: '/admin/',
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        chat: resolve(__dirname, 'chat.html'),
+      },
+    },
+  },
   server: {
     proxy: {
       '/admin/auth': 'http://localhost:5100',
@@ -14,6 +23,8 @@ export default defineConfig({
       '/admin/devices': 'http://localhost:5100',
       '/admin/evolution': 'http://localhost:5100',
       '/admin/system': 'http://localhost:5100',
+      '/api/chat': 'http://localhost:5100',
+      '/ws/chat': { target: 'ws://localhost:5100', ws: true },
     },
   },
 })

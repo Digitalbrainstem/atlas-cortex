@@ -658,6 +658,22 @@ CREATE TABLE IF NOT EXISTS admin_users (
     last_login    TIMESTAMP
 );
 
+-- ── User Chat Authentication ────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_auth (
+    user_id                  TEXT PRIMARY KEY,
+    display_name             TEXT NOT NULL,
+    auth_method              TEXT DEFAULT 'none',  -- none, pin, password, passkey
+    pin_hash                 TEXT DEFAULT '',
+    password_hash            TEXT DEFAULT '',
+    passkey_credential_id    TEXT DEFAULT '',
+    passkey_public_key       TEXT DEFAULT '',
+    content_tier             TEXT DEFAULT 'adult',
+    require_auth_on_new_device INTEGER DEFAULT 1,
+    trusted_devices          TEXT DEFAULT '[]',
+    avatar_url               TEXT DEFAULT '',
+    created_at               TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ── Satellites ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS satellites (
     id              TEXT PRIMARY KEY,
