@@ -232,14 +232,95 @@ async def test_satellite_audio(satellite_id: str, admin: dict = Depends(require_
 
 @router.post("/satellites/{satellite_id}/command")
 async def send_satellite_command(satellite_id: str, body: dict, admin: dict = Depends(require_admin)):
-    """Send an arbitrary command to a connected satellite."""
-    from cortex.satellite.websocket import send_command
+    """Send a remote management command or arbitrary command to a connected satellite."""
+    from cortex.satellite.websocket import send_command, send_remote_command, REMOTE_CMD_TYPES
+
+    cmd_type = body.get("type", "")
+    # Remote management command (new protocol)
+    if cmd_type and cmd_type in REMOTE_CMD_TYPES:
+        payload = body.get("payload", {})
+        try:
+            result = await send_remote_command(satellite_id, cmd_type, payload)
+            return result
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Legacy arbitrary command (existing protocol)
     action = body.get("action", "")
     params = body.get("params")
+    if not action and not cmd_type:
+        raise HTTPException(status_code=400, detail="Missing 'type' or 'action'")
     if not action:
-        raise HTTPException(status_code=400, detail="Missing action")
+        raise HTTPException(status_code=400, detail=f"Unknown command type: {cmd_type}")
     sent = await send_command(satellite_id, action, params)
     return {"sent": sent}
+
+
+@router.get("/satellites/{satellite_id}/commands")
+async def get_satellite_commands(
+    satellite_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_admin),
+):
+    """Get command history for a satellite."""
+    from cortex.satellite.websocket import get_command_history
+    commands = get_command_history(satellite_id, limit=limit, offset=offset)
+    return {"commands": commands, "total": len(commands)}
+
+
+@router.post("/satellites/{satellite_id}/config")
+async def push_satellite_config(
+    satellite_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+):
+    """Push a CONFIG_UPDATE command to a satellite."""
+    from cortex.satellite.websocket import send_remote_command
+    payload = body.get("payload", body)
+    # Strip the 'type' key if it came through from the body
+    payload = {k: v for k, v in payload.items() if k != "type"}
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty config payload")
+    result = await send_remote_command(satellite_id, "CONFIG_UPDATE", payload)
+    return result
+
+
+@router.post("/satellites/{satellite_id}/update")
+async def update_satellite_agent(
+    satellite_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Trigger a git pull + pip install + restart on the satellite."""
+    from cortex.satellite.websocket import send_remote_command
+    result = await send_remote_command(satellite_id, "UPDATE_AGENT", {})
+    return result
+
+
+@router.post("/satellites/{satellite_id}/reboot")
+async def reboot_satellite(
+    satellite_id: str,
+    admin: dict = Depends(require_admin),
+):
+    """Reboot the satellite device."""
+    from cortex.satellite.websocket import send_remote_command
+    result = await send_remote_command(satellite_id, "REBOOT", {})
+    return result
+
+
+@router.post("/satellites/{satellite_id}/kiosk-url")
+async def set_kiosk_url(
+    satellite_id: str,
+    body: dict,
+    admin: dict = Depends(require_admin),
+):
+    """Change the kiosk display URL on a satellite."""
+    from cortex.satellite.websocket import send_remote_command
+    url = body.get("url", "")
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing 'url'")
+    result = await send_remote_command(satellite_id, "KIOSK_URL", {"url": url})
+    return result
 
 
 @router.patch("/satellites/{satellite_id}/led_config")

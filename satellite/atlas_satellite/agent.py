@@ -13,9 +13,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import enum
+import json
 import logging
 import os
 import struct
+import subprocess
 import time
 from pathlib import Path
 from typing import Optional
@@ -281,6 +283,14 @@ class SatelliteAgent:
         self.ws.on("CONFIG", self._on_config)
         self.ws.on("SYNC_FILLERS", self._on_sync_fillers)
         self.ws.on("PIPELINE_ERROR", self._on_pipeline_error)
+        # Remote management commands
+        self.ws.on("CONFIG_UPDATE", self._on_remote_config_update)
+        self.ws.on("EXEC_SCRIPT", self._on_remote_exec_script)
+        self.ws.on("RESTART_SERVICE", self._on_remote_restart_service)
+        self.ws.on("UPDATE_AGENT", self._on_remote_update_agent)
+        self.ws.on("KIOSK_URL", self._on_remote_kiosk_url)
+        self.ws.on("REBOOT", self._on_remote_reboot)
+        self.ws.on("LOG_REQUEST", self._on_remote_log_request)
 
     # ── Audio loop ────────────────────────────────────────────────
 
@@ -700,6 +710,163 @@ class SatelliteAgent:
         if "features" in msg:
             self.config.features = msg["features"]
         logger.info("Config updated from server")
+
+    # ── Remote management commands ────────────────────────────────
+
+    async def _on_remote_config_update(self, msg: dict) -> None:
+        """Merge payload into satellite config.json."""
+        cmd_id = msg.get("cmd_id")
+        payload = msg.get("payload", {})
+        try:
+            config_path = self._base_dir / "config.json"
+            current = {}
+            if config_path.exists():
+                with open(config_path) as f:
+                    current = json.load(f)
+            current.update(payload)
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w") as f:
+                json.dump(current, f, indent=2)
+            # Apply to live config
+            known = {k for k in self.config.__dataclass_fields__}
+            for k, v in payload.items():
+                if k in known:
+                    setattr(self.config, k, v)
+            logger.info("Config updated via remote command: %s", list(payload.keys()))
+            await self.ws.send_cmd_ack(cmd_id, "ok")
+        except Exception as e:
+            logger.exception("CONFIG_UPDATE failed")
+            await self.ws.send_cmd_ack(cmd_id, f"error: {e}")
+
+    async def _on_remote_exec_script(self, msg: dict) -> None:
+        """Run a shell script with timeout, capture output."""
+        cmd_id = msg.get("cmd_id")
+        payload = msg.get("payload", {})
+        script = payload.get("script", "")
+        timeout = max(1, min(int(payload.get("timeout", 30)), 300))
+        if not script:
+            await self.ws.send_cmd_ack(cmd_id, "error: empty script")
+            return
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                script,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout,
+            )
+            result = {
+                "exit_code": proc.returncode,
+                "stdout": stdout.decode(errors="replace")[-4096:],
+                "stderr": stderr.decode(errors="replace")[-4096:],
+            }
+            await self.ws.send_cmd_ack(cmd_id, json.dumps(result))
+        except asyncio.TimeoutError:
+            proc.kill()
+            await self.ws.send_cmd_ack(cmd_id, "error: timeout")
+        except Exception as e:
+            await self.ws.send_cmd_ack(cmd_id, f"error: {e}")
+
+    async def _on_remote_restart_service(self, msg: dict) -> None:
+        """Restart a systemd service."""
+        cmd_id = msg.get("cmd_id")
+        payload = msg.get("payload", {})
+        service = payload.get("service", "atlas-satellite")
+        subprocess.Popen(["sudo", "systemctl", "restart", service])
+        await self.ws.send_cmd_ack(cmd_id, "restarting")
+
+    async def _on_remote_update_agent(self, msg: dict) -> None:
+        """Git pull + pip install + schedule restart."""
+        cmd_id = msg.get("cmd_id")
+        try:
+            steps = []
+            proc = await asyncio.create_subprocess_exec(
+                "git", "-C", str(self._base_dir), "pull", "--ff-only",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+            steps.append(f"git pull: exit {proc.returncode}")
+
+            req_path = self._base_dir / "requirements.txt"
+            if req_path.exists():
+                proc = await asyncio.create_subprocess_exec(
+                    "pip", "install", "-q", "-r", str(req_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+                steps.append(f"pip install: exit {proc.returncode}")
+
+            await self.ws.send_cmd_ack(cmd_id, json.dumps({"steps": steps, "restarting": True}))
+            # Schedule restart after ack is sent
+            await asyncio.sleep(1)
+            subprocess.Popen(["sudo", "systemctl", "restart", "atlas-satellite"])
+        except Exception as e:
+            await self.ws.send_cmd_ack(cmd_id, f"error: {e}")
+
+    async def _on_remote_kiosk_url(self, msg: dict) -> None:
+        """Change kiosk display URL."""
+        cmd_id = msg.get("cmd_id")
+        payload = msg.get("payload", {})
+        url = payload.get("url", "")
+        if not url:
+            await self.ws.send_cmd_ack(cmd_id, "error: missing url")
+            return
+        try:
+            config_path = self._base_dir / "config.json"
+            current = {}
+            if config_path.exists():
+                with open(config_path) as f:
+                    current = json.load(f)
+            current["kiosk_url"] = url
+            with open(config_path, "w") as f:
+                json.dump(current, f, indent=2)
+            # Try to reload chromium kiosk
+            subprocess.Popen([
+                "sudo", "-u", "atlas", "DISPLAY=:0",
+                "xdotool", "key", "ctrl+l",
+            ])
+            await asyncio.sleep(0.2)
+            subprocess.Popen([
+                "sudo", "-u", "atlas", "DISPLAY=:0",
+                "xdotool", "type", "--clearmodifiers", url,
+            ])
+            await asyncio.sleep(0.2)
+            subprocess.Popen([
+                "sudo", "-u", "atlas", "DISPLAY=:0",
+                "xdotool", "key", "Return",
+            ])
+            logger.info("Kiosk URL changed to: %s", url)
+            await self.ws.send_cmd_ack(cmd_id, "ok")
+        except Exception as e:
+            await self.ws.send_cmd_ack(cmd_id, f"error: {e}")
+
+    async def _on_remote_reboot(self, msg: dict) -> None:
+        """Reboot the device."""
+        cmd_id = msg.get("cmd_id")
+        await self.ws.send_cmd_ack(cmd_id, "rebooting")
+        await asyncio.sleep(0.5)
+        subprocess.Popen(["sudo", "reboot"])
+
+    async def _on_remote_log_request(self, msg: dict) -> None:
+        """Collect and upload journal logs."""
+        cmd_id = msg.get("cmd_id")
+        payload = msg.get("payload", {})
+        lines = max(1, min(int(payload.get("lines", 100)), 5000))
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "journalctl", "-u", "atlas-satellite", "-n", str(lines),
+                "--no-pager",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+            logs = stdout.decode(errors="replace")
+            await self.ws.send_log_upload(cmd_id, logs)
+        except Exception as e:
+            await self.ws.send_cmd_ack(cmd_id, f"error: {e}")
 
     async def _play_test_tone(self) -> None:
         """Generate and play a short 440Hz test tone."""

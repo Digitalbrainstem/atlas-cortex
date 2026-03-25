@@ -1149,6 +1149,20 @@ CREATE TABLE IF NOT EXISTS avatar_feature_flags (
     enabled INTEGER DEFAULT 0,
     UNIQUE(scope, flag_name)
 );
+
+-- Satellite Remote Commands
+CREATE TABLE IF NOT EXISTS satellite_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    satellite_id TEXT NOT NULL,
+    command_type TEXT NOT NULL,
+    payload TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'pending',
+    result TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sat_cmd_satellite ON satellite_commands(satellite_id);
+CREATE INDEX IF NOT EXISTS idx_sat_cmd_created   ON satellite_commands(created_at);
 """
 
 
