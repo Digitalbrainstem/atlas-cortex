@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +116,25 @@ class MoviePlugin(CortexPlugin):
     plugin_type = "action"
     version = "1.0.0"
     author = "Atlas"
+    config_fields = [
+        ConfigField(
+            key="api_key",
+            label="TMDb API Key",
+            field_type="password",
+            required=False,
+            placeholder="Enter your TMDb API key...",
+            help_text="Free at https://www.themoviedb.org/settings/api — without a key, movie questions fall through to AI knowledge.",
+        ),
+    ]
 
     def __init__(self) -> None:
         self._api_key: str = ""
+
+    @property
+    def health_message(self) -> str:
+        if not self._api_key:
+            return "No API key configured — optional, will use AI knowledge instead"
+        return "Connected to TMDb"
 
     async def setup(self, config: dict[str, Any]) -> bool:
         self._api_key = config.get("api_key", "")
@@ -154,9 +170,9 @@ class MoviePlugin(CortexPlugin):
 
         if not self._api_key:
             return CommandResult(
-                success=True,
-                response=_mock_response(title, intent),
-                metadata={"mock": True},
+                success=False,
+                response="",
+                metadata={"no_api_key": True},
             )
 
         if not title:

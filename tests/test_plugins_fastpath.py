@@ -75,9 +75,9 @@ class TestWeatherPlugin:
     async def test_handle_mock(self, plugin):
         match = CommandMatch(matched=True, intent="weather", entities=["Austin"])
         r = await plugin.handle("what's the weather?", match, CTX)
-        assert r.success
-        assert "Austin" in r.response
-        assert "°F" in r.response
+        # No API key → falls through (success=False) to Layer 3 LLM
+        assert not r.success
+        assert r.metadata.get("no_api_key") is True
 
     # ── handle (with API key, mocked httpx) ──────────────────────
 
@@ -384,8 +384,9 @@ class TestMoviePlugin:
     async def test_handle_no_key(self, plugin):
         match = CommandMatch(matched=True, intent="movie_lookup", entities=["Inception"])
         r = await plugin.handle("movie Inception", match, CTX)
-        assert r.success
-        assert "API key" in r.response or "TMDb" in r.response
+        # No API key → falls through (success=False) to Layer 3 LLM
+        assert not r.success
+        assert r.metadata.get("no_api_key") is True
 
     # ── handle (with API key, mocked) ────────────────────────────
 

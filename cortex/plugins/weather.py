@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +96,36 @@ class WeatherPlugin(CortexPlugin):
     plugin_type = "action"
     version = "1.0.0"
     author = "Atlas"
+    config_fields = [
+        ConfigField(
+            key="api_key",
+            label="OpenWeatherMap API Key",
+            field_type="password",
+            required=False,
+            placeholder="Enter your OpenWeatherMap API key...",
+            help_text="Free at https://openweathermap.org/api — without a key, weather questions fall through to AI knowledge.",
+        ),
+        ConfigField(
+            key="default_city",
+            label="Default City",
+            field_type="text",
+            required=False,
+            placeholder="Austin",
+            help_text="City used when no location is mentioned.",
+            default="Austin",
+        ),
+    ]
 
     def __init__(self) -> None:
         self._api_key: str = ""
         self._default_city: str = "Austin"
         self._base_url = "https://api.openweathermap.org/data/2.5/weather"
+
+    @property
+    def health_message(self) -> str:
+        if not self._api_key:
+            return "No API key configured — optional, will use AI knowledge instead"
+        return "Connected to OpenWeatherMap"
 
     async def setup(self, config: dict[str, Any]) -> bool:
         self._api_key = config.get("api_key", "")
@@ -143,12 +168,10 @@ class WeatherPlugin(CortexPlugin):
                 return CommandResult(success=True, response=cached_text)
 
         if not self._api_key:
-            mock = f"72°F, partly cloudy in {city}. High of 85°F today."
-            _cache[cache_key] = (now, mock)
             return CommandResult(
-                success=True,
-                response=mock,
-                metadata={"mock": True},
+                success=False,
+                response="",
+                metadata={"no_api_key": True},
             )
 
         try:
