@@ -885,22 +885,22 @@ set default=0
 set timeout=3
 
 menuentry "Atlas Tablet OS" {
-    linux /casper/vmlinuz boot=casper ignore_uuid toram quiet splash consoleblank=0
+    linux /casper/vmlinuz boot=casper ignore_uuid layerfs-path=filesystem.squashfs toram quiet splash consoleblank=0
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Safe Mode)" {
-    linux /casper/vmlinuz boot=casper ignore_uuid toram nomodeset consoleblank=0
+    linux /casper/vmlinuz boot=casper ignore_uuid layerfs-path=filesystem.squashfs toram nomodeset consoleblank=0
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Debug - console only)" {
-    linux /casper/vmlinuz boot=casper ignore_uuid toram consoleblank=0 atlas.nox=1 systemd.unit=multi-user.target
+    linux /casper/vmlinuz boot=casper ignore_uuid layerfs-path=filesystem.squashfs toram consoleblank=0 atlas.nox=1 systemd.unit=multi-user.target
     initrd /casper/initrd
 }
 
 menuentry "Atlas Tablet OS (Install to Disk)" {
-    linux /casper/vmlinuz boot=casper ignore_uuid toram quiet splash consoleblank=0 atlas.install=1
+    linux /casper/vmlinuz boot=casper ignore_uuid layerfs-path=filesystem.squashfs toram quiet splash consoleblank=0 atlas.install=1
     initrd /casper/initrd
 }
 GRUBCFG
