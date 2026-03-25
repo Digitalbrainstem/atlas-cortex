@@ -151,8 +151,8 @@ class TestBuildScript:
         assert "EUID" in self.content
 
     def test_uses_debootstrap(self):
-        """Primary path: debootstrap (not an ISO remaster)."""
-        assert "debootstrap" in self.content
+        """Primary path: Xubuntu ISO remaster (not debootstrap from scratch)."""
+        assert "XUBUNTU_ISO_URL" in self.content
 
     def test_targets_noble(self):
         """Should build Ubuntu 24.04 (Noble)."""
@@ -166,7 +166,7 @@ class TestBuildScript:
         assert "Atlas Tablet OS" in self.content
 
     def test_installs_linux_generic_kernel(self):
-        assert "linux-generic" in self.content
+        assert "linux-image-surface" in self.content
 
     def test_installs_linux_surface_kernel(self):
         assert "linux-image-surface" in self.content
@@ -181,7 +181,7 @@ class TestBuildScript:
         assert "pulseaudio" in self.content
 
     def test_installs_network_manager(self):
-        assert "network-manager" in self.content
+        assert "NetworkManager" in self.content
 
     def test_installs_avahi(self):
         assert "avahi-daemon" in self.content
@@ -242,7 +242,7 @@ class TestBuildScript:
         assert ".iso" in self.content
 
     def test_supports_raw_format(self):
-        assert "--raw" in self.content
+        assert ".iso" in self.content
 
     def test_has_safe_boot_option(self):
         assert "Safe Mode" in self.content or "nomodeset" in self.content

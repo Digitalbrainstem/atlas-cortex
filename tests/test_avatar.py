@@ -493,7 +493,7 @@ _NICK_SVG_PATH = Path(__file__).resolve().parent.parent / "cortex" / "avatar" / 
 _ALL_EXPRESSION_NAMES = {
     "neutral", "happy", "thinking", "surprised", "sad", "excited",
     "concerned", "listening", "laughing", "crying", "silly", "winking",
-    "angry", "confused", "love", "sleepy", "proud", "scared",
+    "angry", "confused", "love", "sleepy", "proud", "scared", "rofl",
 }
 
 
