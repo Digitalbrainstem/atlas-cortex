@@ -230,6 +230,72 @@ class LoRAManager:
 
     # ── Registry integration ──────────────────────────────────────
 
+    async def discover_and_register(self, lora_dir: str | Path) -> dict[str, dict[str, Any]]:
+        """Discover LoRAs on disk and register them in the DB.
+
+        Unlike :meth:`compose_all`, this does NOT create Ollama models.
+        It just catalogs what adapters are available so the admin UI can
+        display them. Composition happens later when adapters are in a
+        compatible format (GGUF).
+
+        Returns a dict of domain → adapter info.
+        """
+        loras = self.discover(lora_dir)
+        if not loras:
+            logger.info("No LoRA adapters found in %s", lora_dir)
+            return {}
+
+        registered: dict[str, dict[str, Any]] = {}
+        for domain, path in loras.items():
+            info = get_lora_info(path)
+            self._register_discovered_in_db(domain, str(path), info)
+            registered[domain] = {"path": str(path), **info}
+            logger.debug("Registered LoRA: %s at %s", domain, path)
+
+        # Also pick up any pre-existing atlas-* models in Ollama
+        existing = await self._list_ollama_atlas_models()
+        for name in existing:
+            domain = name.split(":")[0].removeprefix("atlas-")
+            if domain and domain not in self._composed:
+                self._composed[domain] = ComposedModel(
+                    domain=domain,
+                    model_name=name,
+                    base_model="",
+                    adapter_path="",
+                )
+                logger.info("Found pre-existing Ollama model %s", name)
+
+        logger.info(
+            "LoRA discovery complete: %d on disk, %d composable in Ollama",
+            len(registered),
+            len(self._composed),
+        )
+        return registered
+
+    @staticmethod
+    def _register_discovered_in_db(domain: str, adapter_path: str, info: dict[str, Any]) -> None:
+        """Register a discovered (not yet composed) LoRA in model_registry."""
+        try:
+            from cortex.db import get_db
+
+            conn = get_db()
+            conn.execute(
+                "INSERT OR REPLACE INTO model_registry "
+                "(model_name, model_type, source, status, metadata) "
+                "VALUES (?, 'lora', 'local', 'available', ?)",
+                (
+                    f"lora-{domain}",
+                    json.dumps({
+                        "domain": domain,
+                        "adapter_path": adapter_path,
+                        **info,
+                    }),
+                ),
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.debug("Could not register lora-%s in DB: %s", domain, exc)
+
     @staticmethod
     def _register_in_db(cm: ComposedModel) -> None:
         """Best-effort registration of a composed model in model_registry."""
