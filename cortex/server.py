@@ -139,27 +139,27 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Plugin loading failed (non-fatal): %s", exc)
 
-    # ── LoRA adapter composition ─────────────────────────────────
-    async def _compose_loras() -> None:
-        if not os.getenv("LORA_AUTO_COMPOSE", "1") == "1":
-            return
+    # ── LoRA adapter discovery ───────────────────────────────────
+    async def _discover_loras() -> None:
         try:
             from cortex.evolution.lora_manager import LoRAManager, set_lora_manager
 
             lora_dir = os.getenv("LORA_DIR", os.path.expanduser("~/.cortex/loras"))
-            base_model = os.getenv("LORA_BASE_MODEL") or os.getenv("MODEL_FAST", "qwen3.5:9b")
             ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
             mgr = LoRAManager(ollama_url=ollama_url)
             set_lora_manager(mgr)
-            composed = await mgr.compose_all(base_model, lora_dir, ollama_url)
-            if composed:
-                logger.info("Composed %d LoRA models: %s",
-                            len(composed), [c.model_name for c in composed])
-        except Exception as e:
-            logger.debug("LoRA composition failed (non-fatal): %s", e)
 
-    register_startup_task("lora-compose", _compose_loras)
+            # Discover and register in DB (no Ollama composition — adapters
+            # need GGUF conversion first, handled by external tooling)
+            registered = await mgr.discover_and_register(lora_dir)
+            if registered:
+                logger.info("Discovered %d LoRA adapters: %s",
+                            len(registered), list(registered.keys()))
+        except Exception as e:
+            logger.debug("LoRA discovery failed (non-fatal): %s", e)
+
+    register_startup_task("lora-discover", _discover_loras)
 
     # Register nightly evolution as background startup task
     async def _run_nightly_evolution() -> None:
