@@ -61,7 +61,7 @@ done
 
 # ── Check prerequisites ──────────────────────────────────────────
 step "Checking build tools"
-REQUIRED_TOOLS=(debootstrap mksquashfs xorriso grub-mkrescue)
+REQUIRED_TOOLS=(mksquashfs xorriso grub-mkrescue wget)
 MISSING=()
 for tool in "${REQUIRED_TOOLS[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
@@ -73,8 +73,8 @@ if [ ${#MISSING[@]} -gt 0 ]; then
     err "Missing tools: ${MISSING[*]}"
     echo ""
     echo "  Install with:"
-    echo "    sudo apt install debootstrap squashfs-tools xorriso \\"
-    echo "        grub-pc-bin grub-efi-amd64-bin mtools dosfstools"
+    echo "    sudo apt install squashfs-tools xorriso \\"
+    echo "        grub-pc-bin grub-efi-amd64-bin mtools dosfstools wget"
     exit 1
 fi
 ok "All build tools present"
@@ -108,17 +108,23 @@ cleanup() {
 trap cleanup EXIT
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 1: Bootstrap minimal Ubuntu rootfs
+# PHASE 1: Download official Ubuntu minimal cloud rootfs
 # ══════════════════════════════════════════════════════════════════
-step "Phase 1: Bootstrapping Ubuntu ${SUITE}"
+step "Phase 1: Downloading Ubuntu ${SUITE} minimal cloud image"
 
 mkdir -p "$ROOTFS" "$ISO_DIR"
 
-debootstrap --arch="$ARCH" --variant=minbase \
-    --include=systemd,systemd-sysv,dbus,sudo,locales,apt-utils \
-    "$SUITE" "$ROOTFS" http://archive.ubuntu.com/ubuntu
+CLOUD_URL="https://cloud-images.ubuntu.com/minimal/releases/${SUITE}/release"
+ROOTFS_TAR="ubuntu-24.04-minimal-cloudimg-amd64-root.tar.xz"
 
-ok "Base system bootstrapped"
+info "Downloading ${ROOTFS_TAR} (~200MB)..."
+wget -q --show-progress "${CLOUD_URL}/${ROOTFS_TAR}" -O "$BUILD_DIR/rootfs.tar.xz"
+
+info "Extracting..."
+tar xJf "$BUILD_DIR/rootfs.tar.xz" -C "$ROOTFS"
+rm "$BUILD_DIR/rootfs.tar.xz"
+
+ok "Cloud rootfs extracted: $(du -sh "$ROOTFS" | cut -f1)"
 
 # ── Mount pseudo-filesystems for chroot ───────────────────────────
 mount --bind /dev  "$ROOTFS/dev"
@@ -128,6 +134,7 @@ mount -t sysfs sys "$ROOTFS/sys"
 mount -t tmpfs tmpfs "$ROOTFS/run"
 
 # DNS inside chroot
+rm -f "$ROOTFS/etc/resolv.conf" 2>/dev/null || true
 cp /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
 
 # ── Configure apt sources ────────────────────────────────────────
@@ -149,7 +156,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
 # ── Linux kernel ──────────────────────────────────────────────────
-apt-get install -y -qq linux-generic
+apt-get install -y -qq linux-generic live-boot
 
 # ── Display: Xorg + Openbox (no full DE) ─────────────────────────
 apt-get install -y -qq \
@@ -178,7 +185,7 @@ apt-get install -y -qq \
     curl wget git \
     openssh-server \
     usbutils pciutils \
-    less nano
+    less nano locales
 
 # ── GRUB bootloader ──────────────────────────────────────────────
 apt-get install -y -qq \
@@ -676,7 +683,7 @@ info "Compressing rootfs (this takes a few minutes)..."
 mkdir -p "$ISO_DIR/live" "$ISO_DIR/boot/grub"
 
 mksquashfs "$ROOTFS" "$ISO_DIR/live/filesystem.squashfs" \
-    -comp xz -Xbcj x86 -b 1M -no-duplicates -quiet
+    -comp gzip -b 256K -no-duplicates -quiet
 
 ok "Squashfs created: $(du -sh "$ISO_DIR/live/filesystem.squashfs" | cut -f1)"
 
