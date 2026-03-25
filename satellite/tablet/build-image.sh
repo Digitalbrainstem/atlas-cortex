@@ -145,22 +145,34 @@ if [ "$NEED_DOWNLOAD" = true ]; then
     ok "Download complete"
 fi
 
-# Mount the ISO and extract squashfs
+# Mount the ISO and extract the squashfs layers
 info "Mounting ISO..."
 mount -o loop,ro "$XUBUNTU_ISO_FILE" "$ISO_MNT"
 
-if [ ! -f "$ISO_MNT/casper/filesystem.squashfs" ]; then
-    err "Cannot find /casper/filesystem.squashfs in the ISO!"
-    err "This doesn't look like a Xubuntu minimal ISO."
+# Xubuntu minimal uses layered squashfs: minimal.squashfs (base) + minimal.live.squashfs (live overlay)
+# Desktop uses a single filesystem.squashfs
+info "Extracting squashfs filesystem (this takes a few minutes)..."
+if [ -f "$ISO_MNT/casper/minimal.squashfs" ]; then
+    info "Found layered squashfs (Xubuntu minimal)"
+    # Extract base layer
+    unsquashfs -d "$ROOTFS" -f "$ISO_MNT/casper/minimal.squashfs"
+    # Overlay live layer on top (adds live-boot packages)
+    if [ -f "$ISO_MNT/casper/minimal.live.squashfs" ]; then
+        info "Applying live overlay layer..."
+        unsquashfs -d "$ROOTFS" -f "$ISO_MNT/casper/minimal.live.squashfs"
+    fi
+elif [ -f "$ISO_MNT/casper/filesystem.squashfs" ]; then
+    info "Found standard squashfs (Xubuntu desktop)"
+    unsquashfs -d "$ROOTFS" -f "$ISO_MNT/casper/filesystem.squashfs"
+else
+    err "Cannot find squashfs in the ISO!"
+    err "Found in /casper: $(ls "$ISO_MNT/casper/"*.squashfs 2>/dev/null || echo 'nothing')"
     exit 1
 fi
 
-info "Extracting squashfs filesystem (this takes a few minutes)..."
-unsquashfs -d "$ROOTFS" -f "$ISO_MNT/casper/filesystem.squashfs"
-
-# Copy the ISO structure for later repacking (excluding the large squashfs)
+# Copy the ISO structure for later repacking (excluding squashfs files — we'll rebuild them)
 info "Copying ISO structure..."
-rsync -a --exclude='casper/filesystem.squashfs' "$ISO_MNT/" "$ISO_DIR/"
+rsync -a --exclude='*.squashfs' "$ISO_MNT/" "$ISO_DIR/"
 mkdir -p "$ISO_DIR/casper"
 
 umount "$ISO_MNT"
@@ -784,6 +796,10 @@ step "Phase 8: Building remastered ISO"
 
 # ── Re-squash the customized rootfs ──────────────────────────────
 info "Compressing customized rootfs (this takes several minutes)..."
+
+# Remove layered squashfs from ISO structure — we merge everything into one
+rm -f "$ISO_DIR/casper/minimal.squashfs" "$ISO_DIR/casper/minimal.live.squashfs"
+
 mksquashfs "$ROOTFS" "$ISO_DIR/casper/filesystem.squashfs" \
     -comp gzip -b 256K -no-duplicates -quiet
 
@@ -791,6 +807,20 @@ ok "Squashfs created: $(du -sh "$ISO_DIR/casper/filesystem.squashfs" | cut -f1)"
 
 # ── Update filesystem.size ───────────────────────────────────────
 du -sx --block-size=1 "$ROOTFS" | cut -f1 > "$ISO_DIR/casper/filesystem.size"
+
+# ── Rewrite install-sources.yaml for single-layer squashfs ───────
+cat > "$ISO_DIR/casper/install-sources.yaml" << 'SOURCES'
+- default: true
+  description:
+    en: Atlas Tablet OS based on Xubuntu Minimal.
+  id: atlas-tablet-os
+  locale_support: langpack
+  name:
+    en: Atlas Tablet OS
+  path: filesystem.squashfs
+  type: fsimage
+  variant: desktop
+SOURCES
 
 # ── Copy kernel + initrd to casper ───────────────────────────────
 # Prefer the Surface kernel if available, else use what Xubuntu provides
