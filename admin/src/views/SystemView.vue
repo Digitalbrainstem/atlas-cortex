@@ -59,7 +59,7 @@ const availableProviders = computed(() => {
 const filteredVoices = computed(() => {
   let list = voices.value
   if (!showAllLanguages.value) {
-    list = list.filter(v => !v.language || v.language === 'en')
+    list = list.filter(v => !v.language || v.language.startsWith('en'))
   }
   if (providerFilter.value !== 'all') {
     list = list.filter(v => v.provider === providerFilter.value)

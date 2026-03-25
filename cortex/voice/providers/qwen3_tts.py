@@ -28,17 +28,10 @@ from cortex.voice.base import TTSProvider
 
 logger = logging.getLogger(__name__)
 
-# Built-in speakers from the neosun/qwen3-tts server
+# Default voice — ValyrianTech server ships with demo_speaker0
+# Users can upload custom voices via /upload_audio/ endpoint
 _QWEN3_VOICES = [
-    {"id": "qwen3_Ryan",      "provider": "qwen3_tts", "name": "Ryan",      "gender": "male",   "language": "en", "style": "dynamic"},
-    {"id": "qwen3_Aiden",     "provider": "qwen3_tts", "name": "Aiden",     "gender": "male",   "language": "en", "style": "sunny"},
-    {"id": "qwen3_Vivian",    "provider": "qwen3_tts", "name": "Vivian",    "gender": "female", "language": "zh", "style": "bright"},
-    {"id": "qwen3_Serena",    "provider": "qwen3_tts", "name": "Serena",    "gender": "female", "language": "zh", "style": "warm"},
-    {"id": "qwen3_Uncle_Fu",  "provider": "qwen3_tts", "name": "Uncle Fu",  "gender": "male",   "language": "zh", "style": "mellow"},
-    {"id": "qwen3_Dylan",     "provider": "qwen3_tts", "name": "Dylan",     "gender": "male",   "language": "zh", "style": "natural"},
-    {"id": "qwen3_Eric",      "provider": "qwen3_tts", "name": "Eric",      "gender": "male",   "language": "zh", "style": "lively"},
-    {"id": "qwen3_Ono_Anna",  "provider": "qwen3_tts", "name": "Ono Anna",  "gender": "female", "language": "ja", "style": "playful"},
-    {"id": "qwen3_Sohee",     "provider": "qwen3_tts", "name": "Sohee",     "gender": "female", "language": "ko", "style": "warm"},
+    {"id": "qwen3_demo_speaker0", "provider": "qwen3_tts", "name": "demo_speaker0", "gender": "male", "language": "en", "style": "natural"},
 ]
 
 # Map language codes to Qwen3-TTS language names
@@ -63,7 +56,7 @@ class Qwen3TTSProvider(TTSProvider):
         self.host = cfg.get("QWEN_TTS_HOST", os.environ.get("QWEN_TTS_HOST", "localhost"))
         self.port = int(cfg.get("QWEN_TTS_PORT", os.environ.get("QWEN_TTS_PORT", "7860")))
         self.base_url = f"http://{self.host}:{self.port}"
-        self.default_speaker = "Ryan"
+        self.default_speaker = "demo_speaker0"
         self.default_language = "English"
 
     # ------------------------------------------------------------------
@@ -88,8 +81,10 @@ class Qwen3TTSProvider(TTSProvider):
         instruct = emotion or kwargs.get("instruct", "")
 
         if stream:
-            async for chunk in self._synthesize_stream(text, speaker, language, instruct):
-                yield chunk
+            # ValyrianTech server doesn't support streaming — synthesize full then yield
+            audio = await self._synthesize_wav(text, speaker, language, instruct)
+            if audio:
+                yield audio
         else:
             audio = await self._synthesize_wav(text, speaker, language, instruct)
             if audio:
