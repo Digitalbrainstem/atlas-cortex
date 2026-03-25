@@ -23,7 +23,7 @@ from typing import Any
 
 from cortex.db import get_db
 from cortex.plugins import get_registry
-from cortex.plugins.base import CortexPlugin
+from cortex.plugins.base import ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,16 @@ def _env_config_for(plugin_id: str) -> dict[str, Any]:
             cfg["timeout"] = float(timeout)
         return cfg
     return {}
+
+
+def _has_unsatisfied_required_fields(plugin: CortexPlugin, config: dict[str, Any]) -> bool:
+    """Return True if the plugin has required config_fields that are empty."""
+    for f in getattr(plugin, "config_fields", []):
+        if not isinstance(f, ConfigField):
+            continue
+        if f.required and not config.get(f.key):
+            return True
+    return False
 
 
 def _upsert_plugin_config(
@@ -193,6 +203,11 @@ async def _setup_and_register(
         except (json.JSONDecodeError, TypeError):
             pass
 
+    # Apply defaults from config_fields for missing keys
+    for f in getattr(plugin, "config_fields", []):
+        if isinstance(f, ConfigField) and f.default is not None and f.key not in config:
+            config[f.key] = f.default
+
     try:
         success = await plugin.setup(config)
     except Exception as exc:
@@ -201,7 +216,12 @@ async def _setup_and_register(
         return False
 
     if not success:
-        logger.info("Plugin %s setup() returned False — inactive", plugin_id)
+        # Still record plugin as enabled so it shows in admin UI
+        needs_setup = _has_unsatisfied_required_fields(plugin, config)
+        if needs_setup:
+            logger.info("Plugin %s needs setup — required config fields missing", plugin_id)
+        else:
+            logger.info("Plugin %s setup() returned False — inactive", plugin_id)
         _upsert_plugin_config(plugin_id, source=source, health_ok=False)
         return False
 

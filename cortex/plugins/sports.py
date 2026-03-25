@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,16 @@ class SportsPlugin(CortexPlugin):
     plugin_type = "action"
     version = "1.0.0"
     author = "Atlas"
+    # No API key needed — uses free ESPN API
+    config_fields = []
 
     def __init__(self) -> None:
         super().__init__()
         self._cache: dict[str, _ScoreCache] = {}
+
+    @property
+    def health_message(self) -> str:
+        return "Ready — uses ESPN API (no API key needed)"
 
     # ── Lifecycle ────────────────────────────────────────────
 

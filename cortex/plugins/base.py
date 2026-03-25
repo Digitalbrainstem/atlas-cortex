@@ -12,6 +12,35 @@ from typing import Any
 
 
 @dataclass
+class ConfigField:
+    """Describes one configuration field for a plugin."""
+
+    key: str
+    label: str
+    field_type: str = "text"  # text, password, url, toggle, select, number
+    required: bool = False
+    placeholder: str = ""
+    help_text: str = ""
+    default: Any = None
+    options: list[dict[str, str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for the admin API response."""
+        d: dict[str, Any] = {
+            "key": self.key,
+            "label": self.label,
+            "field_type": self.field_type,
+            "required": self.required,
+            "placeholder": self.placeholder,
+            "help_text": self.help_text,
+            "default": self.default,
+        }
+        if self.options:
+            d["options"] = self.options
+        return d
+
+
+@dataclass
 class CommandMatch:
     """Result returned by :meth:`CortexPlugin.match`."""
     matched: bool
@@ -53,6 +82,14 @@ class CortexPlugin(abc.ABC):
 
     #: JSON Schema describing accepted config keys (for admin UI)
     config_schema: dict[str, Any] = {}
+
+    #: Structured config field descriptors for the admin UI
+    config_fields: list[ConfigField] = []
+
+    @property
+    def health_message(self) -> str:
+        """Human-readable health status message for the admin UI."""
+        return "OK"
 
     @abc.abstractmethod
     async def setup(self, config: dict[str, Any]) -> bool:

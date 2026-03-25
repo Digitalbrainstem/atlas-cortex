@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
 from cortex.plugins import get_registry
+from cortex.plugins.base import ConfigField
 from cortex.plugins.loader import BUILTIN_PLUGINS, check_plugin_health
 
 logger = logging.getLogger(__name__)
@@ -37,14 +38,17 @@ class PluginInfo(BaseModel):
     source: str = "official"
     enabled: bool = True
     health_ok: bool = True
+    health_message: str = ""
     last_health_check: str | None = None
     version: str = "0.0.0"
     author: str = ""
     config: dict[str, Any] = {}
     config_schema: dict[str, Any] = {}
+    config_fields: list[dict[str, Any]] = []
     supports_learning: bool = False
     hit_count: int = 0
     registered: bool = False
+    needs_setup: bool = False
 
 
 class ConfigUpdate(BaseModel):
@@ -64,6 +68,48 @@ def _plugin_hit_count(conn: Any, plugin_id: str) -> int:
         (plugin_id,),
     ).fetchone()
     return row[0] if row else 0
+
+
+def _serialize_config_fields(plugin: Any) -> list[dict[str, Any]]:
+    """Serialize a plugin's config_fields list for the API response."""
+    fields = getattr(plugin, "config_fields", [])
+    return [f.to_dict() if isinstance(f, ConfigField) else f for f in fields]
+
+
+def _check_needs_setup(plugin: Any, config: dict[str, Any]) -> bool:
+    """Return True if the plugin has required fields that are empty."""
+    fields = getattr(plugin, "config_fields", [])
+    for f in fields:
+        if not isinstance(f, ConfigField):
+            continue
+        if f.required and not config.get(f.key):
+            return True
+    return False
+
+
+def _validate_config(fields: list[ConfigField], config: dict[str, Any]) -> list[str]:
+    """Validate config values against config_fields. Returns list of errors."""
+    errors: list[str] = []
+    for f in fields:
+        value = config.get(f.key)
+        if value is None or value == "":
+            continue
+        if f.field_type == "number":
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                errors.append(f"'{f.key}' must be a number")
+        if f.field_type == "toggle" and not isinstance(value, bool):
+            if value not in (0, 1, True, False):
+                errors.append(f"'{f.key}' must be a boolean")
+        if f.field_type == "url" and isinstance(value, str):
+            if value and not value.startswith(("http://", "https://")):
+                errors.append(f"'{f.key}' must be a valid URL starting with http:// or https://")
+        if f.field_type == "select" and f.options:
+            valid_values = {opt["value"] for opt in f.options}
+            if value not in valid_values:
+                errors.append(f"'{f.key}' must be one of: {', '.join(valid_values)}")
+    return errors
 
 
 # ── Endpoints ────────────────────────────────────────────────────
@@ -86,6 +132,7 @@ async def list_plugins(_: dict = Depends(require_admin)):
     for pid in sorted(all_ids):
         row = db_rows.get(pid)
         reg_plugin = registered_map.get(pid)
+        plugin_config = json.loads(row["config"]) if row and row["config"] else {}
 
         info: dict[str, Any] = {
             "plugin_id": pid,
@@ -94,14 +141,17 @@ async def list_plugins(_: dict = Depends(require_admin)):
             "source": row["source"] if row else ("official" if pid in BUILTIN_PLUGINS else "community"),
             "enabled": bool(row["enabled"]) if row else True,
             "health_ok": bool(row["health_ok"]) if row else False,
+            "health_message": reg_plugin.health_message if reg_plugin else "",
             "last_health_check": row["last_health_check"] if row else None,
             "version": getattr(reg_plugin, "version", "0.0.0") if reg_plugin else "0.0.0",
             "author": getattr(reg_plugin, "author", "") if reg_plugin else "",
-            "config": json.loads(row["config"]) if row and row["config"] else {},
+            "config": plugin_config,
             "config_schema": getattr(reg_plugin, "config_schema", {}) if reg_plugin else {},
+            "config_fields": _serialize_config_fields(reg_plugin) if reg_plugin else [],
             "supports_learning": getattr(reg_plugin, "supports_learning", False) if reg_plugin else False,
             "hit_count": _plugin_hit_count(conn, pid),
             "registered": pid in registered_ids,
+            "needs_setup": _check_needs_setup(reg_plugin, plugin_config) if reg_plugin else False,
         }
         plugins.append(info)
 
@@ -150,6 +200,18 @@ async def update_plugin_config(
     _: dict = Depends(require_admin),
 ):
     """Update the JSON config blob for a plugin."""
+    # Validate against config_fields if the plugin is registered
+    registry = get_registry()
+    registered_map = {p.plugin_id: p for p in registry.list_plugins()}
+    plugin = registered_map.get(plugin_id)
+
+    if plugin:
+        fields = getattr(plugin, "config_fields", [])
+        if fields:
+            errors = _validate_config(fields, body.config)
+            if errors:
+                raise HTTPException(status_code=422, detail="; ".join(errors))
+
     conn = _h._db()
     config_json = json.dumps(body.config)
     conn.execute(
@@ -180,6 +242,8 @@ async def force_health_check(plugin_id: str, _: dict = Depends(require_admin)):
         logger.warning("Health check failed for %s: %s", plugin_id, exc)
         ok = False
 
+    health_message = getattr(plugin, "health_message", "")
+
     conn = _h._db()
     conn.execute(
         """
@@ -190,4 +254,9 @@ async def force_health_check(plugin_id: str, _: dict = Depends(require_admin)):
         (int(ok), plugin_id),
     )
     conn.commit()
-    return {"ok": True, "plugin_id": plugin_id, "health_ok": ok}
+    return {
+        "ok": True,
+        "plugin_id": plugin_id,
+        "health_ok": ok,
+        "health_message": health_message,
+    }

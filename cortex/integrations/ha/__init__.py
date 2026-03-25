@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
 from .client import HAClient, HAClientError, HAConnectionError
 
 logger = logging.getLogger(__name__)
@@ -18,12 +18,47 @@ class HAPlugin(CortexPlugin):
     plugin_id = "ha_commands"
     display_name = "Home Assistant"
     plugin_type = "action"
+    config_fields = [
+        ConfigField(
+            key="base_url",
+            label="Home Assistant URL",
+            field_type="url",
+            required=True,
+            placeholder="http://homeassistant.local:8123",
+            help_text="The URL of your Home Assistant instance.",
+        ),
+        ConfigField(
+            key="token",
+            label="Long-Lived Access Token",
+            field_type="password",
+            required=True,
+            placeholder="Enter your HA access token...",
+            help_text="Create at Home Assistant → Profile → Security → Long-Lived Access Tokens.",
+        ),
+        ConfigField(
+            key="timeout",
+            label="Request Timeout",
+            field_type="number",
+            required=False,
+            placeholder="10",
+            help_text="HTTP timeout in seconds for HA API calls.",
+            default=10.0,
+        ),
+    ]
 
     def __init__(self, client: HAClient | None = None, conn: Any = None) -> None:
         self._client: HAClient | None = client
         self._conn: Any = conn
-        # Cache: list of (compiled_re, row_dict)
         self._patterns: list[tuple[re.Pattern, dict]] | None = None
+        self._configured: bool = client is not None
+
+    @property
+    def health_message(self) -> str:
+        if not self._configured:
+            return "Not configured — add your Home Assistant URL and token"
+        if self._client is None:
+            return "Configuration error — check your URL and token"
+        return "Connected to Home Assistant"
 
     # ------------------------------------------------------------------ #
     # CortexPlugin interface
@@ -36,10 +71,12 @@ class HAPlugin(CortexPlugin):
             token: str = config["token"]
             timeout: float = float(config.get("timeout", 10.0))
             self._client = HAClient(base_url, token, timeout)
+            self._configured = True
             logger.info("HAPlugin configured for %s", base_url)
             return True
         except (KeyError, ValueError) as exc:
             logger.error("HAPlugin.setup failed: %s", exc)
+            self._configured = False
             return False
 
     async def health(self) -> bool:
