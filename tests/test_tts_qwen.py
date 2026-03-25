@@ -38,8 +38,8 @@ class TestInit:
 
     def test_default_config(self, default_provider):
         assert default_provider.host == "localhost"
-        assert default_provider.port == 8766
-        assert default_provider.base_url == "http://localhost:8766"
+        assert default_provider.port == 7860
+        assert default_provider.base_url == "http://localhost:7860"
 
     def test_default_speaker(self, provider):
         assert provider.default_speaker == "Ryan"

@@ -361,7 +361,7 @@ class TestDefaultRegistry:
             "test_run", "build", "lint", "docker", "db_query", "package_manage",
             # Atlas integration tools
             "ha_control", "timer", "reminder", "routine",
-            "notify", "memory_search", "memory_store",
+            "notify", "memory_search", "memory_store", "display",
             # Multi-modal tools
             "vision_analyze", "image_generate", "embed_text",
             "ocr", "speech_to_text", "text_to_speech",
@@ -394,7 +394,7 @@ class TestDefaultRegistry:
     def test_schemas_are_valid(self):
         reg = get_default_registry()
         schemas = reg.get_function_schemas()
-        assert len(schemas) == 66
+        assert len(schemas) == 67
         for s in schemas:
             assert s["type"] == "function"
             fn = s["function"]

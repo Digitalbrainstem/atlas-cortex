@@ -401,6 +401,7 @@
       "description": "Default face \u2014 resting neutral"
     },
     "rofl": {
+      "description": "Rolling on the floor laughing \u2014 wide grin with teardrop decorations",
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {

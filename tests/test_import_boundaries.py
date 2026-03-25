@@ -38,6 +38,8 @@ KNOWN_VIOLATIONS: set[str] = {
     "avatar/websocket.py:cortex.satellite.websocket",
     # content/jokes.py streams cached audio directly to avatar broadcast
     "content/jokes.py:cortex.avatar.websocket",
+    # satellite/display_protocol.py sends display commands via avatar broadcast
+    "satellite/display_protocol.py:cortex.avatar.broadcast",
 }
 
 
