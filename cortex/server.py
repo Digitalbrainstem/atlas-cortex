@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from cortex.admin_api import router as admin_router
+from cortex.auth_user import get_user_auth
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.providers import get_provider
@@ -553,6 +554,122 @@ async def create_speech(req: SpeechRequest):
         media_type="audio/wav",
         headers={"Transfer-Encoding": "chunked"},
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Public chat API — NO admin auth required
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/chat/users")
+async def list_chat_users():
+    """List users for the profile picker (no secrets exposed)."""
+    mgr = get_user_auth()
+    return {"users": mgr.list_users()}
+
+
+@app.post("/api/chat/auth")
+async def authenticate_chat_user(request: Request):
+    """Authenticate a user for chat.
+
+    Body: ``{user_id, pin?, password?, device_fingerprint?, trust_device?}``
+    Returns: ``{ok, token?, user?, error?}``
+    """
+    body = await request.json()
+    mgr = get_user_auth()
+    user_id = body.get("user_id", "")
+    device_fp = body.get("device_fingerprint", "")
+
+    user = mgr.get_user(user_id)
+    if not user:
+        return JSONResponse({"ok": False, "error": "User not found"})
+
+    user_info = {
+        "user_id": user.user_id,
+        "display_name": user.display_name,
+        "content_tier": user.content_tier,
+    }
+
+    # Device already trusted — skip auth
+    if device_fp and mgr.is_device_trusted(user_id, device_fp):
+        token = mgr.generate_session_token(user_id)
+        return {"ok": True, "token": token, "user": user_info}
+
+    # No auth required
+    if user.auth_method == "none":
+        token = mgr.generate_session_token(user_id)
+        if device_fp:
+            mgr.trust_device(user_id, device_fp)
+        return {"ok": True, "token": token, "user": user_info}
+
+    # PIN auth
+    if user.auth_method == "pin":
+        pin = body.get("pin", "")
+        if not mgr.verify_pin(user_id, pin):
+            return JSONResponse({"ok": False, "error": "Invalid PIN"})
+        token = mgr.generate_session_token(user_id)
+        if device_fp and body.get("trust_device"):
+            mgr.trust_device(user_id, device_fp)
+        return {"ok": True, "token": token, "user": user_info}
+
+    # Password auth
+    if user.auth_method == "password":
+        password = body.get("password", "")
+        if not mgr.verify_password(user_id, password):
+            return JSONResponse({"ok": False, "error": "Invalid password"})
+        token = mgr.generate_session_token(user_id)
+        if device_fp and body.get("trust_device"):
+            mgr.trust_device(user_id, device_fp)
+        return {"ok": True, "token": token, "user": user_info}
+
+    # Passkey — return challenge for WebAuthn flow
+    if user.auth_method == "passkey":
+        import secrets as _secrets
+        return JSONResponse({
+            "ok": False,
+            "error": "Passkey auth: use the passkey flow",
+            "challenge": _secrets.token_urlsafe(32),
+        })
+
+    return JSONResponse({"ok": False, "error": "Unknown auth method"})
+
+
+@app.get("/api/chat/session")
+async def verify_chat_session(token: str = ""):
+    """Verify a chat session token."""
+    mgr = get_user_auth()
+    user_id = mgr.verify_session_token(token)
+    if user_id:
+        user = mgr.get_user(user_id)
+        if user:
+            return {
+                "ok": True,
+                "user": {
+                    "user_id": user_id,
+                    "display_name": user.display_name,
+                    "content_tier": user.content_tier,
+                },
+            }
+    return {"ok": False}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Public chat page — serves the chat SPA at /chat
+# ──────────────────────────────────────────────────────────────────
+
+_CHAT_HTML = Path(__file__).resolve().parent.parent / "admin" / "dist" / "chat.html"
+
+
+@app.get("/chat")
+async def serve_public_chat():
+    """Serve the public chat interface — no admin auth required."""
+    if _CHAT_HTML.is_file():
+        return FileResponse(
+            _CHAT_HTML,
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+    raise HTTPException(status_code=404, detail="Chat page not built yet. Run: cd admin && npx vite build")
 
 
 # ──────────────────────────────────────────────────────────────────
