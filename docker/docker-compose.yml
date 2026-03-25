@@ -22,10 +22,10 @@ services:
       - MODEL_FAST=${MODEL_FAST:-qwen3.5:9b}
       - MODEL_THINKING=${MODEL_THINKING:-qwen3.5:27b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
-      # TTS — Qwen3-TTS primary (port 8766), Kokoro fast (port 8880), Orpheus (port 5005), Piper fallback (port 10200), Fish Audio stories (port 8860)
+      # TTS — Qwen3-TTS primary (port 7860), Kokoro fast (port 8880), Orpheus (port 5005), Piper fallback (port 10200), Fish Audio stories (port 8860)
       - TTS_PROVIDER=${TTS_PROVIDER:-qwen3_tts}
       - QWEN_TTS_HOST=${QWEN_TTS_HOST:-localhost}
-      - QWEN_TTS_PORT=${QWEN_TTS_PORT:-8766}
+      - QWEN_TTS_PORT=${QWEN_TTS_PORT:-7860}
       - KOKORO_HOST=${KOKORO_HOST:-localhost}
       - KOKORO_PORT=${KOKORO_PORT:-8880}
       - KOKORO_VOICE=${KOKORO_VOICE:-af_bella}
@@ -244,17 +244,18 @@ services:
       fi'
     restart: "no"
 
-  # ── Qwen3-TTS — primary GPU TTS (port 8766) ────────────────────
-  # neosun/qwen3-tts:2.0.0 — highest quality, 9 speakers, 10 languages,
-  # voice design, voice cloning. ~14GB Docker image with embedded models.
-  # Requires NVIDIA GPU with 6GB+ VRAM.
+  # ── Qwen3-TTS — primary GPU TTS (port 7860) ────────────────────
+  # ValyrianTech/Qwen3-TTS_server — FastAPI server with voice cloning,
+  # multi-language support. Build locally: ~8GB image + 3.5GB model.
+  # Requires NVIDIA GPU with 4GB+ VRAM (1.7B model).
   atlas-qwen-tts:
-    image: neosun/qwen3-tts:2.0.0
+    build:
+      context: https://github.com/ValyrianTech/Qwen3-TTS_server.git
+    image: atlas-qwen-tts:latest
     container_name: atlas-qwen-tts
     ports:
-      - "8766:8766"
+      - "${QWEN_TTS_PORT:-7860}:7860"
     environment:
-      - CUDA_DEVICE=cuda:0
       - NVIDIA_VISIBLE_DEVICES=0
     deploy:
       resources:
@@ -267,7 +268,7 @@ services:
       - atlas
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8766/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:7860/docs || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
