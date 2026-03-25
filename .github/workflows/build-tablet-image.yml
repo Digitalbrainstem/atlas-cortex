@@ -121,7 +121,7 @@ jobs:
           apt-get install -y -qq linux-generic live-boot
 
           # Display (Openbox kiosk, no full DE)
-          apt-get install -y -qq xorg xinit openbox chromium-browser unclutter xdotool
+          apt-get install -y -qq xorg xinit openbox xterm chromium-browser unclutter xdotool
 
           # Audio
           apt-get install -y -qq pulseaudio pulseaudio-utils alsa-utils
@@ -135,7 +135,7 @@ jobs:
               python3-flask build-essential libasound2-dev
 
           # Utilities + locales
-          apt-get install -y -qq curl wget git openssh-server usbutils pciutils less nano locales
+          apt-get install -y -qq curl wget git openssh-server usbutils pciutils less nano locales parted dosfstools e2fsprogs rsync
 
           # Bootloader
           apt-get install -y -qq grub-pc grub-efi-amd64-bin grub-efi-amd64-signed shim-signed
@@ -330,6 +330,13 @@ jobs:
           sudo cp satellite/tablet/kiosk-autostart.sh "$AUTOSTART_DIR/autostart" 2>/dev/null || \
           sudo tee "$AUTOSTART_DIR/autostart" > /dev/null << 'KIOSK'
           # Atlas Tablet Kiosk — Openbox autostart
+
+          # Check if we booted with atlas.install=1 (Install to Disk mode)
+          if grep -q 'atlas.install=1' /proc/cmdline 2>/dev/null; then
+              xterm -fullscreen -e "sudo install-to-disk" &
+              exit 0
+          fi
+
           unclutter -idle 3 &
           xset s off
           xset -dpms
@@ -531,6 +538,10 @@ jobs:
           sudo chroot "$ROOTFS" systemctl enable atlas-firstboot
           sudo chroot "$ROOTFS" systemctl enable atlas-brightness
 
+          # Install-to-disk script
+          sudo cp satellite/tablet/install-to-disk.sh "$ROOTFS/usr/local/bin/install-to-disk"
+          sudo chmod +x "$ROOTFS/usr/local/bin/install-to-disk"
+
       # ── Phase 10: Clean up, shrink, and build image ──────────────
       - name: Clean rootfs and unmount
         run: |
@@ -603,11 +614,15 @@ jobs:
           set default=0
           set timeout=3
           menuentry "Atlas Tablet OS" {
-              linux /live/vmlinuz boot=live toram quiet splash
+              linux /live/vmlinuz boot=live toram quiet splash i915.enable_psr=0
               initrd /live/initrd.img
           }
           menuentry "Atlas Tablet OS (Safe Mode)" {
               linux /live/vmlinuz boot=live toram nomodeset quiet
+              initrd /live/initrd.img
+          }
+          menuentry "Atlas Tablet OS (Install to Disk)" {
+              linux /live/vmlinuz boot=live toram quiet splash i915.enable_psr=0 atlas.install=1
               initrd /live/initrd.img
           }
           GRUB
