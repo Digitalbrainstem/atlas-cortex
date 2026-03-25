@@ -140,7 +140,7 @@ async def list_plugins(_: dict = Depends(require_admin)):
             "plugin_type": reg_plugin.plugin_type if reg_plugin else "action",
             "source": row["source"] if row else ("official" if pid in BUILTIN_PLUGINS else "community"),
             "enabled": bool(row["enabled"]) if row else True,
-            "health_ok": bool(row["health_ok"]) if row else False,
+            "health_ok": bool(row["health_ok"]) if row else (reg_plugin is not None),
             "health_message": reg_plugin.health_message if reg_plugin else "",
             "last_health_check": row["last_health_check"] if row else None,
             "version": getattr(reg_plugin, "version", "0.0.0") if reg_plugin else "0.0.0",

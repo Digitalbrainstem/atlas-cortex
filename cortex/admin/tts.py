@@ -88,7 +88,13 @@ async def list_tts_voices(admin: dict = Depends(require_admin)):
         piper_voices = await tts.list_voices()
         for v in piper_voices:
             v["provider"] = "piper"
-            v["language"] = v.get("language", "en")
+            # Extract language from Wyoming 'languages' list and normalize to 2-letter code
+            langs = v.get("languages", [])
+            if langs and isinstance(langs, list) and isinstance(langs[0], dict):
+                lang_code = langs[0].get("code", "en")
+                v["language"] = lang_code[:2] if lang_code else "en"
+            else:
+                v["language"] = v.get("language", "en")
             all_voices.append(v)
     except Exception:
         pass
