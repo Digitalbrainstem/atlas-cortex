@@ -82,7 +82,7 @@ ok "All build tools present"
 # ── Configuration ─────────────────────────────────────────────────
 SUITE="noble"  # Ubuntu 24.04 LTS
 ARCH="amd64"
-DATE=$(date +%Y%m%d)
+BUILD_TS=$(date -u +%Y%m%d.%H%M)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CORTEX_VERSION=$(grep '__version__ =' "$REPO_DIR/cortex/version.py" 2>/dev/null | sed 's/.*"\(.*\)"/\1/' || echo "0.1.0")
@@ -90,8 +90,8 @@ SATELLITE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="/tmp/atlas-tablet-build-$$"
 ROOTFS="$BUILD_DIR/rootfs"
 ISO_DIR="$BUILD_DIR/iso"
-OUTPUT_ISO="atlas-tablet-os-v${CORTEX_VERSION}-${DATE}.iso"
-OUTPUT_IMG="atlas-tablet-os-v${CORTEX_VERSION}-${DATE}.img"
+OUTPUT_ISO="atlas-tablet-os-v${CORTEX_VERSION}-${BUILD_TS}.iso"
+OUTPUT_IMG="atlas-tablet-os-v${CORTEX_VERSION}-${BUILD_TS}.img"
 
 info "Suite:   Ubuntu ${SUITE} (24.04 LTS)"
 info "Arch:    ${ARCH}"
