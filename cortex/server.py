@@ -371,6 +371,35 @@ class ChatCompletionRequest(BaseModel):
 # Endpoints
 # ──────────────────────────────────────────────────────────────────
 
+
+# ── Webhook Receiver ─────────────────────────────────────────────
+
+@app.post("/api/webhook/{channel_id}")
+async def receive_webhook(channel_id: str, request: Request):
+    """Inbound webhook endpoint for legacy channels."""
+    try:
+        raw_body = (await request.body()).decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(raw_body) if raw_body else {}
+        except json.JSONDecodeError:
+            payload = {"raw": raw_body}
+        signature = request.headers.get("x-hub-signature-256", "")
+        from cortex.legacy.webhook import WebhookReceiver
+        receiver = WebhookReceiver()
+        result = await receiver.receive(
+            channel_id=channel_id,
+            payload=payload,
+            raw_body=raw_body,
+            signature=signature,
+        )
+        if not result.get("success"):
+            return JSONResponse(status_code=400, content=result)
+        return result
+    except Exception:
+        logger.exception("Webhook processing failed")
+        return JSONResponse(status_code=500, content={"error": "Internal error"})
+
+
 @app.get("/health")
 async def health():
     provider = _get_provider()

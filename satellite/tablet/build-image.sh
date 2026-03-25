@@ -201,9 +201,20 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 
-# ── Chromium, SSH, kiosk tools ────────────────────────────────────
+# ── Chromium (install via snap since Ubuntu 24.04 dropped the deb) ─
+# Snap doesn't work in chroot — install snapd and pre-seed chromium
+apt-get install -y -qq snapd
+# Pre-seed the chromium snap for first boot
+snap download chromium 2>/dev/null || true
+# If snap download worked, pre-seed it
+if ls chromium_*.snap 1>/dev/null 2>&1; then
+    snap ack chromium_*.assert 2>/dev/null || true
+    snap install --classic chromium_*.snap 2>/dev/null || true
+    rm -f chromium_*.snap chromium_*.assert
+fi
+
+# ── SSH, kiosk tools ──────────────────────────────────────────────
 apt-get install -y -qq \
-    chromium-browser \
     openssh-server \
     python3 python3-venv python3-pip python3-dev python3-flask \
     build-essential libasound2-dev
@@ -302,7 +313,16 @@ HOSTS
 # ── Timezone ──────────────────────────────────────────────────────
 ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 
-# ── Auto-login on tty1 ───────────────────────────────────────────
+# ── Auto-login via LightDM (Xubuntu's display manager) ───────────
+mkdir -p /etc/lightdm/lightdm.conf.d/
+cat > /etc/lightdm/lightdm.conf.d/50-atlas-autologin.conf << 'LIGHTDM'
+[Seat:*]
+autologin-user=atlas
+autologin-user-timeout=0
+user-session=xfce
+LIGHTDM
+
+# Also set getty autologin as fallback for console mode
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
 cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf << 'AUTOLOGIN'
 [Service]
@@ -593,8 +613,32 @@ else
     KIOSK_URL="${ATLAS_URL}/avatar#skin=nick"
 fi
 
+# Install Chromium snap on first boot if needed
+if ! command -v chromium &>/dev/null && ! command -v chromium-browser &>/dev/null; then
+    snap install chromium 2>/dev/null &
+    # Wait for snap install (max 120s)
+    for i in $(seq 1 120); do
+        command -v chromium &>/dev/null && break
+        sleep 1
+    done
+fi
+
+# Find the right chromium binary
+CHROMIUM=""
+for bin in chromium chromium-browser; do
+    if command -v "$bin" &>/dev/null; then
+        CHROMIUM="$bin"
+        break
+    fi
+done
+
+if [ -z "$CHROMIUM" ]; then
+    # Last resort — open Firefox if available
+    CHROMIUM=$(command -v firefox || echo "xdg-open")
+fi
+
 # Launch Chromium kiosk
-chromium-browser \
+$CHROMIUM \
     --kiosk \
     --no-first-run \
     --disable-translate \

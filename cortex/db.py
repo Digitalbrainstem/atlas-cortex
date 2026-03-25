@@ -1115,6 +1115,32 @@ CREATE TABLE IF NOT EXISTS active_calls (
     ended_at TEXT
 );
 
+-- Legacy Protocol
+CREATE TABLE IF NOT EXISTS legacy_channels (
+    id TEXT PRIMARY KEY,
+    channel_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    config TEXT DEFAULT '{}',
+    enabled INTEGER DEFAULT 1,
+    last_activity TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS legacy_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT REFERENCES legacy_channels(id),
+    direction TEXT NOT NULL,
+    sender TEXT DEFAULT '',
+    recipient TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    processed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_legacy_messages_channel ON legacy_messages(channel_id);
+CREATE INDEX IF NOT EXISTS idx_legacy_messages_created ON legacy_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_legacy_channels_type ON legacy_channels(channel_type);
+
 -- Avatar Feature Flags
 CREATE TABLE IF NOT EXISTS avatar_feature_flags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -52,6 +52,7 @@ BUILTIN_PLUGINS: dict[str, str] = {
     "daily_briefing": "cortex.plugins.briefing:DailyBriefingPlugin",
     "media": "cortex.plugins.media:MediaPlugin",
     "intercom": "cortex.plugins.intercom:IntercomPlugin",
+    "legacy": "cortex.plugins.legacy:LegacyPlugin",
 }
 
 
