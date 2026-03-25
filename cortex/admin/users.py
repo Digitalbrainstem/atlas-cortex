@@ -209,3 +209,94 @@ async def remove_parental_controls(user_id: str, _: dict = Depends(require_admin
     conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
     conn.commit()
     return {"ok": True}
+
+
+# ── User Chat Authentication (admin-managed) ─────────────────────
+
+
+class SetUserAuthRequest(BaseModel):
+    method: str = "none"  # none, pin, password
+    value: str = ""  # PIN digits or password
+
+
+@router.get("/users/{user_id}/auth")
+async def get_user_auth_config(user_id: str, _: dict = Depends(require_admin)):
+    """Get the chat auth configuration for a user."""
+    from cortex.auth_user import get_user_auth
+    mgr = get_user_auth()
+    user = mgr.get_user(user_id)
+    if not user:
+        return {
+            "auth_method": "none",
+            "require_auth_on_new_device": True,
+            "content_tier": "adult",
+            "avatar_url": "",
+            "trusted_devices": [],
+        }
+    return {
+        "auth_method": user.auth_method,
+        "require_auth_on_new_device": user.require_auth_on_new_device,
+        "content_tier": user.content_tier,
+        "avatar_url": user.avatar_url,
+        "trusted_devices": user.trusted_devices,
+    }
+
+
+@router.post("/users/{user_id}/auth")
+async def set_user_auth(
+    user_id: str, body: SetUserAuthRequest, _: dict = Depends(require_admin)
+):
+    """Set authentication method for a chat user."""
+    from cortex.auth_user import get_user_auth, UserAuthConfig
+    conn = _h._db()
+    mgr = get_user_auth()
+
+    # Ensure user exists in user_auth table
+    user = mgr.get_user(user_id)
+    if not user:
+        # Bootstrap from user_profiles
+        row = conn.execute(
+            "SELECT display_name FROM user_profiles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        display_name = row["display_name"] if row else user_id
+        user = UserAuthConfig(user_id=user_id, display_name=display_name)
+        mgr._users[user_id] = user
+
+    if body.method == "pin":
+        mgr.set_pin(user_id, body.value)
+    elif body.method == "password":
+        mgr.set_password(user_id, body.value)
+    elif body.method == "none":
+        mgr.remove_auth(user_id)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown auth method: {body.method}")
+
+    mgr.save_to_db(conn, mgr.get_user(user_id))
+    return {"ok": True, "auth_method": mgr.get_user(user_id).auth_method}
+
+
+@router.get("/users/{user_id}/trusted-devices")
+async def list_trusted_devices(user_id: str, _: dict = Depends(require_admin)):
+    """List trusted devices for a chat user."""
+    from cortex.auth_user import get_user_auth
+    mgr = get_user_auth()
+    user = mgr.get_user(user_id)
+    if not user:
+        return {"devices": []}
+    return {"devices": user.trusted_devices}
+
+
+@router.delete("/users/{user_id}/trusted-devices/{fingerprint}")
+async def remove_trusted_device(
+    user_id: str, fingerprint: str, _: dict = Depends(require_admin)
+):
+    """Remove a trusted device for a chat user."""
+    from cortex.auth_user import get_user_auth
+    conn = _h._db()
+    mgr = get_user_auth()
+    user = mgr.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    mgr.untrust_device(user_id, fingerprint)
+    mgr.save_to_db(conn, user)
+    return {"ok": True}

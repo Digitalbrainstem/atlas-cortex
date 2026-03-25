@@ -9,6 +9,12 @@ const routes = [
     meta: { public: true },
   },
   {
+    path: '/public-chat',
+    name: 'public-chat',
+    component: () => import('../views/PublicChatView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     redirect: '/chat',
   },
