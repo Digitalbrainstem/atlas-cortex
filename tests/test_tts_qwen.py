@@ -42,7 +42,7 @@ class TestInit:
         assert default_provider.base_url == "http://localhost:7860"
 
     def test_default_speaker(self, provider):
-        assert provider.default_speaker == "Ryan"
+        assert provider.default_speaker == "demo_speaker0"
 
     def test_default_language(self, provider):
         assert provider.default_language == "English"
@@ -54,7 +54,7 @@ class TestInit:
 
 class TestVoiceResolution:
     def test_none_voice_returns_default(self, provider):
-        assert provider._resolve_speaker(None) == "Ryan"
+        assert provider._resolve_speaker(None) == "demo_speaker0"
 
     def test_prefixed_voice(self, provider):
         assert provider._resolve_speaker("qwen3_Vivian") == "Vivian"
@@ -63,7 +63,7 @@ class TestVoiceResolution:
         assert provider._resolve_speaker("Serena") == "Serena"
 
     def test_case_insensitive(self, provider):
-        assert provider._resolve_speaker("ryan") == "Ryan"
+        assert provider._resolve_speaker("Demo_Speaker0") == "demo_speaker0"
 
     def test_unknown_voice_passthrough(self, provider):
         assert provider._resolve_speaker("custom_speaker") == "custom_speaker"
@@ -158,13 +158,15 @@ class TestSynthesize:
         return buf.getvalue(), pcm
 
     async def test_synthesize_builds_correct_payload(self, provider, _mock_wav):
-        """Verify the JSON payload sent to /api/tts/custom-voice/stream."""
+        """Verify the request sent to /synthesize_speech/ (ValyrianTech API)."""
         wav_bytes, pcm = _mock_wav
-        captured_payload = {}
+        captured_params = {}
 
         class FakeResp:
             status = 200
-            content = _AsyncChunkIter([pcm])
+
+            async def read(self):
+                return wav_bytes
 
             async def text(self):
                 return ""
@@ -182,9 +184,9 @@ class TestSynthesize:
             async def __aexit__(self, *a):
                 pass
 
-            def post(self, url, json=None, **kw):
-                captured_payload.update(json or {})
-                captured_payload["_url"] = url
+            def get(self, url, params=None, **kw):
+                captured_params.update(params or {})
+                captured_params["_url"] = url
                 return FakeResp()
 
         with patch("aiohttp.ClientSession", return_value=FakeSession()):
@@ -192,19 +194,32 @@ class TestSynthesize:
             async for chunk in provider.synthesize("Hello world", voice="qwen3_Ryan"):
                 chunks.append(chunk)
 
-        assert captured_payload["_url"] == "http://testhost:9999/api/tts/custom-voice/stream"
-        assert captured_payload["text"] == "Hello world"
-        assert captured_payload["speaker"] == "Ryan"
-        assert captured_payload["language"] == "English"
+        assert captured_params["_url"] == "http://testhost:9999/synthesize_speech/"
+        assert captured_params["text"] == "Hello world"
+        assert captured_params["voice"] == "Ryan"
 
     async def test_synthesize_with_emotion(self, provider, _mock_wav):
-        """Verify emotion/instruct is included in the payload."""
+        """Verify emotion/instruct is included in the POST fallback payload."""
         wav_bytes, pcm = _mock_wav
         captured_payload = {}
 
-        class FakeResp:
+        class FakeGetResp:
+            status = 404
+
+            async def read(self):
+                return b""
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+        class FakePostResp:
             status = 200
-            content = _AsyncChunkIter([pcm])
+
+            async def read(self):
+                return wav_bytes
 
             async def text(self):
                 return ""
@@ -222,9 +237,12 @@ class TestSynthesize:
             async def __aexit__(self, *a):
                 pass
 
+            def get(self, url, **kw):
+                return FakeGetResp()
+
             def post(self, url, json=None, **kw):
                 captured_payload.update(json or {})
-                return FakeResp()
+                return FakePostResp()
 
         with patch("aiohttp.ClientSession", return_value=FakeSession()):
             chunks = []
@@ -336,8 +354,7 @@ class TestListVoices:
 
         assert len(voices) == len(_QWEN3_VOICES)
         ids = {v["id"] for v in voices}
-        assert "qwen3_Ryan" in ids
-        assert "qwen3_Vivian" in ids
+        assert "qwen3_demo_speaker0" in ids
         assert all(v["provider"] == "qwen3_tts" for v in voices)
 
     async def test_list_voices_from_server(self, provider):
