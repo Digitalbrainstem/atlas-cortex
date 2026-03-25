@@ -1884,10 +1884,29 @@
     }
 
     // ── Boot ──────────────────────────────────────────────────
-    // Initialize audio context on first click (browser autoplay policy)
-    document.getElementById('audio-unlock').addEventListener('click', () => {
-      ensureAudioContext();
-    });
+    // Auto-unlock audio if browser policy allows (kiosk mode with --autoplay-policy flag)
+    const _unlockEl = document.getElementById('audio-unlock');
+    try {
+      const ctx = ensureAudioContext();
+      if (ctx.state === 'running') {
+        // Autoplay allowed — hide the overlay
+        _unlockEl.remove();
+        window._audioUnlocked = true;
+      } else {
+        // Need user interaction — show overlay, also try to resume on any touch/click
+        ctx.resume().then(() => {
+          if (ctx.state === 'running') { _unlockEl.remove(); window._audioUnlocked = true; }
+        });
+        _unlockEl.addEventListener('click', () => { ensureAudioContext(); _unlockEl.remove(); window._audioUnlocked = true; });
+        document.addEventListener('click', () => {
+          ensureAudioContext();
+          if (_unlockEl.parentNode) _unlockEl.remove();
+          window._audioUnlocked = true;
+        }, { once: true });
+      }
+    } catch(e) {
+      _unlockEl.addEventListener('click', () => { ensureAudioContext(); _unlockEl.remove(); window._audioUnlocked = true; });
+    }
 
     window.addEventListener('resize', initPosition);
     initPosition();
