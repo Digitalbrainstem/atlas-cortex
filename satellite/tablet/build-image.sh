@@ -256,7 +256,7 @@ apt-get remove --purge -y -qq \
     gimp* hexchat* pidgin* \
     xfburn* mousepad* catfish* \
     atril* engrampa* mate-calc* \
-    gnome-software* snap-store* \
+    gnome-software* snap-store* snapd* \
     xfce4-mailwatch-plugin xfce4-weather-plugin \
     xfce4-notes-plugin xfce4-cpugraph-plugin \
     xfce4-netload-plugin xfce4-systemload-plugin \
