@@ -492,6 +492,15 @@ SATCFG
 
 ok "Satellite agent installed"
 
+# ── TUI setup wizard (first-boot interactive setup) ──────────────
+if [ -f "$SATELLITE_DIR/tablet/atlas-setup-tui.py" ]; then
+    cp "$SATELLITE_DIR/tablet/atlas-setup-tui.py" "$INSTALL_DIR/atlas-setup-tui.py"
+    chmod +x "$INSTALL_DIR/atlas-setup-tui.py"
+    ok "TUI setup wizard installed"
+else
+    warn "atlas-setup-tui.py not found — first-boot TUI will be unavailable"
+fi
+
 # ══════════════════════════════════════════════════════════════════
 # PHASE 4: Install captive portal (first-boot WiFi setup)
 # ══════════════════════════════════════════════════════════════════
@@ -566,6 +575,15 @@ cat > "$ROOTFS/usr/local/bin/atlas-kiosk" << 'KIOSKSCRIPT'
 # Check if we booted with atlas.install=1
 if grep -q 'atlas.install=1' /proc/cmdline 2>/dev/null; then
     xfce4-terminal --fullscreen -e "sudo install-to-disk"
+    exit 0
+fi
+
+# First boot — run TUI setup wizard if not yet completed
+SETUP_DONE="$HOME/.atlas-setup-complete"
+SETUP_TUI="/opt/atlas-satellite/atlas-setup-tui.py"
+if [ ! -f "$SETUP_DONE" ] && [ -f "$SETUP_TUI" ]; then
+    xfce4-terminal --fullscreen --hide-menubar --hide-toolbar \
+        -e "python3 $SETUP_TUI"
     exit 0
 fi
 
