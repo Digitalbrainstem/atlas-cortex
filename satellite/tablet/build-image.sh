@@ -707,6 +707,7 @@ fi
 $CHROMIUM \
     --kiosk \
     --no-first-run \
+    --no-sandbox \
     --disable-translate \
     --disable-infobars \
     --disable-suggestions-ui \
