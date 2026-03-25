@@ -32,7 +32,9 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TTS_PROVIDER` | `orpheus` | Primary provider: `orpheus`, `kokoro`, `piper` |
+| `TTS_PROVIDER` | `qwen3_tts` | Primary provider: `qwen3_tts`, `orpheus`, `kokoro`, `piper` |
+| `QWEN_TTS_HOST` | `localhost` | Qwen3-TTS server host |
+| `QWEN_TTS_PORT` | `8766` | Qwen3-TTS server port |
 | `ORPHEUS_FASTAPI_URL` | `http://localhost:5005` | Orpheus TTS server URL |
 | `KOKORO_HOST` | `localhost` | Kokoro TTS host |
 | `KOKORO_PORT` | `8880` | Kokoro TTS port |
