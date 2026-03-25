@@ -219,9 +219,10 @@ apt-get install -y -qq \
     python3 python3-venv python3-pip python3-dev python3-flask \
     build-essential libasound2-dev
 
-# ── Audio ─────────────────────────────────────────────────────────
+# ── Audio (PipeWire is default on Xubuntu 24.04 — add compat + Surface firmware)
 apt-get install -y -qq \
-    pulseaudio pulseaudio-utils alsa-utils
+    pipewire-pulse alsa-utils \
+    sof-firmware
 
 # ── mDNS / discovery ─────────────────────────────────────────────
 apt-get install -y -qq \
@@ -626,6 +627,18 @@ fi
 xset s off
 xset -dpms
 xset s noblank
+
+# Kill XFCE power manager (prevents auto-dim)
+xfce4-power-manager -q 2>/dev/null || true
+
+# Fix audio — force ALSA sink through PipeWire/PulseAudio
+# PipeWire on live-boot doesn't auto-detect ALSA cards on Surface Go
+pactl load-module module-alsa-sink device=hw:0,0 sink_name=speakers \
+    sink_properties="device.description='Built-in Speakers'" 2>/dev/null || true
+pactl load-module module-alsa-source device=hw:0,0 source_name=microphone \
+    source_properties="device.description='Built-in Microphone'" 2>/dev/null || true
+pactl set-default-sink speakers 2>/dev/null || true
+pactl set-default-source microphone 2>/dev/null || true
 
 # Hide cursor after 3 seconds
 unclutter -idle 3 &
