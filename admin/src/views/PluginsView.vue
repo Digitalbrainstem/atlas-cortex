@@ -129,6 +129,31 @@ async function runHealthCheck(pid) {
 function sourceBadge(source) {
   return source === 'community' ? '🌐 Community' : '✅ Official'
 }
+
+function pluginCategory(p) {
+  const map = {
+    weather: '💬 Chat', movie: '💬 Chat', dictionary: '💬 Chat', wikipedia: '💬 Chat',
+    conversions: '💬 Chat', cooking: '💬 Chat', news: '💬 Chat', translation: '💬 Chat',
+    stocks: '💬 Chat', sports: '💬 Chat', sound_library: '💬 Chat',
+    ha_commands: '🏠 Home',
+    stem_games: '🎮 Activity', stories: '🎮 Activity',
+    scheduling: '📅 Automation', routines: '📅 Automation', daily_briefing: '📅 Automation',
+    media: '🎵 Media',
+    knowledge: '🔗 Integration', lists: '🔗 Integration', intercom: '🔗 Integration',
+  }
+  return map[p.plugin_id] || '💬 Chat'
+}
+
+function healthLabel(p) {
+  if (p.needs_setup) return 'Needs Setup'
+  if (p.health_ok) return p.health_message || 'Ready'
+  return p.health_message || 'Error'
+}
+
+function healthClass(p) {
+  if (p.needs_setup) return 'setup'
+  return p.health_ok ? 'ok' : 'fail'
+}
 </script>
 
 <template>
@@ -143,78 +168,60 @@ function sourceBadge(source) {
       <thead>
         <tr>
           <th>Name</th>
-          <th>Type</th>
-          <th>Source</th>
+          <th>Category</th>
           <th>Status</th>
           <th>Health</th>
           <th>Hits</th>
-          <th>Actions</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="!plugins.length">
-          <td colspan="7" class="loading-text">No plugins found</td>
+          <td colspan="6" class="loading-text">No plugins found</td>
         </tr>
         <template v-for="p in plugins" :key="p.plugin_id">
           <tr class="plugin-row" @click="toggleExpand(p.plugin_id)">
             <td>
               <strong>{{ p.display_name || p.plugin_id }}</strong>
-              <span v-if="p.version !== '0.0.0'" class="version-badge">v{{ p.version }}</span>
               <span v-if="p.needs_setup" class="badge badge-setup">Needs Setup</span>
             </td>
-            <td>{{ p.plugin_type }}</td>
-            <td><span class="source-badge" :class="p.source">{{ sourceBadge(p.source) }}</span></td>
+            <td><span class="category-badge" :class="pluginCategory(p).toLowerCase()">{{ pluginCategory(p) }}</span></td>
             <td>
               <label class="toggle" @click.stop>
                 <input type="checkbox" :checked="p.enabled" @change="toggleEnabled(p)" />
-                <span class="toggle-label">{{ p.enabled ? 'Enabled' : 'Disabled' }}</span>
+                <span class="toggle-label">{{ p.enabled ? 'On' : 'Off' }}</span>
               </label>
             </td>
             <td>
-              <span class="health-dot" :class="{ ok: p.health_ok, fail: !p.health_ok }"></span>
-              <span :title="p.health_message || ''">{{ p.health_ok ? 'Healthy' : 'Unhealthy' }}</span>
+              <span class="health-dot" :class="healthClass(p)"></span>
+              <span :title="p.health_message || ''">{{ healthLabel(p) }}</span>
             </td>
             <td>{{ p.hit_count }}</td>
             <td>
-              <button
-                class="btn btn-sm"
-                :disabled="healthChecking === p.plugin_id"
-                @click.stop="runHealthCheck(p.plugin_id)"
-              >
-                {{ healthChecking === p.plugin_id ? '…' : '🔍 Check' }}
+              <button class="btn btn-sm" @click.stop="toggleExpand(p.plugin_id)">
+                {{ expandedId === p.plugin_id ? '▲' : '▼' }}
               </button>
             </td>
           </tr>
           <tr v-if="expandedId === p.plugin_id" class="config-row">
-            <td colspan="7">
+            <td colspan="6">
               <div class="config-panel">
-                <div class="config-meta">
-                  <span v-if="p.author"><strong>Author:</strong> {{ p.author }}</span>
-                  <span v-if="p.supports_learning" class="badge">Supports Learning</span>
-                  <span v-if="!p.registered" class="badge badge-warn">Not Registered</span>
+                <!-- Health/setup guidance -->
+                <div v-if="p.needs_setup && missingRequired(p).length" class="setup-banner">
+                  ⚠️ Configure required fields to activate: {{ missingRequired(p).map(f => f.label).join(', ') }}
                 </div>
-
-                <!-- Health message banner -->
-                <div v-if="p.health_message && !p.health_ok" class="health-banner">
+                <div v-else-if="p.health_message && !p.health_ok" class="health-banner">
                   ℹ️ {{ p.health_message }}
                 </div>
 
-                <!-- Needs setup banner -->
-                <div v-if="p.needs_setup && missingRequired(p).length" class="setup-banner">
-                  ⚠️ Missing required config: {{ missingRequired(p).map(f => f.label).join(', ') }}
-                </div>
-
-                <h4>Configuration</h4>
-
-                <!-- Schema-driven form fields -->
-                <div v-if="hasConfigFields(p) && !showRawJson" class="config-fields">
+                <!-- Config fields (only show if plugin has configurable fields) -->
+                <div v-if="hasConfigFields(p)" class="config-fields">
                   <div v-for="field in p.config_fields" :key="field.key" class="config-field">
                     <label class="field-label">
                       {{ field.label }}
                       <span v-if="field.required" class="required-marker">*</span>
                     </label>
 
-                    <!-- Text input -->
                     <input
                       v-if="field.field_type === 'text'"
                       type="text"
@@ -224,7 +231,6 @@ function sourceBadge(source) {
                       @input="onFieldInput(field.key, $event.target.value)"
                     />
 
-                    <!-- Password input with show/hide -->
                     <div v-else-if="field.field_type === 'password'" class="password-wrapper">
                       <input
                         :type="showPasswords[field.key] ? 'text' : 'password'"
@@ -233,16 +239,11 @@ function sourceBadge(source) {
                         :value="editConfig[field.key] || ''"
                         @input="onFieldInput(field.key, $event.target.value)"
                       />
-                      <button
-                        type="button"
-                        class="btn btn-sm password-toggle"
-                        @click="togglePasswordVisibility(field.key)"
-                      >
+                      <button type="button" class="btn btn-sm password-toggle" @click="togglePasswordVisibility(field.key)">
                         {{ showPasswords[field.key] ? '🙈' : '👁' }}
                       </button>
                     </div>
 
-                    <!-- URL input -->
                     <input
                       v-else-if="field.field_type === 'url'"
                       type="url"
@@ -252,7 +253,6 @@ function sourceBadge(source) {
                       @input="onFieldInput(field.key, $event.target.value)"
                     />
 
-                    <!-- Number input -->
                     <input
                       v-else-if="field.field_type === 'number'"
                       type="number"
@@ -262,7 +262,6 @@ function sourceBadge(source) {
                       @input="onFieldInput(field.key, parseFloat($event.target.value) || '')"
                     />
 
-                    <!-- Toggle switch -->
                     <label v-else-if="field.field_type === 'toggle'" class="toggle-field">
                       <input
                         type="checkbox"
@@ -272,7 +271,6 @@ function sourceBadge(source) {
                       <span class="toggle-label">{{ editConfig[field.key] ? 'Enabled' : 'Disabled' }}</span>
                     </label>
 
-                    <!-- Select dropdown -->
                     <select
                       v-else-if="field.field_type === 'select'"
                       class="field-input"
@@ -280,50 +278,28 @@ function sourceBadge(source) {
                       @change="onFieldInput(field.key, $event.target.value)"
                     >
                       <option value="" disabled>Select…</option>
-                      <option
-                        v-for="opt in (field.options || [])"
-                        :key="opt.value"
-                        :value="opt.value"
-                      >
-                        {{ opt.label }}
-                      </option>
+                      <option v-for="opt in (field.options || [])" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                     </select>
 
-                    <!-- Fallback text input -->
-                    <input
-                      v-else
-                      type="text"
-                      class="field-input"
-                      :placeholder="field.placeholder"
-                      :value="editConfig[field.key] || ''"
-                      @input="onFieldInput(field.key, $event.target.value)"
-                    />
+                    <input v-else type="text" class="field-input" :placeholder="field.placeholder"
+                      :value="editConfig[field.key] || ''" @input="onFieldInput(field.key, $event.target.value)" />
 
                     <p v-if="field.help_text" class="field-help">{{ field.help_text }}</p>
                   </div>
+
+                  <div class="config-actions">
+                    <button class="btn btn-primary" :disabled="savingConfig" @click="saveConfig(p.plugin_id)">
+                      {{ savingConfig ? 'Saving…' : 'Save' }}
+                    </button>
+                    <button class="btn btn-sm" :disabled="healthChecking === p.plugin_id" @click="runHealthCheck(p.plugin_id)">
+                      {{ healthChecking === p.plugin_id ? 'Checking…' : 'Test Connection' }}
+                    </button>
+                  </div>
                 </div>
 
-                <!-- Raw JSON editor (collapsed by default, always available) -->
-                <div class="raw-json-toggle">
-                  <button class="btn btn-sm btn-ghost" @click="showRawJson = !showRawJson">
-                    {{ showRawJson ? '← Back to form' : '{ } Raw JSON' }}
-                  </button>
-                </div>
-
-                <div v-if="showRawJson || !hasConfigFields(p)">
-                  <textarea
-                    class="config-editor"
-                    :value="configText(editConfig)"
-                    @input="onConfigInput"
-                    rows="6"
-                    spellcheck="false"
-                  ></textarea>
-                </div>
-
-                <div class="config-actions">
-                  <button class="btn btn-primary" :disabled="savingConfig" @click="saveConfig(p.plugin_id)">
-                    {{ savingConfig ? 'Saving…' : 'Save Config' }}
-                  </button>
+                <!-- No config needed message -->
+                <div v-else class="no-config">
+                  ✅ This plugin works out of the box — no configuration needed.
                 </div>
               </div>
             </td>
@@ -344,14 +320,10 @@ function sourceBadge(source) {
   margin-left: 0.4rem;
 }
 
-.source-badge {
+.category-badge {
   font-size: 0.8rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: var(--radius);
   white-space: nowrap;
 }
-.source-badge.official { background: rgba(34,197,94,0.1); color: #22c55e; }
-.source-badge.community { background: rgba(59,130,246,0.1); color: #3b82f6; }
 
 .toggle {
   display: flex;
@@ -371,6 +343,7 @@ function sourceBadge(source) {
 }
 .health-dot.ok { background: #22c55e; }
 .health-dot.fail { background: #ef4444; }
+.health-dot.setup { background: #f59e0b; }
 
 .config-row td { padding: 0 !important; }
 
