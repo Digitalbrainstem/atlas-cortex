@@ -34,7 +34,7 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 |----------|---------|-------------|
 | `TTS_PROVIDER` | `qwen3_tts` | Primary provider: `qwen3_tts`, `orpheus`, `kokoro`, `piper` |
 | `QWEN_TTS_HOST` | `localhost` | Qwen3-TTS server host |
-| `QWEN_TTS_PORT` | `8766` | Qwen3-TTS server port |
+| `QWEN_TTS_PORT` | `7860` | Qwen3-TTS server port |
 | `ORPHEUS_FASTAPI_URL` | `http://localhost:5005` | Orpheus TTS server URL |
 | `KOKORO_HOST` | `localhost` | Kokoro TTS host |
 | `KOKORO_PORT` | `8880` | Kokoro TTS port |
@@ -89,6 +89,7 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `LORA_DIR` | `~/.cortex/loras` | Path to LoRA adapter directories. Docker: mount to `/loras` |
 | `LORA_BASE_MODEL` | `Qwen/Qwen2.5-7B` | Base model for LoRA fine-tuning |
 | `VISION_MODEL_URL` | `http://localhost:11434` | Vision model endpoint |
 | `VISION_MODEL` | `llava` | Vision model name |
@@ -100,6 +101,13 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `STORY_AUDIO_CACHE` | system temp dir | Story audio cache directory |
+
+## Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_ADMIN_PASSWORD` | `atlas-admin` | Admin panel password (change in production!) |
+| `JWT_SECRET` | *(generated)* | JWT signing secret for session tokens — set explicitly in production |
 
 ## Docker-Only Variables
 
@@ -133,3 +141,18 @@ export HA_URL=http://192.168.1.100:8123
 export HA_TOKEN=your_long_lived_access_token
 python -m cortex.server
 ```
+
+---
+
+## Persistent Storage Paths
+
+Key paths that should be mounted as volumes in Docker or backed up on bare metal:
+
+| Path | Env Variable | Description |
+|------|-------------|-------------|
+| `/data` | `CORTEX_DATA_DIR` | Main database, cache, and state |
+| `/loras` | `LORA_DIR` | LoRA adapters (read-only in Docker) |
+| `/data/tts_cache/` | — | Pre-generated TTS audio cache |
+| `$CORTEX_DATA_DIR/models/atlas.onnx` | — | Wake word detection model |
+
+> 📖 **[Full storage reference →](persistent-storage.md)** — Docker volume mappings, directory layout, and backup strategy
