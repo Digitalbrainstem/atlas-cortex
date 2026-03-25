@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Provider configuration — mirrors cortex/satellite/websocket.py env vars
 _TTS_PROVIDER = os.environ.get("TTS_PROVIDER", "qwen3_tts")
 _QWEN_TTS_HOST = os.environ.get("QWEN_TTS_HOST", "localhost")
-_QWEN_TTS_PORT = int(os.environ.get("QWEN_TTS_PORT", "8766"))
+_QWEN_TTS_PORT = int(os.environ.get("QWEN_TTS_PORT", "7860"))
 _ORPHEUS_URL = os.environ.get("ORPHEUS_FASTAPI_URL", "http://localhost:5005")
 _KOKORO_HOST = os.environ.get("KOKORO_HOST", "localhost")
 _KOKORO_PORT = int(os.environ.get("KOKORO_PORT", "8880"))

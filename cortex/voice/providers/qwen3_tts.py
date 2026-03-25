@@ -1,4 +1,4 @@
-"""Qwen3-TTS provider — neosun/qwen3-tts:2.0.0 Docker server (port 8766).
+"""Qwen3-TTS provider — ValyrianTech/Qwen3-TTS_server Docker server (port 7860).
 
 Qwen3-TTS is a high-quality multilingual TTS engine with 9 built-in speakers,
 voice design from text descriptions, and voice cloning from reference audio.
@@ -11,7 +11,7 @@ Three synthesis modes:
 
 Config env vars:
     QWEN_TTS_HOST  — server hostname (default: localhost)
-    QWEN_TTS_PORT  — server port (default: 8766)
+    QWEN_TTS_PORT  — server port (default: 7860)
 """
 
 from __future__ import annotations
@@ -54,14 +54,14 @@ class Qwen3TTSProvider(TTSProvider):
 
     Configuration keys (from environment):
       QWEN_TTS_HOST  — server hostname (default: localhost)
-      QWEN_TTS_PORT  — server port (default: 8766)
+      QWEN_TTS_PORT  — server port (default: 7860)
     """
 
     def __init__(self, config: dict | None = None):
         super().__init__(config)
         cfg = config or {}
         self.host = cfg.get("QWEN_TTS_HOST", os.environ.get("QWEN_TTS_HOST", "localhost"))
-        self.port = int(cfg.get("QWEN_TTS_PORT", os.environ.get("QWEN_TTS_PORT", "8766")))
+        self.port = int(cfg.get("QWEN_TTS_PORT", os.environ.get("QWEN_TTS_PORT", "7860")))
         self.base_url = f"http://{self.host}:{self.port}"
         self.default_speaker = "Ryan"
         self.default_language = "English"
@@ -145,8 +145,15 @@ class Qwen3TTSProvider(TTSProvider):
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=5)
             ) as session:
-                async with session.get(f"{self.base_url}/health") as resp:
-                    return resp.status == 200
+                # Try common health endpoints
+                for path in ("/health", "/", "/docs"):
+                    try:
+                        async with session.get(f"{self.base_url}{path}") as resp:
+                            if resp.status == 200:
+                                return True
+                    except Exception:
+                        continue
+                return False
         except Exception:
             return False
 
@@ -157,27 +164,33 @@ class Qwen3TTSProvider(TTSProvider):
     async def _synthesize_wav(
         self, text: str, speaker: str, language: str, instruct: str,
     ) -> bytes:
-        """Call /api/tts/custom-voice and return raw PCM bytes."""
-        url = f"{self.base_url}/api/tts/custom-voice"
-        payload = {
-            "text": text,
-            "language": language,
-            "speaker": speaker,
-        }
-        if instruct:
-            payload["instruct"] = instruct
+        """Synthesize speech and return raw PCM bytes.
 
+        Auto-detects server API:
+        - ValyrianTech: GET /synthesize_speech/?text=&voice=
+        - neosun: POST /api/tts/custom-voice
+        """
         try:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=60)
             ) as session:
+                # Try ValyrianTech API first (GET with query params)
+                url = f"{self.base_url}/synthesize_speech/"
+                params = {"text": text, "voice": speaker, "speed": 1.0}
+                async with session.get(url, params=params) as resp:
+                    if resp.status == 200:
+                        wav_data = await resp.read()
+                        return self._wav_to_pcm(wav_data)
+
+                # Fallback: neosun API (POST with JSON)
+                url = f"{self.base_url}/api/tts/custom-voice"
+                payload = {"text": text, "language": language, "speaker": speaker}
+                if instruct:
+                    payload["instruct"] = instruct
                 async with session.post(url, json=payload) as resp:
                     if resp.status != 200:
                         error = await resp.text()
-                        logger.warning(
-                            "Qwen3-TTS synthesis failed (%d): %s",
-                            resp.status, error[:200],
-                        )
+                        logger.warning("Qwen3-TTS synthesis failed (%d): %s", resp.status, error[:200])
                         return b""
                     wav_data = await resp.read()
                     return self._wav_to_pcm(wav_data)
