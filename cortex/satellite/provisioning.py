@@ -26,10 +26,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from cortex.db import get_db
 from cortex.satellite.hardware import (
     SSHConnection,
     SSHResult,
@@ -537,3 +539,78 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=default.target
 """
+
+
+# ── SSH key provisioning & password rotation ─────────────────────
+
+
+async def provision_ssh_key(satellite_id: str, ssh_public_key: str) -> bool:
+    """Push SSH key to satellite and randomize the password.
+
+    1. Sends a script that installs the public key into ``authorized_keys``.
+    2. Generates a random password, sets it via ``chpasswd``.
+    3. Stores the new password in the satellites table for admin access.
+
+    Uses the existing ``EXEC_SCRIPT`` remote command channel so it works
+    regardless of whether the satellite runs on Ubuntu Core or Xubuntu.
+    """
+    from cortex.satellite.websocket import send_remote_command
+
+    new_password = secrets.token_urlsafe(32)
+
+    # Escape single quotes in the key for safe shell interpolation
+    safe_key = ssh_public_key.replace("'", "'\\''")
+
+    script = (
+        "#!/bin/bash\n"
+        "set -e\n"
+        "mkdir -p ~/.ssh\n"
+        f"echo '{safe_key}' >> ~/.ssh/authorized_keys\n"
+        "sort -u -o ~/.ssh/authorized_keys ~/.ssh/authorized_keys\n"
+        "chmod 700 ~/.ssh\n"
+        "chmod 600 ~/.ssh/authorized_keys\n"
+        f"echo 'atlas:{new_password}' | sudo chpasswd\n"
+    )
+
+    await send_remote_command(satellite_id, "EXEC_SCRIPT", {
+        "script": script,
+        "timeout": 30,
+    })
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE satellites SET ssh_password = ?, ssh_key_installed = TRUE "
+        "WHERE id = ?",
+        (new_password, satellite_id),
+    )
+    conn.commit()
+
+    logger.info("SSH key provisioned for satellite %s", satellite_id)
+    return True
+
+
+async def rotate_password(satellite_id: str) -> str:
+    """Generate a new random password for the satellite and apply it.
+
+    Returns the new password so the caller can display it.
+    """
+    from cortex.satellite.websocket import send_remote_command
+
+    new_password = secrets.token_urlsafe(32)
+
+    script = f"echo 'atlas:{new_password}' | sudo chpasswd\n"
+
+    await send_remote_command(satellite_id, "EXEC_SCRIPT", {
+        "script": script,
+        "timeout": 15,
+    })
+
+    conn = get_db()
+    conn.execute(
+        "UPDATE satellites SET ssh_password = ? WHERE id = ?",
+        (new_password, satellite_id),
+    )
+    conn.commit()
+
+    logger.info("Password rotated for satellite %s", satellite_id)
+    return new_password
