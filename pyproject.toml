@@ -37,7 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cli = ["rich>=13.0", "prompt_toolkit>=3.0", "textual>=0.50"]
+cli = ["rich>=13.0", "prompt_toolkit>=3.0", "textual>=0.50", "click>=8.0", "pyyaml>=6.0"]
 vector = ["chromadb>=0.4"]
 media = [
     "pychromecast>=14.0",
