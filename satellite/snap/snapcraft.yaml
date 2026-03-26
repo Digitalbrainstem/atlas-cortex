@@ -41,16 +41,20 @@ apps:
 parts:
   satellite-agent:
     plugin: dump
-    source: satellite/
-    organize:
-      atlas_satellite/: lib/atlas_satellite/
-      tablet/atlas-setup-tui.py: bin/atlas-setup-tui
-    stage:
-      - atlas_satellite/**
-      - tablet/atlas-setup-tui.py
+    source: satellite/atlas_satellite/
     override-build: |
-      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/lib/atlas_satellite
+      cp -r . $CRAFT_PART_INSTALL/lib/atlas_satellite/
+
+  setup-tui:
+    plugin: dump
+    source: satellite/tablet/
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp atlas-setup-tui.py $CRAFT_PART_INSTALL/bin/atlas-setup-tui
       chmod +x $CRAFT_PART_INSTALL/bin/atlas-setup-tui
+    stage:
+      - bin/atlas-setup-tui
 
   python-deps:
     plugin: python
@@ -59,10 +63,8 @@ parts:
       - aiohttp
       - websockets
       - numpy
-      - pyalsaaudio
     build-packages:
       - python3-dev
-      - libasound2-dev
     stage-packages:
       - python3
       - alsa-utils
@@ -70,13 +72,11 @@ parts:
 
   start-script:
     plugin: dump
-    source-type: local
     source: satellite/snap/scripts/
-    organize:
-      start-satellite.sh: bin/start-satellite
-      configure-wifi.sh: bin/configure-wifi
     override-build: |
-      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp start-satellite.sh $CRAFT_PART_INSTALL/bin/start-satellite
+      cp configure-wifi.sh $CRAFT_PART_INSTALL/bin/configure-wifi
       chmod +x $CRAFT_PART_INSTALL/bin/start-satellite
       chmod +x $CRAFT_PART_INSTALL/bin/configure-wifi
 
