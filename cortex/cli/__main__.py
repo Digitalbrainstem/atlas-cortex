@@ -2,25 +2,33 @@
 
 Usage::
 
-    # Interactive chat
-    python -m cortex.cli chat
+    # Interactive chat (default)
+    atlas
+
+    # Interactive chat with session resume
+    atlas --session <id>
+
+    # Start a new session
+    atlas --new
 
     # One-shot query
-    python -m cortex.cli ask "what time is it?"
+    atlas ask "what time is it?"
 
     # Autonomous agent
-    python -m cortex.cli agent "add authentication to the API"
+    atlas agent "add authentication to the API"
 
     # Agent with file input
-    python -m cortex.cli agent --file spec.png "implement this"
+    atlas agent --file spec.png "implement this"
+
+    # List sessions
+    atlas sessions
 
     # System status
-    python -m cortex.cli status
+    atlas status
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import logging
 import os
@@ -29,7 +37,10 @@ import sys
 logger = logging.getLogger(__name__)
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser():
+    """Build argparse-based CLI parser (retained for backward compat)."""
+    import argparse
+
     parser = argparse.ArgumentParser(
         prog="atlas",
         description="Atlas — your local AI assistant",
@@ -39,7 +50,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model", "-m", default=None,
-        help="Override LLM model (default: from env or qwen2.5:14b)",
+        help="Override LLM model (default: from env or config)",
+    )
+    parser.add_argument(
+        "--session", "-s", default=None,
+        help="Resume session by ID",
+    )
+    parser.add_argument(
+        "--new", "-n", action="store_true",
+        help="Start a new session",
     )
 
     sub = parser.add_subparsers(dest="command")
@@ -75,6 +94,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Force sequential execution",
     )
 
+    # ── sessions ─────────────────────────────────────────────────
+    sub.add_parser("sessions", help="List all sessions")
+
     # ── status ───────────────────────────────────────────────────
     sub.add_parser("status", help="Show system status")
 
@@ -99,6 +121,9 @@ def _build_parser() -> argparse.ArgumentParser:
     send_p = sub.add_parser("send", help="Send a message to the running daemon")
     send_p.add_argument("message", nargs="+", help="Message to send")
 
+    # ── vscode-bridge ────────────────────────────────────────────
+    sub.add_parser("vscode-bridge", help="Start VS Code integration bridge")
+
     return parser
 
 
@@ -111,18 +136,22 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
-async def _run_chat(args: argparse.Namespace) -> int:
+async def _run_chat(args) -> int:
     from cortex.cli.repl import run_repl
-    return await run_repl(model=args.model)
+    return await run_repl(
+        model=args.model,
+        session_id=getattr(args, "session", None),
+        new_session=getattr(args, "new", False),
+    )
 
 
-async def _run_ask(args: argparse.Namespace) -> int:
+async def _run_ask(args) -> int:
     from cortex.cli.repl import run_oneshot
     question = " ".join(args.question)
     return await run_oneshot(question, model=args.model)
 
 
-async def _run_agent(args: argparse.Namespace) -> int:
+async def _run_agent(args) -> int:
     if getattr(args, "dispatch", False):
         # Dispatch mode — multiple independent tasks
         from cortex.cli.dispatch import AgentDispatcher
@@ -157,17 +186,35 @@ async def _run_agent(args: argparse.Namespace) -> int:
     )
 
 
-async def _run_status(_args: argparse.Namespace) -> int:
+async def _run_sessions(_args) -> int:
+    """List all saved sessions."""
+    from cortex.cli.session import SessionManager
+    mgr = SessionManager()
+    sessions = mgr.list_sessions(limit=50)
+    if not sessions:
+        print("No sessions found.")
+        return 0
+    print(f"{'ID':<40} {'Name':<20} {'Messages':>8}  {'Created'}")
+    print("─" * 85)
+    import datetime
+    for s in sessions:
+        ts = datetime.datetime.fromtimestamp(s.created_at).strftime("%Y-%m-%d %H:%M")
+        name = s.name[:18] if s.name != s.id else ""
+        print(f"{s.id:<40} {name:<20} {s.message_count:>8}  {ts}")
+    return 0
+
+
+async def _run_status(_args) -> int:
     from cortex.cli.status import print_status
     return await print_status()
 
 
-async def _run_diagnose(_args: argparse.Namespace) -> int:
+async def _run_diagnose(_args) -> int:
     from cortex.cli.diagnose import run_diagnose
     return await run_diagnose()
 
 
-async def _run_reflect(_args: argparse.Namespace) -> int:
+async def _run_reflect(_args) -> int:
     from cortex.curiosity import CuriosityEngine
     engine = CuriosityEngine()
     await engine.initialize()
@@ -176,7 +223,7 @@ async def _run_reflect(_args: argparse.Namespace) -> int:
     return 0
 
 
-async def _run_daemon(args: argparse.Namespace) -> int:
+async def _run_daemon(args) -> int:
     from cortex.cli.daemon import (
         get_daemon_pid,
         is_daemon_running,
@@ -210,7 +257,7 @@ async def _run_daemon(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _run_workspace(_args: argparse.Namespace) -> int:
+async def _run_workspace(_args) -> int:
     from cortex.cli.daemon import is_daemon_running
 
     if not is_daemon_running():
@@ -229,7 +276,7 @@ async def _run_workspace(_args: argparse.Namespace) -> int:
     return await run_workspace_tui()
 
 
-async def _run_send(args: argparse.Namespace) -> int:
+async def _run_send(args) -> int:
     from cortex.cli.workspace import WorkspaceClient
 
     client = WorkspaceClient()
@@ -260,6 +307,23 @@ async def _run_send(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_vscode_bridge(args) -> int:
+    """Start the VS Code integration bridge."""
+    from cortex.cli.vscode import VSCodeBridge
+
+    provider = None
+    try:
+        from cortex.providers import get_provider
+        provider = get_provider()
+    except Exception as exc:
+        logger.warning("LLM provider unavailable for VS Code bridge: %s", exc)
+
+    bridge = VSCodeBridge()
+    print(f"Starting VS Code bridge on {bridge.SOCKET_PATH}...")
+    await bridge.start_server(provider)
+    return 0
+
+
 def main() -> int:
     # Check deps before importing anything that needs them
     from cortex.cli import _check_cli_deps
@@ -279,12 +343,14 @@ def main() -> int:
         "chat": _run_chat,
         "ask": _run_ask,
         "agent": _run_agent,
+        "sessions": _run_sessions,
         "status": _run_status,
         "diagnose": _run_diagnose,
         "reflect": _run_reflect,
         "daemon": _run_daemon,
         "workspace": _run_workspace,
         "send": _run_send,
+        "vscode-bridge": _run_vscode_bridge,
     }
 
     handler = handlers.get(args.command)
