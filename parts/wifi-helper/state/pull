@@ -1,0 +1,59 @@
+assets:
+  source-details: null
+  stage-packages: null
+  stage-snaps: null
+directories: !!set {}
+files: !!set {}
+outdated_dirs: null
+outdated_files: null
+part_properties:
+  after: []
+  build-attributes: []
+  build-environment: []
+  build-packages: []
+  build-snaps: []
+  disable-parallel: false
+  organize:
+    configure-wifi.sh: bin/configure-wifi
+  overlay:
+  - '*'
+  overlay-packages: []
+  overlay-script: null
+  override-build: null
+  override-prime: null
+  override-pull: null
+  override-stage: null
+  permissions: []
+  plugin: dump
+  prime:
+  - '*'
+  source: satellite/snap/scripts/
+  source-branch: ''
+  source-channel: null
+  source-checksum: ''
+  source-commit: ''
+  source-depth: 0
+  source-subdir: ''
+  source-submodules: null
+  source-tag: ''
+  source-type: ''
+  stage:
+  - '*'
+  stage-packages: []
+  stage-snaps: []
+partition: null
+partitions_contents: {}
+project_options:
+  application_name: snapcraft
+  arch_triplet: x86_64-linux-gnu
+  project_vars:
+    grade:
+      part_name: null
+      updated: false
+      value: stable
+    version:
+      part_name: null
+      updated: false
+      value: 0.1.0
+  project_vars_part_name: null
+  target_arch: amd64
