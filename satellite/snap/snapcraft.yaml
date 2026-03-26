@@ -1,5 +1,5 @@
 name: atlas-satellite
-version: '0.1.0'
+version: '0.0.2'
 summary: Atlas personal AI satellite agent
 description: |
   Satellite agent for Atlas personal AI. Handles wake word detection,
@@ -12,7 +12,7 @@ confinement: strict
 
 apps:
   atlas-satellite:
-    command: bin/atlas-satellite
+    command: bin/start-satellite
     daemon: simple
     restart-condition: always
     plugs:
@@ -39,29 +39,46 @@ apps:
       - network-control
 
 parts:
-  satellite:
+  satellite-agent:
+    plugin: dump
+    source: satellite/
+    organize:
+      atlas_satellite/: lib/atlas_satellite/
+      tablet/atlas-setup-tui.py: bin/atlas-setup-tui
+    stage:
+      - atlas_satellite/**
+      - tablet/atlas-setup-tui.py
+    override-build: |
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/bin/atlas-setup-tui
+
+  python-deps:
     plugin: python
-    source: .
+    source: satellite/
     python-packages:
       - aiohttp
       - websockets
       - numpy
+      - pyalsaaudio
+    build-packages:
+      - python3-dev
+      - libasound2-dev
     stage-packages:
+      - python3
       - alsa-utils
       - avahi-utils
-      - python3-venv
-    override-build: |
-      snapcraftctl build
-      # Copy the satellite agent code
-      cp -r satellite/atlas_satellite $SNAPCRAFT_PART_INSTALL/
-      cp satellite/tablet/atlas-setup-tui.py $SNAPCRAFT_PART_INSTALL/bin/atlas-setup-tui
-      chmod +x $SNAPCRAFT_PART_INSTALL/bin/atlas-setup-tui
 
-  wifi-helper:
+  start-script:
     plugin: dump
+    source-type: local
     source: satellite/snap/scripts/
     organize:
+      start-satellite.sh: bin/start-satellite
       configure-wifi.sh: bin/configure-wifi
+    override-build: |
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/bin/start-satellite
+      chmod +x $CRAFT_PART_INSTALL/bin/configure-wifi
 
 layout:
   /opt/atlas-satellite:
