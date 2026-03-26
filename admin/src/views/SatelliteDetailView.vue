@@ -209,7 +209,7 @@ const capabilities = computed(() => {
   try { return JSON.parse(satellite.value.capabilities) } catch { return null }
 })
 
-onMounted(() => { fetchSatellite(); fetchLedConfig(); fetchTtsVoices(); loadCommandHistory() })
+onMounted(() => { fetchSatellite(); fetchLedConfig(); fetchTtsVoices(); loadCommandHistory(); fetchSshInfo() })
 
 async function fetchSatellite() {
   loading.value = true
@@ -312,6 +312,52 @@ async function removeSatellite() {
     await api.delete(`/admin/satellites/${satId.value}`)
     router.push({ name: 'satellites' })
   } catch (e) { error.value = e.message }
+}
+
+// ── SSH Provisioning ──
+const sshInfo = ref(null)
+const sshLoading = ref(false)
+const showSshPassword = ref(false)
+const sshPushing = ref(false)
+const sshRotating = ref(false)
+
+async function fetchSshInfo() {
+  sshLoading.value = true
+  try {
+    sshInfo.value = await api.get(`/admin/satellites/${satId.value}/ssh-info`)
+  } catch { /* ignore */ }
+  finally { sshLoading.value = false }
+}
+
+async function pushSshKey() {
+  if (!confirm('Push SSH key and rotate password? The old password will no longer work.')) return
+  sshPushing.value = true
+  error.value = ''
+  try {
+    await api.post(`/admin/satellites/${satId.value}/push-ssh-key`)
+    success.value = 'SSH key installed and password rotated'
+    await fetchSshInfo()
+  } catch (e) { error.value = e.message }
+  finally { sshPushing.value = false }
+}
+
+async function rotateSshPassword() {
+  if (!confirm('Generate a new random password for this satellite?')) return
+  sshRotating.value = true
+  error.value = ''
+  try {
+    const result = await api.post(`/admin/satellites/${satId.value}/rotate-password`)
+    success.value = 'Password rotated'
+    await fetchSshInfo()
+  } catch (e) { error.value = e.message }
+  finally { sshRotating.value = false }
+}
+
+function copySshCommand() {
+  if (sshInfo.value?.ssh_command) {
+    navigator.clipboard.writeText(sshInfo.value.ssh_command)
+    success.value = 'SSH command copied to clipboard'
+  }
 }
 
 // ── Remote Management ──
@@ -575,6 +621,42 @@ async function loadCommandHistory() {
             📡 Play on Satellite
           </button>
         </div>
+      </section>
+
+      <!-- SSH Access -->
+      <section class="card" v-if="satellite?.status !== 'new'">
+        <h2>🔑 SSH Access</h2>
+        <template v-if="sshInfo">
+          <div class="info-row">
+            <span class="label">SSH Key:</span>
+            <span :class="sshInfo.ssh_key_installed ? 'text-success' : 'text-muted'">
+              {{ sshInfo.ssh_key_installed ? '✅ Installed' : '❌ Not installed' }}
+            </span>
+          </div>
+          <div class="info-row" v-if="sshInfo.ssh_command">
+            <span class="label">Connect:</span>
+            <code class="ssh-cmd">{{ sshInfo.ssh_command }}</code>
+            <button class="btn-sm" @click="copySshCommand" title="Copy">📋</button>
+          </div>
+          <div class="info-row" v-if="sshInfo.ssh_password">
+            <span class="label">Password:</span>
+            <code class="ssh-cmd" v-if="showSshPassword">{{ sshInfo.ssh_password }}</code>
+            <span v-else class="text-muted">••••••••</span>
+            <button class="btn-sm" @click="showSshPassword = !showSshPassword">
+              {{ showSshPassword ? '🙈' : '👁️' }}
+            </button>
+          </div>
+          <div class="btn-row" style="margin-top: 0.75rem;">
+            <button class="btn btn-secondary" @click="pushSshKey" :disabled="sshPushing">
+              {{ sshPushing ? '⏳ Pushing...' : '🔑 Push SSH Key' }}
+            </button>
+            <button class="btn btn-secondary" @click="rotateSshPassword" :disabled="sshRotating">
+              {{ sshRotating ? '⏳ Rotating...' : '🔄 Rotate Password' }}
+            </button>
+          </div>
+        </template>
+        <p v-else-if="sshLoading" class="muted">Loading SSH info...</p>
+        <p v-else class="muted">SSH info unavailable</p>
       </section>
 
       <!-- Remote Management -->
@@ -945,4 +1027,16 @@ select {
 .cmd-table th { color: var(--text-secondary); font-weight: 600; }
 .result-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cmd-history { max-height: 250px; overflow-y: auto; }
+
+/* SSH Access */
+.ssh-cmd {
+  font-family: 'Fira Code', 'Menlo', monospace;
+  font-size: 0.82rem;
+  background: var(--bg-primary);
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.text-success { color: #4caf50; }
+.text-muted { color: var(--text-muted); }
 </style>

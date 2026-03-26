@@ -1,0 +1,68 @@
+name: atlas-satellite
+version: '0.1.0'
+summary: Atlas personal AI satellite agent
+description: |
+  Satellite agent for Atlas personal AI. Handles wake word detection,
+  audio capture/playback, WebSocket communication with Atlas server,
+  and kiosk display management.
+
+base: core24
+grade: stable
+confinement: strict
+
+apps:
+  atlas-satellite:
+    command: bin/atlas-satellite
+    daemon: simple
+    restart-condition: always
+    plugs:
+      - network
+      - network-bind
+      - audio-playback
+      - audio-record
+      - pulseaudio
+      - alsa
+      - wayland
+      - opengl
+
+  setup-tui:
+    command: bin/atlas-setup-tui
+    plugs:
+      - network
+      - network-manager
+      - network-control
+
+  configure-wifi:
+    command: bin/configure-wifi
+    plugs:
+      - network-manager
+      - network-control
+
+parts:
+  satellite:
+    plugin: python
+    source: .
+    python-packages:
+      - aiohttp
+      - websockets
+      - numpy
+    stage-packages:
+      - alsa-utils
+      - avahi-utils
+      - python3-venv
+    override-build: |
+      snapcraftctl build
+      # Copy the satellite agent code
+      cp -r satellite/atlas_satellite $SNAPCRAFT_PART_INSTALL/
+      cp satellite/tablet/atlas-setup-tui.py $SNAPCRAFT_PART_INSTALL/bin/atlas-setup-tui
+      chmod +x $SNAPCRAFT_PART_INSTALL/bin/atlas-setup-tui
+
+  wifi-helper:
+    plugin: dump
+    source: satellite/snap/scripts/
+    organize:
+      configure-wifi.sh: bin/configure-wifi
+
+layout:
+  /opt/atlas-satellite:
+    bind: $SNAP_DATA/config

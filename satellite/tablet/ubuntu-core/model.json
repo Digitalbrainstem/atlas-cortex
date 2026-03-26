@@ -1,0 +1,49 @@
+{
+  "type": "model",
+  "series": "16",
+  "authority-id": "betanu701",
+  "brand-id": "betanu701",
+  "model": "atlas-tablet",
+  "architecture": "amd64",
+  "base": "core24",
+  "grade": "dangerous",
+  "snaps": [
+    {
+      "name": "pc",
+      "type": "gadget",
+      "id": "UqFziVZDHLSyO3TqSWgNBoAdHbLI4dAH"
+    },
+    {
+      "name": "pc-kernel",
+      "type": "kernel",
+      "id": "pYVQrBcKmBa0mZ4CCN7ExT6jH8rY1hza"
+    },
+    {
+      "name": "core24",
+      "type": "base",
+      "id": "dwTAh7MZZ01zyriOZErqd1JynQLiOGvM"
+    },
+    {
+      "name": "snapd",
+      "type": "snapd",
+      "id": "PMrrV4ml8uWuEKEyJ76A0iFXtwx2VyIp"
+    },
+    {
+      "name": "ubuntu-frame",
+      "type": "app",
+      "default-channel": "24/stable"
+    },
+    {
+      "name": "wpe-webkit-mir-kiosk",
+      "type": "app"
+    },
+    {
+      "name": "network-manager",
+      "type": "app"
+    },
+    {
+      "name": "atlas-satellite",
+      "type": "app"
+    }
+  ]
+}
