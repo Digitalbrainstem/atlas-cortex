@@ -66,3 +66,7 @@ data/stackexchange/
 atlas-blog-drafts/
 *.iso
 wget-log*
+parts/
+stage/
+prime/
+*.snap
