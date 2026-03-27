@@ -6,12 +6,17 @@
   <title>Atlas Avatar</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #0f172a; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%);
+      transition: background 2s ease-in-out;
+    }
     #avatar-container {
       width: 100vw; height: 100vh;
       display: flex; align-items: center; justify-content: center;
-      background: #0f172a;
+      background: transparent;
       perspective: 800px;
+      transition: background 2s ease-in-out;
     }
     #avatar-mover {
       position: absolute;
@@ -128,12 +133,39 @@
       50% { transform: rotate(-5deg) translateX(-3px); }
       75% { transform: rotate(6deg) translateY(2px); }
     }
+    /* Weather: rain drops */
+    @keyframes rain-fall {
+      0% { top: -20px; opacity: 0.7; }
+      100% { top: 100vh; opacity: 0.2; }
+    }
+    .rain-drop {
+      position: fixed; width: 2px; background: linear-gradient(180deg, transparent, rgba(100,150,255,0.6));
+      height: 18px; border-radius: 0 0 2px 2px; pointer-events: none; z-index: 10;
+      animation: rain-fall linear infinite;
+    }
+    /* Weather: snowflakes */
+    @keyframes snow-fall {
+      0% { top: -10px; opacity: 0.9; transform: translateX(0) rotate(0deg); }
+      50% { opacity: 0.7; transform: translateX(20px) rotate(180deg); }
+      100% { top: 100vh; opacity: 0.1; transform: translateX(-10px) rotate(360deg); }
+    }
+    .snowflake {
+      position: fixed; width: 8px; height: 8px; background: white;
+      border-radius: 50%; pointer-events: none; z-index: 10; opacity: 0.8;
+      animation: snow-fall ease-in infinite;
+    }
+    /* Weather overlay container */
+    #weather-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 5; overflow: hidden;
+    }
   </style>
 </head>
 <body>
   <div id="audio-unlock" onclick="this.remove(); window._audioUnlocked=true;">
     <span>🔊 Tap to enable audio</span>
   </div>
+  <div id="weather-overlay"></div>
   <div id="avatar-container">
     <div id="avatar-mover">
       <div id="avatar-scaler">
@@ -407,7 +439,7 @@
     const _bgMatch = location.hash.match(/bg=([0-9a-fA-F]{3,8})/);
     if (_bgMatch) {
       document.body.style.background = '#' + _bgMatch[1];
-      document.getElementById('avatar-container').style.background = '#' + _bgMatch[1];
+      _bgOverrideActive = true;
     }
 
     // Server-driven feature flags
@@ -970,6 +1002,12 @@
           break;
         case 'display':
           handleDisplayCommand(msg);
+          break;
+        case 'ANIMATE':
+          triggerAnimation(msg.animation);
+          break;
+        case 'BACKGROUND':
+          setBackground(msg.theme);
           break;
       }
     }
@@ -1829,6 +1867,7 @@
     // ── Idle animations (client-side, no server traffic) ──────
     let idleHopInterval = null;
     let _goofyIdleInterval = null;
+    let _idleAnimInterval = null;
 
     function startIdleAnimations() {
       // Blink every 3-6 seconds
@@ -1881,6 +1920,263 @@
           doGoofyEyes(style);
         }
       }, 12000 + Math.random() * 10000);
+
+      // Nick Jr. Face-style idle: random playful animations
+      if (_idleAnimInterval) clearInterval(_idleAnimInterval);
+      _idleAnimInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          idleAnimation();
+        }
+      }, 15000 + Math.random() * 10000);
+    }
+
+    // ── Dynamic Background System ──────────────────────────────
+    const BACKGROUNDS = {
+      // Time of day
+      morning:  'linear-gradient(180deg, #FFE4B5 0%, #FFA07A 100%)',
+      day:      'linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%)',
+      evening:  'linear-gradient(180deg, #FF6347 0%, #4B0082 100%)',
+      night:    'linear-gradient(180deg, #0D1B2A 0%, #1B2838 100%)',
+      // Weather
+      sunny:    'linear-gradient(180deg, #87CEEB 0%, #E0F6FF 60%), radial-gradient(circle at 80% 15%, #FFD700 0%, transparent 40%)',
+      cloudy:   'linear-gradient(180deg, #B0BEC5 0%, #90A4AE 100%)',
+      rainy:    'linear-gradient(180deg, #546E7A 0%, #37474F 100%)',
+      snowy:    'linear-gradient(180deg, #CFD8DC 0%, #B0BEC5 100%)',
+      // Mood/context
+      happy:    'linear-gradient(180deg, #FFE5B4 0%, #FFB6C1 100%)',
+      thinking: 'linear-gradient(180deg, #2C3E50 0%, #3498DB 100%)',
+      excited:  'linear-gradient(180deg, #FF69B4 0%, #FF1493 100%)',
+      calm:     'linear-gradient(180deg, #a8edea 0%, #fed6e3 100%)',
+      scary:    'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)',
+    };
+
+    let _currentBgTheme = 'day';
+    let _bgOverrideActive = false;
+    let _bgOverrideTimer = null;
+
+    function setBackground(theme) {
+      const bg = BACKGROUNDS[theme] || BACKGROUNDS.day;
+      document.body.style.background = bg;
+      _currentBgTheme = theme;
+      // Update weather effects
+      clearWeatherEffects();
+      if (theme === 'rainy') spawnRain();
+      else if (theme === 'snowy') spawnSnow();
+      // If faceless skin, update CSS var
+      const svg = container.querySelector('svg');
+      if (svg && _isFaceless) {
+        svg.style.setProperty('--face-bg', getComputedStyle(document.body).backgroundColor);
+      }
+    }
+
+    function setBackgroundTemporary(theme, durationMs) {
+      _bgOverrideActive = true;
+      if (_bgOverrideTimer) clearTimeout(_bgOverrideTimer);
+      setBackground(theme);
+      _bgOverrideTimer = setTimeout(() => {
+        _bgOverrideActive = false;
+        _bgOverrideTimer = null;
+        updateTimeBackground();
+      }, durationMs || 30000);
+    }
+
+    function updateTimeBackground() {
+      if (_bgOverrideActive) return;
+      const hour = new Date().getHours();
+      if (hour >= 5 && hour < 9) setBackground('morning');
+      else if (hour >= 9 && hour < 17) setBackground('day');
+      else if (hour >= 17 && hour < 20) setBackground('evening');
+      else setBackground('night');
+    }
+
+    // Update background every 60s based on time of day
+    setInterval(updateTimeBackground, 60000);
+
+    // Weather effects
+    function clearWeatherEffects() {
+      const overlay = document.getElementById('weather-overlay');
+      if (overlay) overlay.innerHTML = '';
+    }
+
+    function spawnRain() {
+      const overlay = document.getElementById('weather-overlay');
+      if (!overlay) return;
+      for (let i = 0; i < 60; i++) {
+        const drop = document.createElement('div');
+        drop.className = 'rain-drop';
+        drop.style.left = Math.random() * 100 + 'vw';
+        drop.style.animationDuration = (0.5 + Math.random() * 0.7) + 's';
+        drop.style.animationDelay = Math.random() * 2 + 's';
+        drop.style.opacity = 0.3 + Math.random() * 0.4;
+        overlay.appendChild(drop);
+      }
+    }
+
+    function spawnSnow() {
+      const overlay = document.getElementById('weather-overlay');
+      if (!overlay) return;
+      for (let i = 0; i < 40; i++) {
+        const flake = document.createElement('div');
+        flake.className = 'snowflake';
+        flake.style.left = Math.random() * 100 + 'vw';
+        const size = 4 + Math.random() * 8;
+        flake.style.width = size + 'px';
+        flake.style.height = size + 'px';
+        flake.style.animationDuration = (3 + Math.random() * 4) + 's';
+        flake.style.animationDelay = Math.random() * 5 + 's';
+        flake.style.opacity = 0.4 + Math.random() * 0.5;
+        overlay.appendChild(flake);
+      }
+    }
+
+    // ── Reaction Animations (server-triggered) ────────────────
+    function triggerAnimation(name) {
+      const fn = {
+        'zoom_in': animateZoomIn, 'zoomIn': animateZoomIn,
+        'zoom_out': animateZoomOut, 'zoomOut': animateZoomOut,
+        'bounce': animateBounce,
+        'sway': animateSway,
+        'stretch': animateStretch,
+        'shake': animateShakeReaction,
+        'nod': animateNod,
+        'wiggle': animateWiggle,
+      }[name];
+      if (fn) fn();
+    }
+
+    function animateZoomIn() {
+      scaler.style.transition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      scaler.style.transform = 'scale(1.2)';
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.5s ease-out';
+        const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }, 400);
+    }
+
+    function animateZoomOut() {
+      scaler.style.transition = 'transform 0.3s ease-in';
+      scaler.style.transform = 'scale(0.85)';
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }, 350);
+    }
+
+    function animateBounce() {
+      let count = 0;
+      const interval = setInterval(() => {
+        doHop();
+        count++;
+        if (count >= 3) clearInterval(interval);
+      }, 350);
+    }
+
+    function animateSway() {
+      const startPhase = swayPhase;
+      const startTime = performance.now();
+      const duration = 3000;
+      function swayFrame() {
+        const elapsed = performance.now() - startTime;
+        if (elapsed > duration) {
+          animateToCenter();
+          return;
+        }
+        const t = elapsed / duration;
+        const cx = centerX();
+        const cy = centerY();
+        const swayX = Math.sin(t * Math.PI * 4) * window.innerWidth * 0.12;
+        const swayY = Math.sin(t * Math.PI * 2) * window.innerHeight * 0.03;
+        mover.style.left = (cx + swayX) + 'px';
+        mover.style.top = (cy + swayY) + 'px';
+        requestAnimationFrame(swayFrame);
+      }
+      swayFrame();
+    }
+
+    function animateStretch() {
+      scaler.style.transition = 'transform 0.25s ease-out';
+      scaler.style.transform = 'scaleY(1.25) scaleX(0.85)';
+      setTimeout(() => {
+        scaler.style.transform = 'scaleY(0.85) scaleX(1.25)';
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+          scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+        }, 250);
+      }, 250);
+    }
+
+    function animateShakeReaction() {
+      startShake(400);
+    }
+
+    function animateNod() {
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      scaler.style.transition = 'transform 0.15s ease-out';
+      scaler.style.transform = `scale(${anim.scale}) translateY(-10px)`;
+      setTimeout(() => {
+        scaler.style.transform = `scale(${anim.scale}) translateY(4px)`;
+        setTimeout(() => {
+          scaler.style.transform = `scale(${anim.scale}) translateY(-8px)`;
+          setTimeout(() => {
+            scaler.style.transition = 'transform 0.2s ease-in-out';
+            scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+          }, 150);
+        }, 150);
+      }, 150);
+    }
+
+    function animateWiggle() {
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      const steps = [
+        { rot: -12, t: 80 }, { rot: 12, t: 80 }, { rot: -8, t: 70 },
+        { rot: 8, t: 70 }, { rot: -4, t: 60 }, { rot: 0, t: 100 },
+      ];
+      let delay = 0;
+      steps.forEach(step => {
+        setTimeout(() => {
+          scaler.style.transition = `transform ${step.t}ms ease-in-out`;
+          scaler.style.transform = `scale(${anim.scale}) rotate(${step.rot}deg)`;
+        }, delay);
+        delay += step.t;
+      });
+      setTimeout(() => {
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }, delay);
+    }
+
+    // Enhanced idle — more frequent eye activity, random look-arounds
+    function idleAnimation() {
+      const choices = ['lookAround', 'gentleSway', 'subtleBounce', 'breatheZoom'];
+      const choice = choices[Math.floor(Math.random() * choices.length)];
+      switch (choice) {
+        case 'lookAround': {
+          if (_eyeTrackingActive) break;
+          const tx = (Math.random() - 0.5) * 1.4;
+          const ty = (Math.random() - 0.5) * 0.8;
+          _eyeTargetX = tx; _eyeTargetY = ty;
+          setTimeout(() => { _eyeTargetX = 0; _eyeTargetY = 0; }, 1200);
+          break;
+        }
+        case 'gentleSway':
+          animateSway();
+          break;
+        case 'subtleBounce':
+          doHop();
+          break;
+        case 'breatheZoom': {
+          scaler.style.transition = 'transform 1.5s ease-in-out';
+          scaler.style.transform = 'scale(1.04)';
+          setTimeout(() => {
+            scaler.style.transition = 'transform 1.5s ease-in-out';
+            const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+            scaler.style.transform = `scale(${anim.scale})`;
+          }, 1500);
+          break;
+        }
+      }
     }
 
     // ── Boot ──────────────────────────────────────────────────
@@ -1910,6 +2206,7 @@
 
     window.addEventListener('resize', initPosition);
     initPosition();
+    updateTimeBackground();
     loadSkin('/avatar/skin/' + _initialSkin + '.svg');
     loadConfig();
     connect();
