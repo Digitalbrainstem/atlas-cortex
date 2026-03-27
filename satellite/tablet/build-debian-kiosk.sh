@@ -362,8 +362,8 @@ step 12 "Deploying systemd services"
 cat > "$ROOTFS/etc/systemd/system/cage.service" << 'EOF'
 [Unit]
 Description=Atlas Kiosk Display
-After=multi-user.target
-Wants=multi-user.target
+After=atlas-satellite.service atlas-runtime-dir.service
+Wants=atlas-satellite.service
 ConditionPathExists=/usr/bin/cage
 
 [Service]
@@ -396,11 +396,13 @@ WantedBy=graphical.target
 EOF
 
 # ── atlas-satellite.service ───────────────────────────────────────
+# Starts early (no network dependency) because it serves the local
+# WiFi setup page on localhost:8080.
 cat > "$ROOTFS/etc/systemd/system/atlas-satellite.service" << 'EOF'
 [Unit]
 Description=Atlas Satellite Agent
-After=network-online.target NetworkManager.service avahi-daemon.service
-Wants=multi-user.target
+After=local-fs.target
+Wants=NetworkManager.service avahi-daemon.service
 
 [Service]
 Type=simple
@@ -408,7 +410,7 @@ User=root
 WorkingDirectory=/opt/atlas-satellite
 ExecStart=/opt/atlas-satellite/venv/bin/python -m atlas_satellite
 Restart=on-failure
-RestartSec=10
+RestartSec=5
 Environment=HOME=/root
 Environment=XDG_RUNTIME_DIR=/run/user/0
 
@@ -511,37 +513,25 @@ ok "Systemd services deployed and enabled"
 step 13 "Deploying kiosk launcher and helper scripts"
 
 # ── atlas-kiosk (launched by cage.service) ────────────────────────
+# The setup server on localhost:8080 handles WiFi setup, mDNS discovery,
+# and auto-redirects to the Atlas avatar once connected.
 cat > "$ROOTFS/usr/local/bin/atlas-kiosk" << 'KIOSK_EOF'
 #!/bin/bash
 # Atlas Kiosk — launched by cage.service inside Cage Wayland compositor
+# Always starts with local setup page; it auto-redirects to Atlas when ready.
 set -euo pipefail
 
-# Discover Atlas server via mDNS
-ATLAS_URL=""
+SETUP_URL="http://localhost:8080"
+
+# Wait for the setup server to come online (started by atlas-satellite)
 for attempt in $(seq 1 30); do
-    ATLAS_HOST=$(avahi-resolve-host-name -4 atlas-cortex.local 2>/dev/null | awk '{print $2}') || true
-    if [ -n "$ATLAS_HOST" ]; then
-        ATLAS_URL="http://${ATLAS_HOST}:5100"
+    if curl -sf "$SETUP_URL" >/dev/null 2>&1; then
         break
     fi
-    sleep 2
+    sleep 1
 done
 
-# Fallback: check config file
-if [ -z "$ATLAS_URL" ] && [ -f /opt/atlas-satellite/config.json ]; then
-    ATLAS_URL=$(python3 -c "
-import json
-with open('/opt/atlas-satellite/config.json') as f:
-    print(json.load(f).get('server_url', ''))
-" 2>/dev/null) || true
-fi
-
-# Fallback: local setup page
-if [ -z "$ATLAS_URL" ]; then
-    ATLAS_URL="file:///opt/atlas-satellite/setup.html"
-fi
-
-# Launch Chromium in kiosk mode
+# Launch Chromium in kiosk mode pointing at local setup page
 exec chromium \
     --kiosk \
     --no-first-run \
@@ -559,7 +549,7 @@ exec chromium \
     --enable-features=OverlayScrollbar \
     --check-for-update-interval=31536000 \
     --ozone-platform=wayland \
-    "${ATLAS_URL}/avatar#skin=nick"
+    "$SETUP_URL"
 KIOSK_EOF
 chmod +x "$ROOTFS/usr/local/bin/atlas-kiosk"
 
