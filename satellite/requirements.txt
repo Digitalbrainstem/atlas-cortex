@@ -22,3 +22,6 @@ spidev>=3.6
 # openwakeword>=0.6.0
 # numpy>=1.24.0
 # tflite-runtime>=2.14.0
+
+# HTTP client for Atlas API
+aiohttp>=3.9
