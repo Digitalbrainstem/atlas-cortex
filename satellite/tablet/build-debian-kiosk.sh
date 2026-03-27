@@ -298,6 +298,7 @@ if [ -f "$SCRIPT_DIR/setup.html" ]; then
 fi
 
 # Create Python venv and install dependencies
+chroot_exec "apt-get install -y -qq python3-dev libasound2-dev build-essential"
 chroot_exec "python3 -m venv /opt/atlas-satellite/venv"
 chroot_exec "/opt/atlas-satellite/venv/bin/pip install --no-cache-dir \
     -r /opt/atlas-satellite/requirements.txt 2>&1 | tail -5" || {
@@ -361,8 +362,8 @@ step 12 "Deploying systemd services"
 cat > "$ROOTFS/etc/systemd/system/cage.service" << 'EOF'
 [Unit]
 Description=Atlas Kiosk Display
-After=network-online.target atlas-satellite.service
-Wants=network-online.target
+After=multi-user.target
+Wants=multi-user.target
 ConditionPathExists=/usr/bin/cage
 
 [Service]
@@ -399,7 +400,7 @@ cat > "$ROOTFS/etc/systemd/system/atlas-satellite.service" << 'EOF'
 [Unit]
 Description=Atlas Satellite Agent
 After=network-online.target NetworkManager.service avahi-daemon.service
-Wants=network-online.target
+Wants=multi-user.target
 
 [Service]
 Type=simple
