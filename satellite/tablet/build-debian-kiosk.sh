@@ -136,7 +136,7 @@ debootstrap --variant=minbase --arch=amd64 \
     "$DEBIAN_SUITE" "$ROOTFS" "$DEBIAN_MIRROR"
 
 ok "Debootstrap complete — base rootfs created"
-ROOTFS_SIZE=$(du -sh "$ROOTFS" | cut -f1)
+ROOTFS_SIZE=$(du -sh "$ROOTFS" 2>/dev/null | cut -f1)
 info "Base rootfs size: $ROOTFS_SIZE"
 
 
@@ -915,9 +915,24 @@ ok "Initramfs modules configured"
 
 
 # ══════════════════════════════════════════════════════════════════
-# Phase 18: Strip unnecessary files to reduce image size
+# Phase 18: Generate initramfs (BEFORE stripping — needs full system)
 # ══════════════════════════════════════════════════════════════════
-step 18 "Stripping unnecessary files"
+step 18 "Generating initramfs"
+
+# Use -c (create) since there's no existing initrd
+chroot_exec "
+    KVER=\$(ls /lib/modules/ | head -1)
+    echo \"Creating initramfs for kernel: \$KVER\"
+    update-initramfs -c -k \"\$KVER\" 2>&1 | tail -10
+    ls -la /boot/initrd* 2>/dev/null || echo 'WARNING: No initrd created'
+"
+ok "Initramfs generated"
+
+
+# ══════════════════════════════════════════════════════════════════
+# Phase 19: Strip unnecessary files to reduce image size
+# ══════════════════════════════════════════════════════════════════
+step 19 "Stripping unnecessary files"
 
 # Remove documentation, man pages, extra locales
 chroot_exec "
@@ -935,15 +950,15 @@ chroot_exec "
     apt-get autoremove -y 2>/dev/null || true
 "
 
-ROOTFS_SIZE=$(du -sh "$ROOTFS" | cut -f1)
+ROOTFS_SIZE=$(du -sh --exclude='proc' --exclude='sys' --exclude='dev' "$ROOTFS" 2>/dev/null | cut -f1)
 info "Rootfs size after stripping: $ROOTFS_SIZE"
 ok "Unnecessary files removed"
 
 
 # ══════════════════════════════════════════════════════════════════
-# Phase 19: Clean apt cache and temp files
+# Phase 20: Clean apt cache and temp files
 # ══════════════════════════════════════════════════════════════════
-step 19 "Cleaning caches and temp files"
+step 20 "Cleaning caches and temp files"
 
 chroot_exec "
     apt-get clean
@@ -956,18 +971,9 @@ chroot_exec "
     > /var/log/btmp
 "
 
-ROOTFS_SIZE=$(du -sh "$ROOTFS" | cut -f1)
+ROOTFS_SIZE=$(du -sh --exclude='proc' --exclude='sys' --exclude='dev' "$ROOTFS" 2>/dev/null | cut -f1)
 info "Rootfs size after cleaning: $ROOTFS_SIZE"
 ok "Caches cleaned"
-
-
-# ══════════════════════════════════════════════════════════════════
-# Phase 20: Update initramfs
-# ══════════════════════════════════════════════════════════════════
-step 20 "Generating initramfs"
-
-chroot_exec "update-initramfs -u -k all 2>&1 | tail -5"
-ok "Initramfs updated"
 
 
 # ══════════════════════════════════════════════════════════════════
