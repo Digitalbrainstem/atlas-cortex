@@ -1656,18 +1656,14 @@
           pupils.forEach(p => {
             const origCx = parseFloat(p.dataset.origCx);
             const origCy = parseFloat(p.dataset.origCy);
-            // Clamp to stay within eye bounds (eye rx=58, pupil rx=16, safe offset ~35)
-            const clampedDx = Math.max(-35, Math.min(35, dx));
-            const clampedDy = Math.max(-40, Math.min(40, dy));
+            const clamped = clampPupilInEye(p, origCx + dx, origCy + dy);
             p.style.transition = 'cx 0.1s ease, cy 0.1s ease';
-            p.setAttribute('cx', origCx + clampedDx);
-            p.setAttribute('cy', origCy + clampedDy);
+            p.setAttribute('cx', clamped.cx);
+            p.setAttribute('cy', clamped.cy);
           });
           shines.forEach(s => {
-            const clampedDx = Math.max(-35, Math.min(35, dx));
-            const clampedDy = Math.max(-40, Math.min(40, dy));
-            s.setAttribute('cx', parseFloat(s.dataset.origCx) + clampedDx);
-            s.setAttribute('cy', parseFloat(s.dataset.origCy) + clampedDy);
+            s.setAttribute('cx', parseFloat(s.dataset.origCx) + Math.max(-30, Math.min(30, dx)));
+            s.setAttribute('cy', parseFloat(s.dataset.origCy) + Math.max(-30, Math.min(30, dy)));
           });
         };
         movePupils(-30, 0); // look far left
@@ -1842,6 +1838,62 @@
       }, 3000);
     }
 
+    // ── Universal pupil containment ─────────────────────────────
+    // Ensures a pupil element stays within its parent eye outline
+    function clampPupilInEye(pupilEl, newCx, newCy) {
+      // Find the parent eye outline (the large dark ellipse)
+      const eyesBase = container.querySelector('#eyes-base');
+      if (!eyesBase) return { cx: newCx, cy: newCy };
+      
+      const px = parseFloat(pupilEl.getAttribute('rx') || pupilEl.getAttribute('r') || 16);
+      const py = parseFloat(pupilEl.getAttribute('ry') || pupilEl.getAttribute('r') || 18);
+      
+      // Find which eye this pupil belongs to (left or right of center)
+      const isLeft = newCx < 200;
+      
+      // Get the eye outline dimensions
+      const outlines = Array.from(eyesBase.children).filter(e => e.dataset.eyeOutline === 'true');
+      let eyeCx, eyeCy, eyeRx, eyeRy;
+      for (const outline of outlines) {
+        const ocx = parseFloat(outline.getAttribute('cx'));
+        if ((isLeft && ocx < 200) || (!isLeft && ocx >= 200)) {
+          eyeCx = ocx;
+          eyeCy = parseFloat(outline.getAttribute('cy'));
+          eyeRx = parseFloat(outline.getAttribute('rx'));
+          eyeRy = parseFloat(outline.getAttribute('ry'));
+          break;
+        }
+      }
+      if (!eyeCx) return { cx: newCx, cy: newCy };
+      
+      // If eye has moved (eye spread), use current position
+      const currentOutline = outlines.find(e => {
+        const ocx = parseFloat(e.getAttribute('cx'));
+        return (isLeft && ocx < 200) || (!isLeft && ocx >= 200);
+      });
+      if (currentOutline) {
+        eyeCx = parseFloat(currentOutline.getAttribute('cx'));
+        eyeCy = parseFloat(currentOutline.getAttribute('cy'));
+      }
+      
+      // Clamp: pupil center must be inside eye ellipse with margin for pupil radius
+      const safeRx = eyeRx - px - 4; // 4px safety margin
+      const safeRy = eyeRy - py - 4;
+      const dx = newCx - eyeCx;
+      const dy = newCy - eyeCy;
+      
+      // Check if point is inside the safe ellipse
+      const dist = (dx * dx) / (safeRx * safeRx) + (dy * dy) / (safeRy * safeRy);
+      if (dist <= 1) return { cx: newCx, cy: newCy };
+      
+      // Push back inside the ellipse
+      const angle = Math.atan2(dy, dx);
+      return {
+        cx: eyeCx + Math.cos(angle) * safeRx,
+        cy: eyeCy + Math.sin(angle) * safeRy,
+      };
+    }
+
     function updateEyeTracking() {
       // Subtle idle drift when not tracking
       if (!_eyeTrackingActive) {
@@ -1882,8 +1934,9 @@
           const isGlint = (fill === 'white' && r > 0 && r < 10);
           if (isGlint) return;  // skip glints entirely
           
-          el.setAttribute('cx', origCx + offsetX);
-          el.setAttribute('cy', origCy + offsetY);
+          const clamped = clampPupilInEye(el, origCx + offsetX, origCy + offsetY);
+          el.setAttribute('cx', clamped.cx);
+          el.setAttribute('cy', clamped.cy);
         });
       }
       
@@ -1904,8 +1957,9 @@
           const isGlint = (fill === 'white' && r > 0 && r < 10);
           if (isGlint) return;  // skip glints
           
-          el.setAttribute('cx', origCx + offsetX);
-          el.setAttribute('cy', origCy + offsetY);
+          const clamped = clampPupilInEye(el, origCx + offsetX, origCy + offsetY);
+          el.setAttribute('cx', clamped.cx);
+          el.setAttribute('cy', clamped.cy);
         });
       }
 
