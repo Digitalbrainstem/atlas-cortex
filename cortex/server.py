@@ -798,6 +798,17 @@ async def serve_avatar_skin(skin_id: str):
     return FileResponse(skin_path, media_type="image/svg+xml")
 
 
+@app.get("/media")
+async def serve_media_player():
+    """Serve the standalone touch-friendly media browser page."""
+    _media_html = Path(__file__).resolve().parent / "media" / "player.html"
+    return FileResponse(
+        _media_html,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 @app.get("/avatar")
 async def serve_avatar_display():
     """Serve the fullscreen avatar display page."""
