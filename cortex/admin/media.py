@@ -1,9 +1,14 @@
 """Admin API endpoints for media & entertainment.
 
-# Module ownership: Media admin endpoints — providers, history, podcasts, library
+# Module ownership: Media admin endpoints — providers, history, podcasts, library,
+# playback control, search, queue management.
 """
 
 from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -11,7 +16,384 @@ from pydantic import BaseModel
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+# ── Shared media controller (module-level singleton) ─────────────
+
+class _MediaController:
+    """Thin wrapper around PlaybackRouter + provider search with room-keyed state."""
+
+    def __init__(self) -> None:
+        from cortex.media.base import PlaybackState
+        self._states: dict[str, PlaybackState] = {}
+        self._queues: dict[str, list[dict[str, Any]]] = {}
+        self._router: Any | None = None
+
+    def _get_router(self) -> Any:
+        if self._router is None:
+            from cortex.media.router import PlaybackRouter
+            self._router = PlaybackRouter()
+        return self._router
+
+    def get_state(self, room: str) -> Any:
+        from cortex.media.base import PlaybackState
+        return self._states.get(room, PlaybackState())
+
+    def set_state(self, room: str, state: Any) -> None:
+        self._states[room] = state
+
+    def get_queue(self, room: str) -> list[dict[str, Any]]:
+        return self._queues.get(room, [])
+
+    def add_to_queue(self, room: str, item: dict[str, Any]) -> None:
+        self._queues.setdefault(room, []).append(item)
+
+    def clear_queue(self, room: str) -> None:
+        self._queues[room] = []
+
+    async def broadcast_state(self, room: str) -> None:
+        """Push MEDIA_STATE to avatar displays for the given room."""
+        try:
+            from cortex.avatar.broadcast import broadcast_media_state
+            state = self.get_state(room)
+            queue = self.get_queue(room)
+            await broadcast_media_state(room, state, queue)
+        except Exception:
+            logger.debug("broadcast_state failed for room=%s", room, exc_info=True)
+
+    async def search_providers(
+        self, query: str, provider: str | None = None,
+    ) -> list[dict[str, Any]]:
+        from cortex.media.audiobookshelf import AudiobookshelfProvider
+        from cortex.media.local_library import LocalLibraryProvider
+        from cortex.media.plex import PlexProvider
+        from cortex.media.podcasts import PodcastProvider
+        from cortex.media.youtube_music import YouTubeMusicProvider
+
+        providers_map = {
+            "local": LocalLibraryProvider,
+            "youtube_music": YouTubeMusicProvider,
+            "plex": PlexProvider,
+            "audiobookshelf": AudiobookshelfProvider,
+            "podcasts": PodcastProvider,
+        }
+
+        if provider and provider in providers_map:
+            classes = [providers_map[provider]]
+        else:
+            classes = list(providers_map.values())
+
+        async def _search(cls: type) -> list[dict[str, Any]]:
+            try:
+                inst = cls()
+                items = await inst.search(query)
+                return [
+                    {
+                        "id": it.id,
+                        "title": it.title,
+                        "artist": it.artist,
+                        "album": it.album,
+                        "duration_seconds": it.duration_seconds,
+                        "provider": it.provider,
+                        "media_type": it.media_type,
+                        "album_art_url": it.metadata.get("album_art_url", ""),
+                    }
+                    for it in items
+                ]
+            except Exception:
+                return []
+
+        results_nested = await asyncio.gather(*[_search(c) for c in classes])
+        return [item for sublist in results_nested for item in sublist]
+
+
+_ctrl = _MediaController()
+
+
+# ── Playback control endpoints ───────────────────────────────────
+
+
+class PlayRequest(BaseModel):
+    query: str
+    provider: str | None = None
+    room: str = ""
+
+
+@router.post("/media/play")
+async def play_media(req: PlayRequest, _: dict = Depends(require_admin)):
+    """Search and start playback."""
+    from cortex.media.base import MediaItem, PlaybackState
+    from cortex.media.local_library import LocalLibraryProvider
+    from cortex.media.youtube_music import YouTubeMusicProvider
+
+    room = req.room or "default"
+    results: list[MediaItem] = []
+
+    if not req.provider or req.provider == "local":
+        try:
+            results.extend(await LocalLibraryProvider().search(req.query))
+        except Exception:
+            pass
+
+    if not results and (not req.provider or req.provider == "youtube_music"):
+        try:
+            yt = YouTubeMusicProvider()
+            if await yt.health():
+                results.extend(await yt.search(req.query))
+        except Exception:
+            pass
+
+    if not results:
+        return {"ok": False, "error": f"No results for \"{req.query}\""}
+
+    item = results[0]
+    pb_router = _ctrl._get_router()
+    target = await pb_router.resolve_target(room)
+    if target:
+        stream_url = item.stream_url
+        if not stream_url:
+            try:
+                if item.provider == "youtube_music":
+                    stream_url = await YouTubeMusicProvider().get_stream_url(item.id) or ""
+                elif item.provider == "local":
+                    stream_url = await LocalLibraryProvider().get_stream_url(item.id) or ""
+            except Exception:
+                stream_url = ""
+        if stream_url:
+            await pb_router.play(stream_url, target)
+
+    state = PlaybackState(
+        is_playing=True,
+        current_item=item,
+        position_seconds=0,
+        target_room=room,
+    )
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+
+    return {
+        "ok": True,
+        "item": {
+            "title": item.title,
+            "artist": item.artist,
+            "album": item.album,
+            "provider": item.provider,
+            "duration_seconds": item.duration_seconds,
+            "album_art_url": item.metadata.get("album_art_url", ""),
+        },
+        "room": room,
+    }
+
+
+class RoomRequest(BaseModel):
+    room: str = ""
+
+
+@router.post("/media/pause")
+async def pause_media(req: RoomRequest, _: dict = Depends(require_admin)):
+    """Pause playback in a room."""
+    room = req.room or "default"
+    pb_router = _ctrl._get_router()
+    target = await pb_router.resolve_target(room)
+    if target:
+        await pb_router.pause(target)
+    state = _ctrl.get_state(room)
+    state.is_playing = False
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "room": room}
+
+
+@router.post("/media/resume")
+async def resume_media(req: RoomRequest, _: dict = Depends(require_admin)):
+    """Resume playback in a room."""
+    room = req.room or "default"
+    state = _ctrl.get_state(room)
+    if state.current_item:
+        pb_router = _ctrl._get_router()
+        target = await pb_router.resolve_target(room)
+        if target and state.current_item.stream_url:
+            await pb_router.play(state.current_item.stream_url, target)
+    state.is_playing = True
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "room": room}
+
+
+@router.post("/media/stop")
+async def stop_media(req: RoomRequest, _: dict = Depends(require_admin)):
+    """Stop playback in a room."""
+    from cortex.media.base import PlaybackState
+
+    room = req.room or "default"
+    pb_router = _ctrl._get_router()
+    target = await pb_router.resolve_target(room)
+    if target:
+        await pb_router.stop(target)
+    _ctrl.set_state(room, PlaybackState())
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "room": room}
+
+
+@router.post("/media/next")
+async def next_track(req: RoomRequest, _: dict = Depends(require_admin)):
+    """Skip to the next track in the queue."""
+    from cortex.media.base import PlaybackState
+
+    room = req.room or "default"
+    queue = _ctrl.get_queue(room)
+    if queue:
+        next_item = queue.pop(0)
+        _ctrl._queues[room] = queue
+        state = PlaybackState(
+            is_playing=True,
+            position_seconds=0,
+            target_room=room,
+        )
+        _ctrl.set_state(room, state)
+        await _ctrl.broadcast_state(room)
+        return {"ok": True, "item": next_item, "room": room}
+    return {"ok": True, "room": room, "message": "Queue empty"}
+
+
+@router.post("/media/previous")
+async def previous_track(req: RoomRequest, _: dict = Depends(require_admin)):
+    """Go to the previous track."""
+    room = req.room or "default"
+    state = _ctrl.get_state(room)
+    state.position_seconds = 0
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "room": room}
+
+
+class VolumeRequest(BaseModel):
+    level: int
+    room: str = ""
+
+
+@router.post("/media/volume")
+async def set_volume(req: VolumeRequest, _: dict = Depends(require_admin)):
+    """Set volume (0–100) for a room."""
+    room = req.room or "default"
+    vol = max(0, min(100, req.level)) / 100.0
+    pb_router = _ctrl._get_router()
+    target = await pb_router.resolve_target(room)
+    if target:
+        await pb_router.set_volume(target, vol)
+    state = _ctrl.get_state(room)
+    state.volume = vol
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "volume": req.level, "room": room}
+
+
+class SeekRequest(BaseModel):
+    position_seconds: float
+    room: str = ""
+
+
+@router.post("/media/seek")
+async def seek_media(req: SeekRequest, _: dict = Depends(require_admin)):
+    """Seek to a position in the current track."""
+    room = req.room or "default"
+    state = _ctrl.get_state(room)
+    state.position_seconds = max(0.0, req.position_seconds)
+    _ctrl.set_state(room, state)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "position_seconds": state.position_seconds, "room": room}
+
+
+# ── State & search ───────────────────────────────────────────────
+
+
+@router.get("/media/now-playing")
+async def now_playing(
+    _: dict = Depends(require_admin),
+    room: str = Query(""),
+):
+    """Return current playback state for a room."""
+    target_room = room or "default"
+    state = _ctrl.get_state(target_room)
+    item_dict = None
+    if state.current_item:
+        it = state.current_item
+        item_dict = {
+            "title": it.title,
+            "artist": it.artist,
+            "album": it.album,
+            "album_art_url": it.metadata.get("album_art_url", ""),
+            "duration_seconds": it.duration_seconds,
+            "provider": it.provider,
+        }
+    return {
+        "is_playing": state.is_playing,
+        "item": item_dict,
+        "position_seconds": state.position_seconds,
+        "volume": state.volume,
+        "room": target_room,
+    }
+
+
+@router.get("/media/search")
+async def search_media(
+    _: dict = Depends(require_admin),
+    q: str = Query(""),
+    provider: str = Query(""),
+):
+    """Search across media providers."""
+    if not q:
+        return {"results": [], "total": 0}
+    results = await _ctrl.search_providers(q, provider or None)
+    return {"results": results, "total": len(results)}
+
+
+# ── Queue ────────────────────────────────────────────────────────
+
+
+@router.get("/media/queue")
+async def get_queue(
+    _: dict = Depends(require_admin),
+    room: str = Query(""),
+):
+    """Return the playback queue for a room."""
+    target_room = room or "default"
+    return {"queue": _ctrl.get_queue(target_room), "room": target_room}
+
+
+class QueueAddRequest(BaseModel):
+    query: str
+    provider: str | None = None
+    room: str = ""
+
+
+@router.post("/media/queue/add")
+async def add_to_queue(req: QueueAddRequest, _: dict = Depends(require_admin)):
+    """Search for a track and add it to the queue."""
+    room = req.room or "default"
+    results = await _ctrl.search_providers(req.query, req.provider)
+    if not results:
+        return {"ok": False, "error": f"No results for \"{req.query}\""}
+    item = results[0]
+    _ctrl.add_to_queue(room, item)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "item": item, "room": room}
+
+
+class QueueClearRequest(BaseModel):
+    room: str = ""
+
+
+@router.post("/media/queue/clear")
+async def clear_queue(req: QueueClearRequest, _: dict = Depends(require_admin)):
+    """Clear the playback queue for a room."""
+    room = req.room or "default"
+    _ctrl.clear_queue(room)
+    await _ctrl.broadcast_state(room)
+    return {"ok": True, "room": room}
 
 
 # ── Provider overview ────────────────────────────────────────────
@@ -45,20 +427,6 @@ async def list_providers(_: dict = Depends(require_admin)):
             "streaming": p.supports_streaming,
         })
     return {"providers": providers_info}
-
-
-# ── Now playing ──────────────────────────────────────────────────
-
-@router.get("/media/now-playing")
-async def now_playing(_: dict = Depends(require_admin)):
-    """Return current playback state (if any)."""
-    return {
-        "is_playing": False,
-        "item": None,
-        "position": 0,
-        "volume": 0.5,
-        "room": "",
-    }
 
 
 # ── Playback history ────────────────────────────────────────────
