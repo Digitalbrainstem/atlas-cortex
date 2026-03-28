@@ -1654,20 +1654,27 @@
         // Eyes dart left then right then center — quick and snappy
         const movePupils = (dx, dy) => {
           pupils.forEach(p => {
+            const origCx = parseFloat(p.dataset.origCx);
+            const origCy = parseFloat(p.dataset.origCy);
+            // Clamp to stay within eye bounds (eye rx=58, pupil rx=16, safe offset ~35)
+            const clampedDx = Math.max(-35, Math.min(35, dx));
+            const clampedDy = Math.max(-40, Math.min(40, dy));
             p.style.transition = 'cx 0.1s ease, cy 0.1s ease';
-            p.setAttribute('cx', parseFloat(p.dataset.origCx) + dx);
-            p.setAttribute('cy', parseFloat(p.dataset.origCy) + dy);
+            p.setAttribute('cx', origCx + clampedDx);
+            p.setAttribute('cy', origCy + clampedDy);
           });
           shines.forEach(s => {
-            s.setAttribute('cx', parseFloat(s.dataset.origCx) + dx);
-            s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
+            const clampedDx = Math.max(-35, Math.min(35, dx));
+            const clampedDy = Math.max(-40, Math.min(40, dy));
+            s.setAttribute('cx', parseFloat(s.dataset.origCx) + clampedDx);
+            s.setAttribute('cy', parseFloat(s.dataset.origCy) + clampedDy);
           });
         };
-        movePupils(-25, 0); // look far left
-        setTimeout(() => movePupils(25, 0), 200);  // look far right
-        setTimeout(() => movePupils(-20, 0), 400);   // look left again
-        setTimeout(() => movePupils(20, 0), 550);    // look right again
-        _goofyTimer = setTimeout(() => movePupils(0, 0), 700); // center
+        movePupils(-30, 0); // look far left
+        setTimeout(() => movePupils(30, 0), 200);  // look far right
+        setTimeout(() => movePupils(-25, 0), 400);
+        setTimeout(() => movePupils(25, 0), 550);
+        _goofyTimer = setTimeout(() => movePupils(0, 0), 700);
 
       } else if (style === 'cross') {
         // Go cross-eyed briefly
@@ -1986,7 +1993,7 @@
         if (!el.dataset.origCx) el.dataset.origCx = cx;
         const orig = parseFloat(el.dataset.origCx);
         const center = 200;
-        const spread = (orig < center) ? -70 : 70;
+        const spread = (orig < center) ? -50 : 50;
         el.style.transition = 'all 0.5s ease-out';
         el.setAttribute('cx', orig + spread);
       });
