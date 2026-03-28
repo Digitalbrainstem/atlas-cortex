@@ -128,6 +128,15 @@
       50% { transform: rotate(-5deg) translateX(-3px); }
       75% { transform: rotate(6deg) translateY(2px); }
     }
+    /* Debug active indicator */
+    #dev-overlay .dev-active {
+      display: inline-block; padding: 0.2rem 0.5rem; margin: 0.3rem 0;
+      background: #22c55e; color: #0f172a; border-radius: 0.3rem;
+      font-size: 0.75rem; font-weight: 700;
+    }
+    #dev-overlay button.dev-running {
+      background: #f59e0b !important; color: #0f172a !important;
+    }
   </style>
 </head>
 <body>
@@ -143,8 +152,8 @@
   </div>
   <button id="joke-btn" onclick="tellJoke()" style="display:none">😂 Tell me a joke!</button>
   <div id="controls-bar">
-    <button id="skin-default" class="skin-btn active" onclick="switchSkin('default')">🟠 Classic</button>
-    <button id="skin-nick" class="skin-btn" onclick="switchSkin('nick')">🎨 Nick</button>
+    <button id="skin-default" class="skin-btn" onclick="switchSkin('default')">🟠 Classic</button>
+    <button id="skin-nick" class="skin-btn active" onclick="switchSkin('nick')">🎨 Nick</button>
     <div class="divider"></div>
     <button id="joke-ctrl-btn" onclick="tellJoke()">😂 Joke!</button>
   </div>
@@ -204,6 +213,9 @@
     <div class="dev-panel">
       <h4>🔧 Dev Mode</h4>
       <div class="dev-section">
+        <strong>Active: <span id="dev-active-label" class="dev-active">neutral / IDLE</span></strong>
+      </div>
+      <div class="dev-section">
         <strong>Expressions:</strong>
         <button onclick="showExpression('happy')">😊 Happy</button>
         <button onclick="showExpression('sad')">😢 Sad</button>
@@ -225,9 +237,30 @@
         <button onclick="showExpression('concerned')">😟 Concerned</button>
       </div>
       <div class="dev-section">
+        <strong>🎭 Expression Gallery (3s each):</strong>
+        <button id="dev-gallery-btn" onclick="testExpressionGallery()">▶ Play All</button>
+      </div>
+      <div class="dev-section">
         <strong>Viseme Test:</strong>
-        <button onclick="testVisemeSequence()">▶ Play Test</button>
+        <button id="dev-viseme-btn" onclick="testVisemeSequence()">▶ Play All Visemes</button>
         <span id="dev-viseme-current">-</span>
+      </div>
+      <div class="dev-section">
+        <strong>👄 Mouth Test (appear/disappear):</strong>
+        <button id="dev-mouth-btn" onclick="testMouthCycle()">▶ Test Mouth</button>
+      </div>
+      <div class="dev-section">
+        <strong>🎬 Idle Animations:</strong>
+        <button onclick="doHop()">🦘 Hop</button>
+        <button onclick="doSpin()">🌀 Spin</button>
+        <button onclick="squashStretch(1.0)">🫠 Squash</button>
+        <button onclick="doGoofyEyes('dart')">👀 Dart</button>
+        <button onclick="doGoofyEyes('cross')">🤪 Cross</button>
+        <button onclick="doIdleZoom()">🔍 Zoom</button>
+        <button onclick="doEyeSpread()">↔ Eye Spread</button>
+        <button onclick="doIdleSway()">🌊 Sway</button>
+        <button onclick="doIdleStretch()">📏 Stretch</button>
+        <button onclick="testAllAnimations()">▶ Play All</button>
       </div>
       <div class="dev-section">
         <strong>Audio:</strong>
@@ -502,29 +535,98 @@
       }
     });
 
-    // Dev tools
+    // Dev tools — active state label
+    function _updateDevLabel() {
+      const label = document.getElementById('dev-active-label');
+      if (label) label.textContent = `${currentExpr} / ${currentViseme}${_isSpeaking ? ' 🔊' : ''}`;
+    }
+
     function testVisemeSequence() {
       showExpression('neutral');
-      _isSpeaking = true;  // Enable speaking mode so visemes work with expressions
-      // Only show the 7 DISTINCT mouth shapes (cartoon bank maps many sounds to these)
+      _isSpeaking = true;
+      // Cycle through ALL distinct viseme shapes with labels
       const seq = [
         'IDLE', 'IDLE-TALK', 'CLOSED', 'OPEN', 'ROUND', 'TEETH', 'FV',
-        'IDLE-TALK', 'OPEN', 'ROUND', 'CLOSED', 'IDLE'
+        'PP', 'FF', 'TH', 'DD', 'KK', 'SS', 'SH', 'RR', 'NN',
+        'IH', 'EH', 'AA', 'OH', 'OU', 'IDLE'
       ];
-      const labels = [
-        'IDLE (rest)', 'TALK (between words)', 'CLOSED (P/B/M)', 'OPEN (A/K)',
-        'ROUND (O/SH)', 'TEETH (S/TH)', 'FV (F/V)',
-        'TALK', 'OPEN', 'ROUND', 'CLOSED', 'IDLE (done)'
-      ];
+      const btn = document.getElementById('dev-viseme-btn');
       const el = document.getElementById('dev-viseme-current');
+      if (btn) btn.classList.add('dev-running');
       seq.forEach((v, i) => {
         setTimeout(() => {
           showViseme(v);
-          if (el) el.textContent = labels[i] || v;
-        }, i * 500);  // 500ms per shape — slower so you can see each one
+          if (el) el.textContent = `[${i+1}/${seq.length}] ${v}`;
+          _updateDevLabel();
+        }, i * 500);
       });
-      // Reset speaking flag after sequence
-      setTimeout(() => { _isSpeaking = false; _restoreExpressionMouth(); }, seq.length * 500 + 100);
+      setTimeout(() => {
+        _isSpeaking = false;
+        _restoreExpressionMouth();
+        if (btn) btn.classList.remove('dev-running');
+        if (el) el.textContent = 'done ✓';
+        _updateDevLabel();
+      }, seq.length * 500 + 100);
+    }
+
+    function testExpressionGallery() {
+      const btn = document.getElementById('dev-gallery-btn');
+      if (btn) btn.classList.add('dev-running');
+      EXPRESSIONS.forEach((expr, i) => {
+        setTimeout(() => {
+          setExpression(expr, 1.0);
+          _updateDevLabel();
+        }, i * 3000);
+      });
+      setTimeout(() => {
+        setExpression('neutral', 1.0);
+        if (btn) btn.classList.remove('dev-running');
+        _updateDevLabel();
+      }, EXPRESSIONS.length * 3000);
+    }
+
+    function testMouthCycle() {
+      const btn = document.getElementById('dev-mouth-btn');
+      if (btn) btn.classList.add('dev-running');
+      // Test the exact bug scenario: expression with mouth → speaking → stop
+      const steps = [
+        { t: 0,    fn: () => setExpression('laughing', 1.0) },
+        { t: 1500, fn: () => { _isSpeaking = true; showViseme('OPEN'); } },
+        { t: 2000, fn: () => showViseme('TEETH') },
+        { t: 2500, fn: () => showViseme('ROUND') },
+        { t: 3000, fn: () => showViseme('CLOSED') },
+        { t: 3500, fn: () => { _isSpeaking = false; _restoreExpressionMouth(); } },
+        { t: 5000, fn: () => setExpression('silly', 1.0) },
+        { t: 6500, fn: () => { _isSpeaking = true; showViseme('OPEN'); } },
+        { t: 7000, fn: () => showViseme('TEETH') },
+        { t: 7500, fn: () => { _isSpeaking = false; _restoreExpressionMouth(); } },
+        { t: 9000, fn: () => {
+          setExpression('neutral', 1.0);
+          showViseme('IDLE');
+          if (btn) btn.classList.remove('dev-running');
+        }},
+      ];
+      steps.forEach(s => setTimeout(() => { s.fn(); _updateDevLabel(); }, s.t));
+    }
+
+    function testAllAnimations() {
+      const anims = [
+        { t: 0,    fn: doHop,              label: 'Hop' },
+        { t: 1500, fn: () => doIdleZoom(),  label: 'Zoom' },
+        { t: 4000, fn: () => doEyeSpread(), label: 'Eye Spread' },
+        { t: 6000, fn: () => doIdleSway(),  label: 'Sway' },
+        { t: 9000, fn: () => doIdleStretch(), label: 'Stretch' },
+        { t: 11500, fn: () => doSpin(),      label: 'Spin' },
+        { t: 13000, fn: () => squashStretch(1.0), label: 'Squash' },
+      ];
+      const label = document.getElementById('dev-active-label');
+      anims.forEach(a => {
+        setTimeout(() => {
+          if (label) label.textContent = `🎬 ${a.label}`;
+          a.fn();
+        }, a.t);
+      });
+      setTimeout(() => _updateDevLabel(), 15000);
     }
 
     function testAudioPlayback() {
@@ -909,14 +1011,16 @@
           const deferMs = Math.max(0, remaining);
           const doEnd = () => {
             _isSpeaking = false;
+            _restoreExpressionMouth();  // Safety: restore expression mouth visibility
             checkPupilSpeed();
             statusEl.textContent = 'idle';
             statusEl.className = '';
             if (_neutralResetTimer) clearTimeout(_neutralResetTimer);
             _neutralResetTimer = setTimeout(() => {
               _neutralResetTimer = null;
-              setViseme('IDLE', 200, 0);
+              // Expression first (clears _exprReplacesMouth), then viseme
               setExpression('neutral', 1.0);
+              setViseme('IDLE', 200, 0);
             }, 3000);
           };
           if (deferMs > 50) {
@@ -950,8 +1054,9 @@
           if (_neutralResetTimer) { clearTimeout(_neutralResetTimer); _neutralResetTimer = null; }
           _isSpeaking = false;
           _hasReceivedAudio = false;
-          showViseme('IDLE');
+          _restoreExpressionMouth();  // Safety: restore expression mouth
           setExpression('neutral', 1.0);
+          showViseme('IDLE');
           statusEl.textContent = 'idle';
           statusEl.className = '';
           checkPupilSpeed();
@@ -1204,6 +1309,15 @@
           if (_isFaceless) {
             const bg = getComputedStyle(document.body).backgroundColor;
             svg.style.setProperty('--face-bg', bg);
+          } else {
+            // For skins with a face, set --face-bg to match the face fill
+            const faceShape = faceBase.querySelector('ellipse, circle, rect:nth-child(2)');
+            if (faceShape) {
+              const fill = faceShape.getAttribute('fill') || '';
+              if (fill && !fill.startsWith('url(')) {
+                svg.style.setProperty('--face-bg', fill);
+              }
+            }
           }
 
           // Expressions are baked into skin SVGs at build time
@@ -1233,6 +1347,7 @@
         // Show viseme mouth
       } else if (_exprReplacesMouth && !_isSpeaking) {
         // Not speaking + expression has mouth = show expression mouth, block visemes
+        _restoreExpressionMouth();
         return;
       }
       // Use smaller talk-smile between words while speaking
@@ -1250,6 +1365,12 @@
         if (m) m.style.display = (v === viseme) ? 'inline' : 'none';
       });
       currentViseme = viseme;
+
+      // Safety: ensure at least one mouth is visible
+      if (!el || el.style.display === 'none') {
+        const idle = document.getElementById('mouth-IDLE');
+        if (idle) idle.style.display = 'inline';
+      }
     }
 
     function _hideExpressionMouth() {
@@ -1259,19 +1380,24 @@
       // The first child is typically the mouth path/ellipse
       const firstChild = exprEl.querySelector('path, ellipse');
       if (firstChild && !firstChild.getAttribute('class')) {
+        firstChild.dataset.hiddenByViseme = '1';
         firstChild.style.opacity = '0';
       }
     }
 
     function _restoreExpressionMouth() {
-      // Restore mouth elements inside the current expression group
-      const exprEl = document.getElementById(`expr-${currentExpr}`);
-      if (!exprEl) return;
-      const firstChild = exprEl.querySelector('path, ellipse');
-      if (firstChild && !firstChild.getAttribute('class')) {
-        firstChild.style.opacity = '1';
-      }
-      // Hide all viseme mouths
+      // Restore ALL expression groups that had mouth hidden (handles expression changes during speech)
+      EXPRESSIONS.forEach(e => {
+        const el = document.getElementById(`expr-${e}`);
+        if (!el) return;
+        Array.from(el.children).forEach(child => {
+          if (child.dataset.hiddenByViseme) {
+            child.style.opacity = '';
+            delete child.dataset.hiddenByViseme;
+          }
+        });
+      });
+      // Hide all viseme mouths — let expression mouth take over
       VISEMES.forEach(v => {
         const m = document.getElementById(`mouth-${v}`);
         if (m) m.style.display = 'none';
@@ -1295,7 +1421,10 @@
           el.style.display = 'none';
           // Reset any opacity changes from _hideExpressionMouth
           Array.from(el.children).forEach(child => {
-            if (child.style.opacity === '0') child.style.opacity = '';
+            if (child.style.opacity === '0' || child.dataset.hiddenByViseme) {
+              child.style.opacity = '';
+              delete child.dataset.hiddenByViseme;
+            }
           });
         }
       });
@@ -1826,6 +1955,85 @@
       }
     }
 
+    // ── Nick Jr Face-style idle animations ──────────────────────
+    let _idleZoomInterval = null;
+    let _idleSwayInterval = null;
+    let _idleStretchInterval = null;
+    let _idleSpinInterval = null;
+    let _idleEyeSpreadInterval = null;
+
+    // Zoom in/out — face periodically zooms slightly (curious look)
+    function doIdleZoom() {
+      if (_isSpeaking) return;
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      scaler.style.transition = 'transform 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      scaler.style.transform = `scale(${anim.scale * 1.12}) rotate(${anim.tilt}deg)`;
+      setTimeout(() => {
+        scaler.style.transition = 'transform 1.5s ease-in-out';
+        scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+      }, 1500);
+    }
+
+    // Eye spread — eyes move apart then back together
+    function doEyeSpread() {
+      const eyesBase = container.querySelector('#eyes-base');
+      if (!eyesBase) return;
+      const allEls = Array.from(eyesBase.children);
+      allEls.forEach(el => {
+        const cx = parseFloat(el.getAttribute('cx'));
+        if (isNaN(cx)) return;
+        if (!el.dataset.origCx) el.dataset.origCx = cx;
+        const orig = parseFloat(el.dataset.origCx);
+        const center = 200;
+        const spread = (orig < center) ? -12 : 12;
+        el.style.transition = 'all 0.6s ease-out';
+        el.setAttribute('cx', orig + spread);
+      });
+      setTimeout(() => {
+        allEls.forEach(el => {
+          const orig = parseFloat(el.dataset.origCx);
+          if (isNaN(orig)) return;
+          el.style.transition = 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          el.setAttribute('cx', orig);
+        });
+      }, 800);
+    }
+
+    // Side-to-side sway — gentle rocking motion
+    function doIdleSway() {
+      if (_isSpeaking) return;
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      const tiltSeq = [8, -8, 5, -5, 0];
+      tiltSeq.forEach((tilt, i) => {
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.5s ease-in-out';
+          scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt + tilt}deg)`;
+        }, i * 500);
+      });
+    }
+
+    // Stretch — face stretches vertically then springs back
+    function doIdleStretch() {
+      if (_isSpeaking) return;
+      const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
+      scaler.style.transition = 'transform 0.4s ease-in';
+      scaler.style.transform = `scale(${anim.scale * 0.92}, ${anim.scale * 1.12}) rotate(${anim.tilt}deg)`;
+      setTimeout(() => {
+        scaler.style.transition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+        scaler.style.transform = `scale(${anim.scale * 1.06}, ${anim.scale * 0.94}) rotate(${anim.tilt}deg)`;
+        setTimeout(() => {
+          scaler.style.transition = 'transform 0.4s ease-out';
+          scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
+        }, 300);
+      }, 400);
+    }
+
+    // Quick spin — rare playful 360° spin
+    function doIdleSpin() {
+      if (_isSpeaking) return;
+      doSpin();
+    }
+
     // ── Idle animations (client-side, no server traffic) ──────
     let idleHopInterval = null;
     let _goofyIdleInterval = null;
@@ -1881,6 +2089,46 @@
           doGoofyEyes(style);
         }
       }, 12000 + Math.random() * 10000);
+
+      // Idle zoom — curious zoom in/out (every 15-25s)
+      if (_idleZoomInterval) clearInterval(_idleZoomInterval);
+      _idleZoomInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          doIdleZoom();
+        }
+      }, 15000 + Math.random() * 10000);
+
+      // Eye spread — eyes move apart and back (every 20-35s)
+      if (_idleEyeSpreadInterval) clearInterval(_idleEyeSpreadInterval);
+      _idleEyeSpreadInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          doEyeSpread();
+        }
+      }, 20000 + Math.random() * 15000);
+
+      // Side-to-side sway (every 12-22s)
+      if (_idleSwayInterval) clearInterval(_idleSwayInterval);
+      _idleSwayInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          doIdleSway();
+        }
+      }, 12000 + Math.random() * 10000);
+
+      // Stretch — vertical stretch and spring back (every 18-30s)
+      if (_idleStretchInterval) clearInterval(_idleStretchInterval);
+      _idleStretchInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          doIdleStretch();
+        }
+      }, 18000 + Math.random() * 12000);
+
+      // Rare spin — playful 360° (every 60-90s)
+      if (_idleSpinInterval) clearInterval(_idleSpinInterval);
+      _idleSpinInterval = setInterval(() => {
+        if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
+          doIdleSpin();
+        }
+      }, 60000 + Math.random() * 30000);
     }
 
     // ── Boot ──────────────────────────────────────────────────
