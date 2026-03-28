@@ -7,6 +7,48 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: linear-gradient(to bottom, #1a1a3e, #2d1b4e); }
+
+    /* ── Media overlay ─────────────────────────────────────── */
+    #media-overlay {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 90;
+      transform: translateY(100%); transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+      pointer-events: none;
+    }
+    #media-overlay.visible { transform: translateY(0); pointer-events: auto; }
+    #media-overlay.minimized .media-full { display: none; }
+    #media-overlay.minimized .media-mini { display: flex; }
+    .media-full {
+      background: linear-gradient(to top, rgba(26,26,62,0.97), rgba(45,27,78,0.92));
+      backdrop-filter: blur(20px); border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 12px;
+    }
+    .media-mini {
+      display: none; background: rgba(26,26,62,0.95); backdrop-filter: blur(16px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 10px 20px; align-items: center; gap: 12px; cursor: pointer;
+    }
+    .media-mini-title { flex: 1; color: #e2e8f0; font: 500 14px/1.3 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .media-mini-btn { background: none; border: none; color: #e2e8f0; font-size: 22px; cursor: pointer; padding: 4px; min-width: 36px; min-height: 36px; display: flex; align-items: center; justify-content: center; }
+    .media-top { display: flex; align-items: center; gap: 16px; }
+    .media-art { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: rgba(255,255,255,0.06); flex-shrink: 0; }
+    .media-art-placeholder { width: 64px; height: 64px; border-radius: 8px; background: rgba(255,255,255,0.06); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+    .media-info { flex: 1; overflow: hidden; }
+    .media-title { color: #f1f5f9; font: 600 16px/1.3 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .media-artist { color: #94a3b8; font: 400 13px/1.3 system-ui, sans-serif; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .media-dismiss { background: none; border: none; color: #64748b; font-size: 18px; cursor: pointer; padding: 8px; min-width: 40px; min-height: 40px; display: flex; align-items: center; justify-content: center; }
+    .media-progress { display: flex; align-items: center; gap: 8px; }
+    .media-time { color: #64748b; font: 11px/1 system-ui, monospace; min-width: 36px; }
+    .media-progress-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative; }
+    .media-progress-fill { height: 100%; background: #8b5cf6; border-radius: 3px; transition: width 0.3s linear; }
+    .media-controls { display: flex; align-items: center; justify-content: center; gap: 20px; }
+    .media-ctrl-btn { background: none; border: none; color: #e2e8f0; font-size: 28px; cursor: pointer; padding: 8px; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background 0.2s; }
+    .media-ctrl-btn:active { background: rgba(255,255,255,0.1); }
+    .media-ctrl-btn.play-pause { font-size: 36px; min-width: 56px; min-height: 56px; }
+    .media-volume { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
+    .media-vol-icon { color: #94a3b8; font-size: 16px; min-width: 24px; text-align: center; }
+    .media-vol-slider { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative; }
+    .media-vol-fill { height: 100%; background: #6366f1; border-radius: 3px; pointer-events: none; }
+
     #avatar-container {
       width: 100vw; height: 100vh;
       display: flex; align-items: center; justify-content: center;
@@ -166,6 +208,43 @@
     display: none; align-items: center; justify-content: center;
     backdrop-filter: blur(4px); transition: all 0.3s;
   ">🎤</button>
+  <!-- Media playback overlay — slides up from bottom -->
+  <div id="media-overlay">
+    <div class="media-full">
+      <div class="media-top">
+        <div id="media-art-wrap"></div>
+        <div class="media-info">
+          <div class="media-title" id="media-title"></div>
+          <div class="media-artist" id="media-artist"></div>
+        </div>
+        <button class="media-dismiss" onclick="minimizeMedia()" title="Minimize">▾</button>
+      </div>
+      <div class="media-progress">
+        <span class="media-time" id="media-time-cur">0:00</span>
+        <div class="media-progress-bar" id="media-progress-bar">
+          <div class="media-progress-fill" id="media-progress-fill" style="width:0%"></div>
+        </div>
+        <span class="media-time" id="media-time-dur">0:00</span>
+      </div>
+      <div class="media-controls">
+        <button class="media-ctrl-btn" onclick="sendMediaCmd('previous')" title="Previous">⏮</button>
+        <button class="media-ctrl-btn play-pause" id="media-play-btn" onclick="sendMediaCmd('toggle')" title="Play/Pause">⏯</button>
+        <button class="media-ctrl-btn" onclick="sendMediaCmd('next')" title="Next">⏭</button>
+      </div>
+      <div class="media-volume">
+        <span class="media-vol-icon">🔈</span>
+        <div class="media-vol-slider" id="media-vol-slider">
+          <div class="media-vol-fill" id="media-vol-fill" style="width:50%"></div>
+        </div>
+        <span class="media-vol-icon">🔊</span>
+      </div>
+    </div>
+    <div class="media-mini" onclick="expandMedia()">
+      <span class="media-mini-title" id="media-mini-title"></span>
+      <button class="media-mini-btn" onclick="event.stopPropagation(); sendMediaCmd('toggle')">⏯</button>
+      <button class="media-mini-btn" onclick="event.stopPropagation(); minimizeMedia(true)">✕</button>
+    </div>
+  </div>
   <!-- Content display overlay — Atlas controls what's shown -->
   <div id="content-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:1000; background:#0f172a;">
     <button id="content-back" onclick="showAvatar()" style="
@@ -1076,6 +1155,9 @@
         case 'display':
           handleDisplayCommand(msg);
           break;
+        case 'MEDIA_STATE':
+          handleMediaState(msg);
+          break;
       }
     }
 
@@ -1283,6 +1365,148 @@
       const sec = s % 60;
       return `${m}:${sec.toString().padStart(2,'0')}`;
     }
+
+    // ── Media overlay controller ─────────────────────────────────
+    let _mediaState = null;
+    let _mediaMinimized = false;
+    let _mediaDismissed = false;
+    let _mediaPositionTimer = null;
+
+    function handleMediaState(msg) {
+      const targetRoom = msg.target_room || '';
+      if (targetRoom && targetRoom !== room && room !== 'default') {
+        hideMediaOverlay();
+        return;
+      }
+      _mediaState = msg;
+      if (msg.is_playing || msg.item) {
+        _mediaDismissed = false;
+        showMediaOverlay(msg);
+      } else {
+        hideMediaOverlay();
+      }
+    }
+
+    function showMediaOverlay(state) {
+      const overlay = document.getElementById('media-overlay');
+      const item = state.item;
+      if (!item) { hideMediaOverlay(); return; }
+
+      // Album art
+      const artWrap = document.getElementById('media-art-wrap');
+      if (item.album_art_url) {
+        artWrap.innerHTML = `<img class="media-art" src="${_esc(item.album_art_url)}" alt="">`;
+      } else {
+        artWrap.innerHTML = '<div class="media-art-placeholder">🎵</div>';
+      }
+
+      document.getElementById('media-title').textContent = item.title || '';
+      document.getElementById('media-artist').textContent = item.artist || '';
+      document.getElementById('media-mini-title').textContent =
+        (item.title || '') + (item.artist ? ' — ' + item.artist : '');
+
+      // Play/pause button
+      document.getElementById('media-play-btn').textContent = state.is_playing ? '⏸' : '▶';
+
+      // Progress
+      updateMediaProgress(state.position_seconds || 0, item.duration_seconds || 0);
+
+      // Volume
+      const volPct = Math.round((state.volume ?? 0.5) * 100);
+      document.getElementById('media-vol-fill').style.width = volPct + '%';
+
+      // Show
+      overlay.classList.add('visible');
+      if (_mediaMinimized) {
+        overlay.classList.add('minimized');
+      } else {
+        overlay.classList.remove('minimized');
+      }
+
+      // Tick position while playing
+      clearInterval(_mediaPositionTimer);
+      if (state.is_playing && item.duration_seconds > 0) {
+        _mediaPositionTimer = setInterval(() => {
+          if (!_mediaState || !_mediaState.is_playing) { clearInterval(_mediaPositionTimer); return; }
+          _mediaState.position_seconds = (_mediaState.position_seconds || 0) + 1;
+          updateMediaProgress(_mediaState.position_seconds, item.duration_seconds);
+        }, 1000);
+      }
+    }
+
+    function updateMediaProgress(pos, dur) {
+      document.getElementById('media-time-cur').textContent = _fmtTime(Math.floor(pos));
+      document.getElementById('media-time-dur').textContent = _fmtTime(Math.floor(dur));
+      const pct = dur > 0 ? Math.min(100, (pos / dur) * 100) : 0;
+      document.getElementById('media-progress-fill').style.width = pct + '%';
+    }
+
+    function hideMediaOverlay() {
+      const overlay = document.getElementById('media-overlay');
+      overlay.classList.remove('visible');
+      clearInterval(_mediaPositionTimer);
+      _mediaState = null;
+    }
+
+    function minimizeMedia(dismiss) {
+      if (dismiss) {
+        _mediaDismissed = true;
+        hideMediaOverlay();
+        return;
+      }
+      _mediaMinimized = true;
+      document.getElementById('media-overlay').classList.add('minimized');
+    }
+
+    function expandMedia() {
+      _mediaMinimized = false;
+      document.getElementById('media-overlay').classList.remove('minimized');
+    }
+
+    function sendMediaCmd(action) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'MEDIA_COMMAND', action: action, room: room }));
+    }
+
+    // Progress bar seek (tap/click)
+    document.addEventListener('DOMContentLoaded', () => {
+      const progressBar = document.getElementById('media-progress-bar');
+      if (progressBar) {
+        progressBar.addEventListener('click', (e) => {
+          if (!_mediaState || !_mediaState.item) return;
+          const rect = progressBar.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const pos = pct * (_mediaState.item.duration_seconds || 0);
+          sendMediaCmd('seek');
+          ws.send(JSON.stringify({ type: 'MEDIA_COMMAND', action: 'seek', room: room, position_seconds: pos }));
+          _mediaState.position_seconds = pos;
+          updateMediaProgress(pos, _mediaState.item.duration_seconds || 0);
+        });
+      }
+
+      const volSlider = document.getElementById('media-vol-slider');
+      if (volSlider) {
+        volSlider.addEventListener('click', (e) => {
+          const rect = volSlider.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const level = Math.round(pct * 100);
+          document.getElementById('media-vol-fill').style.width = level + '%';
+          ws.send(JSON.stringify({ type: 'MEDIA_COMMAND', action: 'volume', room: room, level: level }));
+        });
+      }
+    });
+
+    // Swipe down to minimize
+    (function() {
+      let _touchStartY = 0;
+      const overlay = document.getElementById('media-overlay');
+      if (!overlay) return;
+      overlay.addEventListener('touchstart', (e) => { _touchStartY = e.touches[0].clientY; }, {passive: true});
+      overlay.addEventListener('touchend', (e) => {
+        const dy = e.changedTouches[0].clientY - _touchStartY;
+        if (dy > 50) minimizeMedia();
+      }, {passive: true});
+    })();
 
     // ── Load SVG skin ─────────────────────────────────────────
     async function loadSkin(url) {
