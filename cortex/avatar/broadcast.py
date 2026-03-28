@@ -273,3 +273,40 @@ async def stream_tts_to_avatar(
             await broadcast_tts_end(room, sid)
         except Exception:
             pass
+
+
+# ── Media state broadcast ────────────────────────────────────────
+
+async def broadcast_media_state(
+    room: str,
+    state: Any,
+    queue: list[dict[str, Any]] | None = None,
+) -> None:
+    """Broadcast MEDIA_STATE to avatar displays for a room.
+
+    ``state`` is a ``PlaybackState`` instance from ``cortex.media.base``.
+    """
+    item_dict = None
+    if state.current_item:
+        it = state.current_item
+        item_dict = {
+            "title": it.title,
+            "artist": it.artist,
+            "album": it.album,
+            "album_art_url": it.metadata.get("album_art_url", ""),
+            "duration_seconds": it.duration_seconds,
+            "provider": it.provider,
+        }
+    queue_summary = [
+        {"title": q.get("title", ""), "artist": q.get("artist", "")}
+        for q in (queue or [])
+    ]
+    await broadcast_to_room(room, {
+        "type": "MEDIA_STATE",
+        "is_playing": state.is_playing,
+        "item": item_dict,
+        "position_seconds": state.position_seconds,
+        "volume": state.volume,
+        "target_room": state.target_room or room,
+        "queue": queue_summary,
+    })
