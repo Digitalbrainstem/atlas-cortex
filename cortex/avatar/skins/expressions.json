@@ -1,394 +1,333 @@
 {
   "version": 3,
-  "description": "Ratio-based expression library \u2014 shapes derived from each skin's base face geometry",
+  "description": "Nick Jr. Face-style expression library \u2014 large round eyes, wide dramatic mouths, no eyebrows",
   "expressions": {
     "happy": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
-        "shape": "smile",
-        "width_ratio": 1.0,
-        "curve_ratio": 1.3
+        "shape": "big_grin",
+        "width_ratio": 1.4,
+        "curve_ratio": 1.6,
+        "fill": "#111"
       },
       "eyes": {
         "shape": "joy",
-        "rx_ratio": 0.95,
-        "ry_ratio": 0.75
+        "rx_ratio": 1.1,
+        "ry_ratio": 0.6
       },
-      "eyebrows": {
-        "shape": "raised",
-        "dy": -5,
-        "curve": 0.15
-      },
-      "description": "Wide smile arc curving upward"
+      "description": "Big wide grin, eyes squeezed into happy arcs"
     },
     "sad": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
-        "width_ratio": 0.8,
-        "curve_ratio": 0.6
+        "width_ratio": 1.1,
+        "curve_ratio": 0.8
       },
       "eyes": {
         "shape": "droopy_small",
-        "rx_ratio": 0.95,
-        "ry_ratio": 0.75
+        "rx_ratio": 1.1,
+        "ry_ratio": 0.7
       },
-      "eyebrows": {
-        "shape": "worry",
-        "inner_dy": -8,
-        "outer_dy": 3
-      },
-      "description": "Downturned mouth, droopy half-lidded eyes"
+      "description": "Wide downturned mouth, droopy half-lidded eyes"
     },
     "angry": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
-        "width_ratio": 0.7,
-        "curve_ratio": 0.3
+        "width_ratio": 1.0,
+        "curve_ratio": 0.4
       },
       "eyes": {
-        "shape": "small_intense",
-        "rx_ratio": 0.7,
-        "ry_ratio": 0.6
+        "shape": "squint",
+        "rx_ratio": 1.0,
+        "ry_ratio": 0.5
       },
-      "eyebrows": {
-        "shape": "v_furrowed"
-      },
-      "description": "Tight frown, narrowed eyes, V-shaped eyebrows"
+      "description": "Tight wide frown, squinted eyes"
     },
     "surprised": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_o",
-        "rx_ratio": 0.2,
-        "ry_ratio": 0.25
+        "rx_ratio": 0.3,
+        "ry_ratio": 0.4
       },
       "eyes": {
         "shape": "wide",
-        "ry_ratio": 1.3
+        "ry_ratio": 1.5
       },
-      "eyebrows": {
-        "shape": "raised_high",
-        "dy": -18
-      },
-      "description": "Round open mouth, wide eyes, high eyebrows"
+      "description": "Big round open mouth, eyes go huge and round"
     },
     "thinking": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "side",
-        "width_ratio": 0.4,
-        "offset_x": 0.15
+        "width_ratio": 0.5,
+        "offset_x": 0.2
       },
       "eyes": {
         "shape": "look_up",
-        "ry_ratio": 0.9,
-        "pupil_dy": -3
+        "ry_ratio": 1.1,
+        "pupil_dy": -5
       },
-      "eyebrows": {
-        "shape": "one_raised",
-        "dy": -8
-      },
-      "description": "Offset small mouth, upward gaze, one brow raised"
+      "description": "Small offset mouth, eyes look up with big pupils"
     },
     "confused": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "wavy",
-        "width_ratio": 0.5,
-        "curve_ratio": 0.3
+        "width_ratio": 0.7,
+        "curve_ratio": 0.4
       },
       "eyes": {
         "shape": "asymmetric",
-        "left_ry_ratio": 0.9,
+        "left_ry_ratio": 1.2,
         "right_ry_ratio": 0.7
-      },
-      "eyebrows": {
-        "shape": "asymmetric_brow"
       },
       "decorations": [
         {
           "type": "question_mark",
-          "offset_x": 55,
-          "offset_y": -45,
-          "size": 32,
+          "offset_x": 60,
+          "offset_y": -50,
+          "size": 36,
           "fill": "#666",
           "opacity": 0.7,
           "wobble": true
         }
       ],
-      "description": "Wavy S-curve mouth, asymmetric eyes and brows"
+      "description": "Wobbly mouth, one eye big and one small"
     },
     "excited": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "big_grin",
-        "width_ratio": 1.2,
-        "curve_ratio": 1.5,
-        "fill": "#fff"
+        "width_ratio": 1.5,
+        "curve_ratio": 1.8,
+        "fill": "#111"
       },
       "eyes": {
         "shape": "wide",
-        "ry_ratio": 1.25
-      },
-      "eyebrows": {
-        "shape": "raised_high",
-        "dy": -10
+        "ry_ratio": 1.4
       },
       "decorations": [
         {
           "type": "sparkle",
-          "offset_x": -45,
-          "offset_y": -25,
-          "size": 8,
+          "offset_x": -50,
+          "offset_y": -30,
+          "size": 10,
           "fill": "#FFD600",
-          "opacity": 0.8
+          "opacity": 0.9
         },
         {
           "type": "sparkle",
-          "offset_x": 45,
-          "offset_y": -30,
-          "size": 6,
+          "offset_x": 50,
+          "offset_y": -35,
+          "size": 8,
           "fill": "#FFD600",
-          "opacity": 0.6
+          "opacity": 0.7
         }
       ],
-      "description": "Big open grin, wide eyes, raised eyebrows"
+      "description": "Huge grin, giant round eyes, sparkles"
     },
     "scared": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
-        "width_ratio": 0.7,
-        "curve_ratio": 0.8
+        "width_ratio": 0.9,
+        "curve_ratio": 1.0
       },
       "eyes": {
         "shape": "wide",
-        "ry_ratio": 1.4
+        "ry_ratio": 1.6
       },
-      "eyebrows": {
-        "shape": "raised_high",
-        "dy": -15
-      },
-      "description": "Open frown, very wide eyes, high eyebrows"
+      "description": "Open frown, extremely wide eyes"
     },
     "concerned": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "frown",
-        "width_ratio": 0.7,
-        "curve_ratio": 0.4
+        "width_ratio": 0.9,
+        "curve_ratio": 0.5
       },
       "eyes": {
         "shape": "slightly_wide",
-        "ry_ratio": 1.05
+        "ry_ratio": 1.15
       },
-      "eyebrows": {
-        "shape": "slight_furrow"
-      },
-      "description": "Slight frown, slightly wide eyes, gentle furrow"
+      "description": "Gentle frown, slightly wide eyes"
     },
     "proud": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
-        "width_ratio": 0.85,
-        "curve_ratio": 0.8
+        "width_ratio": 1.1,
+        "curve_ratio": 1.0
       },
       "eyes": {
         "shape": "confident",
-        "rx_ratio": 1.0,
-        "ry_ratio": 0.85
+        "rx_ratio": 1.1,
+        "ry_ratio": 0.8
       },
-      "eyebrows": {
-        "shape": "one_raised",
-        "dy": -3
-      },
-      "description": "Asymmetric smirk, relaxed eyes, one brow raised"
+      "description": "Confident smile, half-lidded cool eyes"
     },
     "love": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "smile",
-        "width_ratio": 0.6,
-        "curve_ratio": 0.4
+        "width_ratio": 0.8,
+        "curve_ratio": 0.6
       },
       "eyes": {
         "shape": "hearts",
-        "rx_ratio": 0.9,
-        "ry_ratio": 0.8
-      },
-      "eyebrows": {
-        "shape": "soft"
+        "rx_ratio": 1.1,
+        "ry_ratio": 1.0
       },
       "decorations": [
         {
           "type": "heart",
-          "offset_x": -40,
-          "offset_y": -20,
-          "size": 12,
+          "offset_x": -45,
+          "offset_y": -25,
+          "size": 14,
           "fill": "#E74C3C",
-          "opacity": 0.8
+          "opacity": 0.9
         },
         {
           "type": "heart",
-          "offset_x": 40,
-          "offset_y": -25,
-          "size": 10,
+          "offset_x": 45,
+          "offset_y": -30,
+          "size": 12,
           "fill": "#E74C3C",
-          "opacity": 0.6
+          "opacity": 0.7
         }
       ],
-      "description": "Small pucker mouth, dreamy half-closed eyes"
+      "description": "Gentle smile, big heart eyes, floating hearts"
     },
     "crying": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "open_frown",
-        "width_ratio": 0.8,
-        "curve_ratio": 0.7
+        "width_ratio": 1.1,
+        "curve_ratio": 0.9
       },
       "eyes": {
         "shape": "crying",
-        "rx_ratio": 0.9,
-        "ry_ratio": 0.6
-      },
-      "eyebrows": {
-        "shape": "worry",
-        "inner_dy": -6,
-        "outer_dy": 4
+        "rx_ratio": 1.1,
+        "ry_ratio": 0.5
       },
       "decorations": [
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": 6,
-          "offset_y": 5,
+          "offset_x": 8,
+          "offset_y": 6,
           "fill": "#5DADE2",
-          "opacity": 0.45,
-          "rx": 6,
-          "ry": 18,
+          "opacity": 0.5,
+          "rx": 7,
+          "ry": 20,
           "animate": true
         },
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": -6,
-          "offset_y": 5,
+          "offset_x": -8,
+          "offset_y": 6,
           "fill": "#5DADE2",
-          "opacity": 0.45,
-          "rx": 6,
-          "ry": 18,
+          "opacity": 0.5,
+          "rx": 7,
+          "ry": 20,
           "animate": true
         }
       ],
-      "description": "Open frown, tightly squinted eyes, worried brows"
+      "description": "Wide open frown, squished crying eyes, big tears"
     },
     "sleepy": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "small_o",
-        "rx_ratio": 0.13,
-        "ry_ratio": 0.1
+        "rx_ratio": 0.15,
+        "ry_ratio": 0.12
       },
       "eyes": {
         "shape": "nearly_closed",
-        "ry_ratio": 0.15
-      },
-      "eyebrows": {
-        "shape": "relaxed_low",
-        "dy": 2
+        "ry_ratio": 0.12
       },
       "decorations": [
         {
           "type": "zzz",
-          "offset_x": 70,
-          "offset_y": -50,
-          "size": 28,
+          "offset_x": 75,
+          "offset_y": -55,
+          "size": 32,
           "fill": "#999",
           "opacity": 0.7,
           "wobble": true
         }
       ],
-      "description": "Tiny yawn mouth, nearly shut eyes, droopy brows"
+      "description": "Tiny yawn mouth, eyes barely open, big zzz"
     },
     "winking": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
-        "shape": "smile",
-        "width_ratio": 1.0,
-        "curve_ratio": 1.2
+        "shape": "big_grin",
+        "width_ratio": 1.3,
+        "curve_ratio": 1.4,
+        "fill": "#111"
       },
       "eyes": {
         "shape": "wink"
       },
-      "eyebrows": {
-        "shape": "asymmetric"
-      },
-      "description": "Smile with left eye winking"
+      "description": "Big grin with a playful wink"
     },
     "laughing": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "big_grin",
-        "width_ratio": 1.5,
-        "curve_ratio": 0.8,
-        "fill": "#fff"
+        "width_ratio": 1.7,
+        "curve_ratio": 1.0,
+        "fill": "#111"
       },
       "eyes": {
         "shape": "closed"
       },
-      "eyebrows": {
-        "shape": "raised",
-        "dy": -6,
-        "curve": 0.18
-      },
-      "description": "Wide open grin, eyes closed with joy"
+      "description": "Huge wide grin, eyes squeezed shut with joy"
     },
     "silly": {
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "tongue_out",
-        "width_ratio": 1.0,
-        "curve_ratio": 0.35
+        "width_ratio": 1.2,
+        "curve_ratio": 0.5
       },
       "eyes": {
         "shape": "asymmetric_size",
-        "left_ry_ratio": 1.4,
-        "right_ry_ratio": 0.45,
+        "left_ry_ratio": 1.5,
+        "right_ry_ratio": 0.4,
         "animate": true
-      },
-      "eyebrows": {
-        "shape": "wavy_brow",
-        "dy": -12
       },
       "decorations": [
         {
           "type": "tongue",
-          "offset_y": 15,
-          "width": 20,
-          "height": 15,
+          "offset_y": 18,
+          "width": 24,
+          "height": 18,
           "fill": "#E74C6F"
         }
       ],
-      "description": "Wavy mouth, mismatched eye sizes, wavy brows"
+      "description": "Tongue out, one huge eye one tiny eye, wiggly"
     },
     "listening": {
       "replace_mouth": false,
@@ -401,44 +340,40 @@
       "description": "Default face \u2014 resting neutral"
     },
     "rofl": {
-      "description": "Rolling on the floor laughing \u2014 wide grin with teardrop decorations",
+      "description": "Rolling on the floor laughing \u2014 massive grin with tears",
       "replace_mouth": true,
       "replace_eyes": true,
       "mouth": {
         "shape": "big_grin",
-        "width_ratio": 1.6,
-        "curve_ratio": 0.9,
-        "fill": "#fff"
+        "width_ratio": 1.8,
+        "curve_ratio": 1.1,
+        "fill": "#111"
       },
       "eyes": {
         "shape": "closed",
         "ry_ratio": 1.0
       },
-      "eyebrows": {
-        "shape": "raised",
-        "dy": -10
-      },
       "decorations": [
         {
           "type": "teardrop",
           "side": "left",
-          "offset_x": 6,
-          "offset_y": 5,
+          "offset_x": 8,
+          "offset_y": 6,
           "fill": "#5DADE2",
-          "opacity": 0.45,
-          "rx": 6,
-          "ry": 18,
+          "opacity": 0.5,
+          "rx": 7,
+          "ry": 20,
           "animate": true
         },
         {
           "type": "teardrop",
           "side": "right",
-          "offset_x": -6,
-          "offset_y": 5,
+          "offset_x": -8,
+          "offset_y": 6,
           "fill": "#5DADE2",
-          "opacity": 0.45,
-          "rx": 6,
-          "ry": 18,
+          "opacity": 0.5,
+          "rx": 7,
+          "ry": 20,
           "animate": true
         }
       ]

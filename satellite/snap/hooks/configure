@@ -1,0 +1,39 @@
+#!/bin/bash
+# Atlas satellite snap configure hook.
+# Runs when 'snap set atlas-satellite key=value' is called.
+# Configures WiFi, satellite config, and kiosk URL.
+
+set -euo pipefail
+
+# Read snap configuration
+SERVER_URL=$(snapctl get server-url || true)
+ROOM=$(snapctl get room || true)
+WIFI_SSID=$(snapctl get wifi-ssid || true)
+WIFI_PASSWORD=$(snapctl get wifi-password || true)
+
+# Configure WiFi if SSID provided
+if [ -n "$WIFI_SSID" ]; then
+    if [ -n "$WIFI_PASSWORD" ]; then
+        nmcli device wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD" || true
+    else
+        nmcli device wifi connect "$WIFI_SSID" || true
+    fi
+fi
+
+# Ensure config directory exists
+mkdir -p "$SNAP_DATA/config"
+
+# Write satellite config
+cat > "$SNAP_DATA/config/config.json" << EOF
+{
+    "server_url": "${SERVER_URL:-ws://atlas-cortex.local:5100/ws/satellite}",
+    "room": "${ROOM:-Default}",
+    "mode": "tablet"
+}
+EOF
+
+# Configure kiosk URL if server URL is set
+if [ -n "$SERVER_URL" ]; then
+    ATLAS_HOST=$(echo "$SERVER_URL" | sed 's|ws://||;s|wss://||;s|/.*||')
+    snap set wpe-webkit-mir-kiosk url="http://${ATLAS_HOST}/avatar#skin=nick" 2>/dev/null || true
+fi

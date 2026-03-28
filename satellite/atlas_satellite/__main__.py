@@ -15,6 +15,18 @@ from pathlib import Path
 
 from .agent import SatelliteAgent
 from .config import SatelliteConfig
+from .setup_server import SetupServer
+
+
+async def _run(agent: SatelliteAgent, setup_port: int) -> None:
+    """Run the setup web server and satellite agent concurrently."""
+    setup = SetupServer(port=setup_port)
+    await setup.start()
+
+    try:
+        await agent.start()
+    finally:
+        await setup.stop()
 
 
 def main() -> None:
@@ -39,6 +51,12 @@ def main() -> None:
         default=None,
         choices=["none", "respeaker", "gpio"],
         help="LED type (overrides config)",
+    )
+    parser.add_argument(
+        "--setup-port",
+        type=int,
+        default=8080,
+        help="Port for the local WiFi setup web server (default: 8080)",
     )
     parser.add_argument(
         "--debug",
@@ -100,7 +118,7 @@ def main() -> None:
         loop.add_signal_handler(sig, _shutdown, sig)
 
     try:
-        loop.run_until_complete(agent.start())
+        loop.run_until_complete(_run(agent, args.setup_port))
     except KeyboardInterrupt:
         pass
     finally:

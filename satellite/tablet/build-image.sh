@@ -201,12 +201,10 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -qq
 
-# ── Chromium (real deb from xtradeb PPA — NOT snap) ──────────────
-# Ubuntu 24.04's chromium-browser is a snap wrapper. The xtradeb PPA
-# provides a real .deb package with full audio/hardware access.
+# ── Chromium PPA (add repo but DON'T install — TUI handles it on first boot)
+# Installing in ISO adds ~150MB which pushes over GitHub's 2GB release limit.
+# The TUI wizard installs Chromium from this PPA after WiFi is connected.
 add-apt-repository -y ppa:xtradeb/apps 2>/dev/null || true
-apt-get update -qq
-apt-get install -y -qq chromium
 
 # ── SSH, kiosk tools ──────────────────────────────────────────────
 apt-get install -y -qq \
@@ -256,7 +254,7 @@ apt-get remove --purge -y -qq \
     gimp* hexchat* pidgin* \
     xfburn* mousepad* catfish* \
     atril* engrampa* mate-calc* \
-    gnome-software* snap-store* \
+    gnome-software* snap-store* snapd* \
     xfce4-mailwatch-plugin xfce4-weather-plugin \
     xfce4-notes-plugin xfce4-cpugraph-plugin \
     xfce4-netload-plugin xfce4-systemload-plugin \

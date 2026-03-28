@@ -1,0 +1,85 @@
+name: atlas-satellite
+version: '0.0.2'
+summary: Atlas personal AI satellite agent
+description: |
+  Satellite agent for Atlas personal AI. Handles wake word detection,
+  audio capture/playback, WebSocket communication with Atlas server,
+  and kiosk display management.
+
+base: core24
+grade: stable
+confinement: strict
+
+apps:
+  atlas-satellite:
+    command: bin/start-satellite
+    daemon: simple
+    restart-condition: always
+    plugs:
+      - network
+      - network-bind
+      - audio-playback
+      - audio-record
+      - pulseaudio
+      - alsa
+      - wayland
+      - opengl
+
+  setup-tui:
+    command: bin/atlas-setup-tui
+    plugs:
+      - network
+      - network-manager
+      - network-control
+
+  configure-wifi:
+    command: bin/configure-wifi
+    plugs:
+      - network-manager
+      - network-control
+
+parts:
+  satellite-agent:
+    plugin: dump
+    source: satellite/atlas_satellite/
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/lib/atlas_satellite
+      cp -r . $CRAFT_PART_INSTALL/lib/atlas_satellite/
+
+  setup-tui:
+    plugin: dump
+    source: satellite/tablet/
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp atlas-setup-tui.py $CRAFT_PART_INSTALL/bin/atlas-setup-tui
+      chmod +x $CRAFT_PART_INSTALL/bin/atlas-setup-tui
+    stage:
+      - bin/atlas-setup-tui
+
+  python-deps:
+    plugin: python
+    source: satellite/
+    python-packages:
+      - aiohttp
+      - websockets
+      - numpy
+    build-packages:
+      - python3-dev
+    stage-packages:
+      - python3
+      - alsa-utils
+      - avahi-utils
+
+  start-script:
+    plugin: dump
+    source: satellite/snap/scripts/
+    override-build: |
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      cp start-satellite.sh $CRAFT_PART_INSTALL/bin/start-satellite
+      cp configure-wifi.sh $CRAFT_PART_INSTALL/bin/configure-wifi
+      chmod +x $CRAFT_PART_INSTALL/bin/start-satellite
+      chmod +x $CRAFT_PART_INSTALL/bin/configure-wifi
+
+layout:
+  /opt/atlas-satellite:
+    bind: $SNAP_DATA/config

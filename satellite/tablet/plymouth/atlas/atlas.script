@@ -1,0 +1,90 @@
+# Atlas Plymouth Boot Script
+# Displays the Atlas logo with a pulsing glow animation during boot.
+
+# Load assets
+bg_image = Image("background.png");
+logo_image = Image("atlas-logo.png");
+
+# Screen dimensions
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+# ── Background ──────────────────────────────────────────────
+bg_sprite = Sprite(bg_image.Scale(screen_width, screen_height));
+bg_sprite.SetX(0);
+bg_sprite.SetY(0);
+bg_sprite.SetZ(-100);
+
+# ── Logo (centered, 256x256) ───────────────────────────────
+logo_width = 256;
+logo_height = 256;
+logo_x = (screen_width - logo_width) / 2;
+logo_y = (screen_height - logo_height) / 2 - 40;
+
+logo_sprite = Sprite(logo_image.Scale(logo_width, logo_height));
+logo_sprite.SetX(logo_x);
+logo_sprite.SetY(logo_y);
+logo_sprite.SetZ(10);
+logo_sprite.SetOpacity(1.0);
+
+# ── Progress bar ────────────────────────────────────────────
+bar_width = 200;
+bar_height = 4;
+bar_x = (screen_width - bar_width) / 2;
+bar_y = logo_y + logo_height + 40;
+
+# Dark track
+bar_bg = Image(bar_width, bar_height);
+bar_bg.Draw(0, 0, bar_width, bar_height, 0.15, 0.15, 0.2, 1.0);
+bar_bg_sprite = Sprite(bar_bg);
+bar_bg_sprite.SetX(bar_x);
+bar_bg_sprite.SetY(bar_y);
+bar_bg_sprite.SetZ(5);
+
+# Glow fill
+bar_fill_width = 0;
+bar_fill = Image(1, bar_height);
+bar_fill.Draw(0, 0, 1, bar_height, 0.0, 0.83, 1.0, 1.0);
+bar_fill_sprite = Sprite(bar_fill);
+bar_fill_sprite.SetX(bar_x);
+bar_fill_sprite.SetY(bar_y);
+bar_fill_sprite.SetZ(6);
+
+# ── Pulse animation state ──────────────────────────────────
+pulse_counter = 0;
+pulse_direction = 1;
+
+fun refresh_callback() {
+  # Pulse the logo opacity between 0.6 and 1.0
+  pulse_counter += pulse_direction * 0.015;
+  if (pulse_counter >= 1.0) {
+    pulse_counter = 1.0;
+    pulse_direction = -1;
+  }
+  if (pulse_counter <= 0.0) {
+    pulse_counter = 0.0;
+    pulse_direction = 1;
+  }
+  opacity = 0.6 + pulse_counter * 0.4;
+  logo_sprite.SetOpacity(opacity);
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# ── Boot progress ──────────────────────────────────────────
+fun boot_progress_callback(duration, progress) {
+  new_width = bar_width * progress;
+  if (new_width > 0) {
+    bar_fill_scaled = bar_fill.Scale(new_width, bar_height);
+    bar_fill_sprite.SetImage(bar_fill_scaled);
+  }
+}
+
+Plymouth.SetBootProgressFunction(boot_progress_callback);
+
+# ── Messages (hidden — clean boot) ─────────────────────────
+fun message_callback(text) {
+  # Suppress boot messages for clean look
+}
+
+Plymouth.SetMessageFunction(message_callback);

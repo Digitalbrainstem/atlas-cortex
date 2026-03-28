@@ -372,3 +372,57 @@ async def remove_satellite(satellite_id: str, admin: dict = Depends(require_admi
     mgr = _get_satellite_manager()
     await mgr.remove(satellite_id)
     return {"removed": True}
+
+
+# ── SSH provisioning & password rotation ─────────────────────────
+
+
+@router.post("/satellites/{satellite_id}/push-ssh-key")
+async def push_ssh_key(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Push the Atlas server SSH public key to the satellite and rotate password."""
+    from cortex.satellite.provisioning import ProvisioningEngine, provision_ssh_key
+
+    key_path = await ProvisioningEngine.ensure_server_key()
+    public_key = key_path.with_suffix(".pub").read_text().strip()
+
+    try:
+        await provision_ssh_key(satellite_id, public_key)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"success": True, "message": "SSH key installed and password rotated"}
+
+
+@router.post("/satellites/{satellite_id}/rotate-password")
+async def rotate_satellite_password(
+    satellite_id: str, admin: dict = Depends(require_admin)
+):
+    """Generate a new random password for the satellite."""
+    from cortex.satellite.provisioning import rotate_password
+
+    try:
+        new_pw = await rotate_password(satellite_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {"success": True, "password": new_pw}
+
+
+@router.get("/satellites/{satellite_id}/ssh-info")
+async def get_ssh_info(satellite_id: str, admin: dict = Depends(require_admin)):
+    """Return SSH connection details for a satellite."""
+    db = get_db()
+    row = db.execute(
+        "SELECT ip_address, ssh_username, ssh_password, ssh_key_installed "
+        "FROM satellites WHERE id = ?",
+        (satellite_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Satellite not found")
+    return {
+        "ip_address": row[0],
+        "ssh_username": row[1] or "atlas",
+        "ssh_password": row[2],
+        "ssh_key_installed": bool(row[3]),
+        "ssh_command": f"ssh {row[1] or 'atlas'}@{row[0]}" if row[0] else None,
+    }
