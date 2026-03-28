@@ -1663,10 +1663,10 @@
             s.setAttribute('cy', parseFloat(s.dataset.origCy) + dy);
           });
         };
-        movePupils(-10, 0); // look left
-        setTimeout(() => movePupils(10, 0), 200);  // look right
-        setTimeout(() => movePupils(-8, 0), 400);   // look left again
-        setTimeout(() => movePupils(8, 0), 550);    // look right again
+        movePupils(-25, 0); // look far left
+        setTimeout(() => movePupils(25, 0), 200);  // look far right
+        setTimeout(() => movePupils(-20, 0), 400);   // look left again
+        setTimeout(() => movePupils(20, 0), 550);    // look right again
         _goofyTimer = setTimeout(() => movePupils(0, 0), 700); // center
 
       } else if (style === 'cross') {
@@ -1966,15 +1966,16 @@
     function doIdleZoom() {
       if (_isSpeaking) return;
       const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
-      scaler.style.transition = 'transform 1.5s cubic-bezier(0.34, 1.56, 0.64, 1)';
-      scaler.style.transform = `scale(${anim.scale * 1.12}) rotate(${anim.tilt}deg)`;
+      // BIG zoom in — fill 80% more of the screen
+      scaler.style.transition = 'transform 1.2s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      scaler.style.transform = `scale(${anim.scale * 1.6}) rotate(${anim.tilt}deg)`;
       setTimeout(() => {
         scaler.style.transition = 'transform 1.5s ease-in-out';
         scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
-      }, 1500);
+      }, 2000);
     }
 
-    // Eye spread — eyes move apart then back together
+    // Eye spread — eyes move FAR apart then snap back
     function doEyeSpread() {
       const eyesBase = container.querySelector('#eyes-base');
       if (!eyesBase) return;
@@ -1985,25 +1986,25 @@
         if (!el.dataset.origCx) el.dataset.origCx = cx;
         const orig = parseFloat(el.dataset.origCx);
         const center = 200;
-        const spread = (orig < center) ? -35 : 35;
-        el.style.transition = 'all 0.6s ease-out';
+        const spread = (orig < center) ? -70 : 70;
+        el.style.transition = 'all 0.5s ease-out';
         el.setAttribute('cx', orig + spread);
       });
       setTimeout(() => {
         allEls.forEach(el => {
           const orig = parseFloat(el.dataset.origCx);
           if (isNaN(orig)) return;
-          el.style.transition = 'all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          el.style.transition = 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)';
           el.setAttribute('cx', orig);
         });
-      }, 800);
+      }, 1000);
     }
 
-    // Side-to-side sway — gentle rocking motion
+    // Side-to-side sway — big rocking motion
     function doIdleSway() {
       if (_isSpeaking) return;
       const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
-      const tiltSeq = [18, -18, 12, -12, 0];
+      const tiltSeq = [25, -25, 15, -15, 0];
       tiltSeq.forEach((tilt, i) => {
         setTimeout(() => {
           scaler.style.transition = 'transform 0.5s ease-in-out';
@@ -2012,20 +2013,23 @@
       });
     }
 
-    // Stretch — face stretches vertically then springs back
+    // Stretch — face stretches to 70% of view height then squishes flat
     function doIdleStretch() {
       if (_isSpeaking) return;
       const anim = EXPR_ANIMATIONS[currentExpr] || EXPR_ANIMATIONS.neutral;
-      scaler.style.transition = 'transform 0.4s ease-in';
-      scaler.style.transform = `scale(${anim.scale * 0.75}, ${anim.scale * 1.3}) rotate(${anim.tilt}deg)`;
+      // Stretch TALL (60-80% of view)
+      scaler.style.transition = 'transform 0.35s ease-in';
+      scaler.style.transform = `scale(${anim.scale * 0.5}, ${anim.scale * 1.8}) rotate(${anim.tilt}deg)`;
       setTimeout(() => {
-        scaler.style.transition = 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
-        scaler.style.transform = `scale(${anim.scale * 1.06}, ${anim.scale * 0.94}) rotate(${anim.tilt}deg)`;
+        // Squish FLAT (20-30% height)
+        scaler.style.transition = 'transform 0.25s ease-in';
+        scaler.style.transform = `scale(${anim.scale * 1.6}, ${anim.scale * 0.3}) rotate(${anim.tilt}deg)`;
         setTimeout(() => {
-          scaler.style.transition = 'transform 0.4s ease-out';
+          // Bounce back to normal
+          scaler.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
           scaler.style.transform = `scale(${anim.scale}) rotate(${anim.tilt}deg)`;
-        }, 300);
-      }, 400);
+        }, 250);
+      }, 350);
     }
 
     // Quick spin — rare playful 360° spin
@@ -2073,38 +2077,38 @@
         breatheIn = !breatheIn;
       }, 2000);
 
-      // Occasional happy hop (bubbly personality)
+      // Occasional happy hop
       if (idleHopInterval) clearInterval(idleHopInterval);
       idleHopInterval = setInterval(() => {
         if (currentExpr === 'neutral' || currentExpr === 'listening') {
           doHop();
         }
-      }, 4000 + Math.random() * 4000);
+      }, 6000 + Math.random() * 6000);
 
-      // Random goofy eyes when idle (keeps it playful)
+      // Random goofy eyes when idle
       if (_goofyIdleInterval) clearInterval(_goofyIdleInterval);
       _goofyIdleInterval = setInterval(() => {
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           const style = Math.random() < 0.6 ? 'dart' : 'cross';
           doGoofyEyes(style);
         }
-      }, 6000 + Math.random() * 6000);
+      }, 10000 + Math.random() * 8000);
 
-      // Idle zoom — curious zoom in/out
+      // Idle zoom — dramatic zoom in
       if (_idleZoomInterval) clearInterval(_idleZoomInterval);
       _idleZoomInterval = setInterval(() => {
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           doIdleZoom();
         }
-      }, 8000 + Math.random() * 6000);
+      }, 12000 + Math.random() * 8000);
 
-      // Eye spread — eyes move apart and back
+      // Eye spread — eyes fly apart
       if (_idleEyeSpreadInterval) clearInterval(_idleEyeSpreadInterval);
       _idleEyeSpreadInterval = setInterval(() => {
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           doEyeSpread();
         }
-      }, 10000 + Math.random() * 8000);
+      }, 18000 + Math.random() * 12000);
 
       // Side-to-side sway
       if (_idleSwayInterval) clearInterval(_idleSwayInterval);
@@ -2112,23 +2116,23 @@
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           doIdleSway();
         }
-      }, 7000 + Math.random() * 5000);
+      }, 10000 + Math.random() * 8000);
 
-      // Stretch — vertical stretch and spring back
+      // Stretch + squish
       if (_idleStretchInterval) clearInterval(_idleStretchInterval);
       _idleStretchInterval = setInterval(() => {
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           doIdleStretch();
         }
-      }, 9000 + Math.random() * 7000);
+      }, 15000 + Math.random() * 10000);
 
-      // Rare spin — playful 360°
+      // Rare spin
       if (_idleSpinInterval) clearInterval(_idleSpinInterval);
       _idleSpinInterval = setInterval(() => {
         if (!_isSpeaking && (currentExpr === 'neutral' || currentExpr === 'listening')) {
           doIdleSpin();
         }
-      }, 25000 + Math.random() * 15000);
+      }, 30000 + Math.random() * 20000);
     }
 
     // ── Boot ──────────────────────────────────────────────────
