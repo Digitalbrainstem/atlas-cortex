@@ -696,6 +696,7 @@ CREATE TABLE IF NOT EXISTS satellites (
     )),
     provision_state TEXT,
     ssh_username    TEXT,
+    ssh_password    TEXT,
     ssh_key_installed BOOLEAN DEFAULT FALSE,
     service_port    INTEGER DEFAULT 5110,
     filler_enabled  BOOLEAN DEFAULT TRUE,
@@ -1179,6 +1180,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "jailbreak_patterns", "active", "BOOLEAN DEFAULT TRUE")
+    _add_column_if_missing(conn, "satellites", "ssh_password", "TEXT")
     _seed_default_avatar_skin(conn)
     _seed_default_avatar_flags(conn)
 

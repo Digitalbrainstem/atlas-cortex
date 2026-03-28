@@ -373,65 +373,121 @@ def step_wifi(win: curses.window) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Step 2 — Browser Install
+# Step 2 — Display Stack Install
 # ---------------------------------------------------------------------------
 
+def _is_ubuntu_core() -> bool:
+    """Detect if running on Ubuntu Core (snap-based OS)."""
+    return os.path.exists("/snap/snapd/current") and not os.path.exists("/usr/bin/apt-get")
+
+
+def _install_snap_with_progress(win: curses.window, progress_row: int,
+                                 snap_name: str, pct_start: int, pct_end: int) -> bool:
+    """Install a snap with progress updates."""
+    _draw_progress(win, progress_row, pct_start, f"Installing {snap_name}...")
+    proc = subprocess.Popen(
+        ["snap", "install", snap_name],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    pct = pct_start
+    while proc.poll() is None:
+        pct = min(pct + 2, pct_end - 5)
+        _draw_progress(win, progress_row, pct, f"Installing {snap_name}...")
+        time.sleep(2.0)
+    proc.communicate()
+    _draw_progress(win, progress_row, pct_end, f"Installing {snap_name}...")
+    return proc.returncode == 0
+
+
 def step_browser(win: curses.window) -> bool:
-    """Install Chromium via snap. Returns True on success."""
+    """Install display stack — detects platform and installs accordingly."""
     win.clear()
     row = _draw_header(win, 2)
-    win.addstr(row, 4, "Installing Browser", curses.color_pair(1) | curses.A_BOLD)
+    win.addstr(row, 4, "Installing Display Stack", curses.color_pair(1) | curses.A_BOLD)
     row += 2
 
-    # Check if already installed
-    check = _run(["which", "chromium"])
-    if check.returncode == 0:
-        row = _draw_status(win, row, "Chromium already installed", ok=True)
+    if _is_ubuntu_core():
+        # Ubuntu Core: install kiosk snaps
+        win.addstr(row, 4, "Ubuntu Core detected — installing kiosk snaps", curses.color_pair(4))
+        row += 2
+
+        progress_row = row
+        row = _draw_progress(win, row, 0, "Setting up kiosk...")
+
+        # Install ubuntu-frame (Wayland compositor)
+        ok1 = _install_snap_with_progress(win, progress_row, "ubuntu-frame", 0, 40)
+        if ok1:
+            row = _draw_status(win, row, "ubuntu-frame installed", ok=True)
+        else:
+            row = _draw_status(win, row, "ubuntu-frame failed", ok=False)
+        row += 1
+
+        # Install wpe-webkit-mir-kiosk (web browser)
+        ok2 = _install_snap_with_progress(win, progress_row, "wpe-webkit-mir-kiosk", 40, 80)
+        if ok2:
+            row = _draw_status(win, row, "wpe-webkit-mir-kiosk installed", ok=True)
+        else:
+            row = _draw_status(win, row, "wpe-webkit-mir-kiosk failed", ok=False)
+        row += 1
+
+        # Install network-manager if not present
+        nm_check = _run(["snap", "list", "network-manager"])
+        if nm_check.returncode != 0:
+            ok3 = _install_snap_with_progress(win, progress_row, "network-manager", 80, 95)
+            if ok3:
+                row = _draw_status(win, row, "network-manager installed", ok=True)
+            else:
+                row = _draw_status(win, row, "network-manager failed", ok=False)
+            row += 1
+
+        _draw_progress(win, progress_row, 100, "Kiosk ready!")
         row += 1
         _wait_for_key(win, row)
-        return True
+        return ok1 and ok2
 
-    row = _draw_progress(win, row, 0, "Installing Chromium...")
-
-    # Install Chromium deb from xtradeb PPA (not snap — snap has audio sandbox issues)
-    # Step 1: Add PPA
-    _run_privileged(["add-apt-repository", "-y", "ppa:xtradeb/apps"], timeout=60)
-    _run_privileged(["apt-get", "update", "-qq"], timeout=120)
-
-    # Step 2: Install
-    proc = subprocess.Popen(
-        ["apt-get", "install", "-y", "-qq", "chromium"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-
-    progress_row = row - 1
-    pct = 5
-    while proc.poll() is None:
-        pct = min(pct + 2, 95)
-        _draw_progress(win, progress_row, pct, "Installing Chromium...")
-        time.sleep(2.0)
-
-    stdout, stderr = proc.communicate()
-
-    if proc.returncode == 0:
-        _draw_progress(win, progress_row, 100, "Installing Chromium...")
-        row += 1
-        row = _draw_status(win, row, "Chromium installed successfully", ok=True)
     else:
-        _draw_progress(win, progress_row, 100, "Installing Chromium...")
-        row += 1
-        err_msg = stderr.strip()[:60] if stderr else "Install failed"
-        row = _draw_status(win, row, f"Install failed: {err_msg}", ok=False)
-        row += 1
-        win.addstr(row, 4, "You can install manually later with:", curses.color_pair(4))
-        row += 1
-        win.addstr(row, 6, "sudo apt install chromium", curses.color_pair(5))
+        # Classic Ubuntu: install Chromium deb
+        check = _run(["which", "chromium"])
+        if check.returncode == 0:
+            row = _draw_status(win, row, "Chromium already installed", ok=True)
+            row += 1
+            _wait_for_key(win, row)
+            return True
 
-    row += 1
-    _wait_for_key(win, row)
-    return proc.returncode == 0
+        row = _draw_progress(win, row, 0, "Installing Chromium...")
+
+        _run_privileged(["add-apt-repository", "-y", "ppa:xtradeb/apps"], timeout=60)
+        _run_privileged(["apt-get", "update", "-qq"], timeout=120)
+
+        proc = subprocess.Popen(
+            ["apt-get", "install", "-y", "-qq", "chromium"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        progress_row = row - 1
+        pct = 5
+        while proc.poll() is None:
+            pct = min(pct + 2, 95)
+            _draw_progress(win, progress_row, pct, "Installing Chromium...")
+            time.sleep(2.0)
+        stdout, stderr = proc.communicate()
+
+        if proc.returncode == 0:
+            _draw_progress(win, progress_row, 100, "Installing Chromium...")
+            row += 1
+            row = _draw_status(win, row, "Chromium installed successfully", ok=True)
+        else:
+            _draw_progress(win, progress_row, 100, "Installing Chromium...")
+            row += 1
+            err_msg = stderr.strip()[:60] if stderr else "Install failed"
+            row = _draw_status(win, row, f"Install failed: {err_msg}", ok=False)
+            row += 1
+            win.addstr(row, 4, "You can install manually later:", curses.color_pair(4))
+            row += 1
+            win.addstr(row, 6, "sudo apt install chromium", curses.color_pair(5))
+
+        row += 1
+        _wait_for_key(win, row)
+        return proc.returncode == 0
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +726,7 @@ def step_satellite(win: curses.window, server_url: str | None) -> bool:
 # ---------------------------------------------------------------------------
 
 def launch_kiosk() -> None:
-    """Launch Chromium in kiosk mode pointing at the Atlas UI."""
+    """Launch kiosk display — Chromium on classic, wpe-webkit on Ubuntu Core."""
     config_path = Path(SATELLITE_CONFIG)
     server_url = "http://localhost:5100"
     if config_path.exists():
@@ -678,15 +734,22 @@ def launch_kiosk() -> None:
             with open(config_path) as f:
                 cfg = json.load(f)
             ws = cfg.get("server_url", "")
-            # Convert ws:// back to http:// for the browser
             server_url = ws.replace("ws://", "http://").replace("wss://", "https://")
             server_url = re.sub(r"/ws/satellite$", "", server_url)
         except Exception:
             pass
 
-    kiosk_url = f"{server_url}/tablet"
-    cmd = CHROMIUM_FLAGS + [kiosk_url]
+    kiosk_url = f"{server_url}/avatar#skin=nick"
 
+    if _is_ubuntu_core():
+        # Ubuntu Core: configure wpe-webkit-mir-kiosk via snap set
+        subprocess.run(["snap", "set", "wpe-webkit-mir-kiosk", f"url={kiosk_url}"],
+                       capture_output=True)
+        # ubuntu-frame and wpe-webkit run as daemons — just exit, they handle display
+        return
+
+    # Classic: launch Chromium kiosk
+    cmd = CHROMIUM_FLAGS + [kiosk_url]
     os.execvp("chromium", cmd)
 
 

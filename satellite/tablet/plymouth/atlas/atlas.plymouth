@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Atlas
+Description=Atlas AI boot splash — electric blue logo on dark background
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/atlas
+ScriptFile=/usr/share/plymouth/themes/atlas/atlas.script
