@@ -799,3 +799,95 @@ class TestPlaybackRoundTrip:
 
         resp = client.get("/media/now-playing")
         assert resp.json()["position_seconds"] == 60.0
+
+
+# ── POST /media/satellite-volume ─────────────────────────────────
+
+class TestSatelliteVolumeEndpoint:
+    def test_satellite_volume_success(self, client):
+        with patch(
+            "cortex.satellite.websocket.send_command",
+            new_callable=AsyncMock, return_value=True,
+        ):
+            resp = client.post(
+                "/media/satellite-volume",
+                json={"level": 80, "satellite_id": "sat-1"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert resp.json()["volume"] == 80
+        assert resp.json()["satellite_id"] == "sat-1"
+
+    def test_satellite_volume_not_connected(self, client):
+        with patch(
+            "cortex.satellite.websocket.send_command",
+            new_callable=AsyncMock, return_value=False,
+        ):
+            resp = client.post(
+                "/media/satellite-volume",
+                json={"level": 50, "satellite_id": "missing"},
+            )
+
+        assert resp.json()["ok"] is False
+        assert "not connected" in resp.json()["error"]
+
+    def test_satellite_volume_clamps(self, client):
+        with patch(
+            "cortex.satellite.websocket.send_command",
+            new_callable=AsyncMock, return_value=True,
+        ) as mock_cmd:
+            client.post(
+                "/media/satellite-volume",
+                json={"level": 200, "satellite_id": "sat-1"},
+            )
+
+        # Should clamp to 1.0
+        mock_cmd.assert_called_once_with("sat-1", "volume", {"level": 1.0})
+
+
+# ── GET /media/all-rooms ─────────────────────────────────────────
+
+class TestAllRoomsEndpoint:
+    def test_empty_rooms(self, client):
+        resp = client.get("/media/all-rooms")
+        assert resp.status_code == 200
+        assert resp.json()["rooms"] == []
+
+    def test_multiple_rooms(self, client):
+        from cortex.admin.media import _ctrl
+        from cortex.media.base import PlaybackState
+
+        item = _make_item()
+        _ctrl.set_state("kitchen", PlaybackState(
+            is_playing=True, current_item=item, volume=0.7,
+            target_room="kitchen",
+        ))
+        _ctrl.set_state("bedroom", PlaybackState(
+            is_playing=False, target_room="bedroom",
+        ))
+
+        resp = client.get("/media/all-rooms")
+        data = resp.json()
+        assert len(data["rooms"]) == 2
+
+        kitchen = next(r for r in data["rooms"] if r["room"] == "kitchen")
+        assert kitchen["is_playing"] is True
+        assert kitchen["item"]["title"] == "Test Song"
+        assert kitchen["volume"] == 0.7
+
+        bedroom = next(r for r in data["rooms"] if r["room"] == "bedroom")
+        assert bedroom["is_playing"] is False
+        assert bedroom["item"] is None
+
+    def test_rooms_include_queue(self, client):
+        from cortex.admin.media import _ctrl
+        from cortex.media.base import PlaybackState
+
+        _ctrl.set_state("default", PlaybackState(is_playing=True))
+        _ctrl.add_to_queue("default", {"title": "Next", "artist": "A"})
+
+        resp = client.get("/media/all-rooms")
+        room = resp.json()["rooms"][0]
+        assert len(room["queue"]) == 1
+        assert room["queue"][0]["title"] == "Next"
