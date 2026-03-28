@@ -1,0 +1,70 @@
+{
+  "name": "atlas-cortex",
+  "displayName": "Atlas Cortex",
+  "description": "Atlas AI assistant integration for VS Code",
+  "version": "0.1.0",
+  "publisher": "betanu701",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "atlas.chat",
+        "title": "Atlas: Chat"
+      },
+      {
+        "command": "atlas.explainCode",
+        "title": "Atlas: Explain Selection"
+      },
+      {
+        "command": "atlas.fixCode",
+        "title": "Atlas: Fix Selection"
+      },
+      {
+        "command": "atlas.generateTests",
+        "title": "Atlas: Generate Tests for Selection"
+      },
+      {
+        "command": "atlas.status",
+        "title": "Atlas: Show Status"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "atlas.explainCode",
+          "group": "atlas",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "atlas.fixCode",
+          "group": "atlas",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "atlas.generateTests",
+          "group": "atlas",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Atlas Cortex",
+      "properties": {
+        "atlas.socketPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Atlas VS Code bridge socket (default: ~/.atlas/vscode.sock)"
+        }
+      }
+    }
+  }
+}

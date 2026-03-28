@@ -133,6 +133,24 @@ async def broadcast_listening(room: str, active: bool) -> None:
     await broadcast_to_room(room, {"type": "LISTENING", "active": active})
 
 
+async def broadcast_animation(room: str, animation: str) -> None:
+    """Trigger a playful animation on avatar displays in a room.
+
+    Supported animations: zoom_in, zoom_out, bounce, sway, stretch,
+    shake, nod, wiggle.
+    """
+    await broadcast_to_room(room, {"type": "ANIMATE", "animation": animation})
+
+
+async def broadcast_background(room: str, theme: str) -> None:
+    """Change the dynamic background theme on avatar displays in a room.
+
+    Supported themes: morning, day, evening, night, sunny, cloudy,
+    rainy, snowy, happy, thinking, excited, calm, scary.
+    """
+    await broadcast_to_room(room, {"type": "BACKGROUND", "theme": theme})
+
+
 async def broadcast_viseme_sequence(room: str, frames: list[dict[str, Any]]) -> None:
     """Broadcast a pre-computed viseme sequence, respecting timing."""
     if not frames:
