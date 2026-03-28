@@ -291,6 +291,59 @@ async def set_volume(req: VolumeRequest, _: dict = Depends(require_admin)):
     return {"ok": True, "volume": req.level, "room": room}
 
 
+class SatelliteVolumeRequest(BaseModel):
+    level: int
+    satellite_id: str
+
+
+@router.post("/media/satellite-volume")
+async def set_satellite_volume(
+    req: SatelliteVolumeRequest,
+    _: dict = Depends(require_admin),
+):
+    """Set a satellite's LOCAL system volume (ALSA/PipeWire) via the satellite agent."""
+    vol = max(0, min(100, req.level)) / 100.0
+    try:
+        from cortex.satellite.websocket import send_command
+        sent = await send_command(req.satellite_id, "volume", {"level": vol})
+        if not sent:
+            return {"ok": False, "error": f"Satellite {req.satellite_id} not connected"}
+    except Exception as exc:
+        logger.warning("satellite-volume error: %s", exc)
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True, "volume": req.level, "satellite_id": req.satellite_id}
+
+
+# ── All rooms state ──────────────────────────────────────────────
+
+
+@router.get("/media/all-rooms")
+async def all_rooms_state(_: dict = Depends(require_admin)):
+    """Return playback state for ALL rooms that have active media."""
+    rooms: list[dict[str, Any]] = []
+    for room_key, state in _ctrl._states.items():
+        item_dict = None
+        if state.current_item:
+            it = state.current_item
+            item_dict = {
+                "title": it.title,
+                "artist": it.artist,
+                "album": it.album,
+                "album_art_url": it.metadata.get("album_art_url", ""),
+                "duration_seconds": it.duration_seconds,
+                "provider": it.provider,
+            }
+        rooms.append({
+            "room": room_key,
+            "is_playing": state.is_playing,
+            "item": item_dict,
+            "position_seconds": state.position_seconds,
+            "volume": state.volume,
+            "queue": _ctrl.get_queue(room_key),
+        })
+    return {"rooms": rooms}
+
+
 class SeekRequest(BaseModel):
     position_seconds: float
     room: str = ""
