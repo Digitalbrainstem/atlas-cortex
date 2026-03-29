@@ -208,7 +208,7 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 │  GPU 0 (Largest)│     │  GPU 1 (Second) │     │  iGPU (Fallback)│
 │  ═══════════════│     │  ═══════════════│     │  ═══════════════│
 │  LLM Inference  │     │  Voice / TTS    │     │  Lightweight    │
-│  Ollama :11434  │     │  Ollama :11435  │     │  tasks only     │
+│  Transformers   │     │  Qwen3-TTS      │     │  tasks only     │
 │  20GB+ VRAM     │     │  8-12GB VRAM    │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
@@ -222,8 +222,10 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 ### Prerequisites
 
 - **Python 3.11+**
-- **[Ollama](https://ollama.com)** — any GPU or CPU-only
+- **[HuggingFace Transformers](https://huggingface.co/docs/transformers/)** — models download automatically on first use
 - **[Open WebUI](https://github.com/open-webui/open-webui) v0.8.5+** (recommended) or any OpenAI-compatible client
+
+> **Note:** [Ollama](https://ollama.com) is still supported as a legacy fallback — set `LLM_PROVIDER=ollama` to use it.
 
 ### Quick Start (Docker)
 
@@ -232,7 +234,8 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 git clone https://github.com/Betanu701/atlas-cortex.git
 cd atlas-cortex
 
-# Start with Docker Compose (includes Qwen3-TTS, Ollama, Whisper, Kokoro, Piper, and more)
+# Start with Docker Compose (includes Qwen3-TTS, Whisper, Kokoro, Piper, and more)
+# HuggingFace models download automatically via cached volume
 docker compose -f docker/docker-compose.yml up -d
 
 # For NVIDIA GPU support:
@@ -254,14 +257,14 @@ cd atlas-cortex
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
+# Install dependencies (includes transformers, accelerate, sentence-transformers)
 pip install -r requirements.txt
 
 # Run the interactive installer
 python -m cortex.install
 
-# Or start the server directly
-python -m cortex.server
+# Or start the server directly (HuggingFace models download on first use)
+CAG_MODEL=Qwen/Qwen3-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
 ```
 
 ### Connect to Open WebUI
@@ -319,12 +322,16 @@ Atlas finds available services on your network and configures integrations autom
 | `CORTEX_HOST` | `0.0.0.0` | Server bind address |
 | `CORTEX_PORT` | `5100` | Server port |
 | `CORTEX_DATA_DIR` | `./data` | Database and state directory |
-| `LLM_PROVIDER` | `ollama` | LLM backend (`ollama`, `openai_compatible`) |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API URL |
+| `LLM_PROVIDER` | `transformers` | LLM backend (`transformers`, `ollama`, `openai_compatible`) |
+| `CAG_MODEL` | `Qwen/Qwen3-4B` | HuggingFace model for inference (Transformers provider) |
+| `CAG_DEVICE` | `auto` | Device for model inference (`auto`, `cuda`, `cpu`) |
+| `CAG_DTYPE` | `auto` | Model dtype (`auto`, `float16`, `bfloat16`) |
+| `EMBED_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers embedding model |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API URL (legacy fallback) |
 | `OPENAI_BASE_URL` | — | Custom OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | — | API key for OpenAI-compatible backends |
-| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers |
-| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning |
+| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers (Ollama/OpenAI providers) |
+| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning (Ollama/OpenAI providers) |
 | `HA_URL` | — | Home Assistant URL (e.g., `http://192.168.1.100:8123`) |
 | `HA_TOKEN` | — | Home Assistant long-lived access token |
 | `CORTEX_JWT_SECRET` | `atlas-cortex-change-me` | Secret key for admin JWT tokens (change in production!) |
@@ -411,7 +418,8 @@ atlas-cortex/
 │   │   ├── layer2_plugins.py      #   Plugin dispatch (21 built-in plugins)
 │   │   └── layer3_llm.py          #   Filler streaming + LLM generation
 │   ├── providers/                 # LLM backend abstraction
-│   │   ├── ollama.py              #   Ollama provider
+│   │   ├── transformers.py        #   HuggingFace Transformers provider (default)
+│   │   ├── ollama.py              #   Ollama provider (legacy fallback)
 │   │   └── openai_compat.py       #   Any OpenAI-compatible backend
 │   ├── speech/                    # All audio synthesis/transcription
 │   │   ├── tts.py                 #   Multi-provider TTS with hot-swap

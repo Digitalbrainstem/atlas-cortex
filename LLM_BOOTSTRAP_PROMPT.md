@@ -35,7 +35,7 @@ python -m mocks.run
 LLM_URL=http://localhost:11434 \
 STT_HOST=localhost STT_PORT=10300 \
 TTS_PROVIDER=kokoro KOKORO_HOST=localhost KOKORO_PORT=8880 \
-MODEL_FAST=qwen2.5:7b MODEL_THINKING=qwen2.5:7b \
+LLM_PROVIDER=ollama MODEL_FAST=qwen2.5:7b MODEL_THINKING=qwen2.5:7b \
 python -m cortex.server
 ```
 
@@ -102,9 +102,12 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - **Last resort: Piper** — Ultra-fast CPU, basic quality
 
 ### LLM Configuration
-- `MODEL_FAST=qwen2.5:14b` — factual questions (default; production uses `qwen2.5:7b`)
-- `MODEL_THINKING=qwen3:30b-a3b` — reasoning tasks (production uses `qwen2.5:7b`)
-- Both must be set via env vars
+- `LLM_PROVIDER=transformers` — default; uses HuggingFace Transformers with KV cache injection (CAG)
+- `CAG_MODEL=Qwen/Qwen3-4B` — HuggingFace model for inference
+- `EMBED_MODEL=all-MiniLM-L6-v2` — sentence-transformers embedding model
+- `LLM_PROVIDER=ollama` — legacy fallback (set `OLLAMA_BASE_URL`)
+- `MODEL_FAST=qwen2.5:14b` — factual questions (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
+- `MODEL_THINKING=qwen3:30b-a3b` — reasoning tasks (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
 
 ### Satellite Hardware (Reference)
 - Pi Zero 2W + ReSpeaker 2-mic HAT
@@ -137,7 +140,9 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 ### LoRA System
 - LoRAs are **discovered** at startup via `discover_and_register()` — not composed automatically
 - `model_registry` DB table tracks all known models and LoRA adapters
-- Admin API (`/admin/loras/compose`) to compose a LoRA into an Ollama model on demand
+- LoRA manager uses the `peft` library for adapter loading/composition
+- Admin API (`/admin/loras/compose`) to compose a LoRA on demand
+- Model scout scans local HuggingFace cache for available models
 - Groups: `ultra-9b-v2/` (11 domains), `core-4b-h100/` (11 domains), `focused-9b/` (specialty)
 
 ### Public Chat
@@ -177,7 +182,7 @@ cortex/
 ├── memory/                      # HOT/COLD memory system
 ├── safety/                      # Input/Output guardrails, jailbreak defense
 ├── plugins/                     # CortexPlugin ABC + PluginRegistry
-├── providers/                   # LLM providers (Ollama, OpenAI)
+├── providers/                   # LLM providers (Transformers, Ollama, OpenAI)
 ├── profiles/                    # User profiles, parental controls
 ├── context/                     # Token budgeting
 ├── scheduling/                  # Alarms, timers, reminders

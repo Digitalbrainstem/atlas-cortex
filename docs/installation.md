@@ -2,7 +2,7 @@
 
 ## Design Principles
 
-1. **No hardcoded backends** — Ollama + Open WebUI is the default, not the requirement
+1. **No hardcoded backends** — HuggingFace Transformers is the default, with Ollama and others as fallbacks
 2. **Discovery-first** — the installer finds what's already running before suggesting new installs
 3. **Two-stage setup** — deterministic installer first (no LLM), then LLM-assisted refinement
 4. **Voice routes through Cortex** — HA voice pipeline → Atlas Cortex → LLM, never HA → LLM directly
@@ -17,7 +17,8 @@ Atlas Cortex talks to LLMs through a **provider interface**, not directly to Oll
 
 | Provider | API Style | How Detected | Notes |
 |----------|-----------|-------------|-------|
-| **Ollama** (default) | `/api/chat`, `/api/embeddings` | Probe `localhost:11434/api/tags` | Easiest local setup, ROCm/CUDA/CPU |
+| **HuggingFace Transformers** (default) | In-process Python | Always available | KV cache injection (CAG), no external server needed |
+| **Ollama** (legacy fallback) | `/api/chat`, `/api/embeddings` | Probe `localhost:11434/api/tags` | Set `LLM_PROVIDER=ollama` |
 | **llama.cpp server** | OpenAI-compatible `/v1/chat/completions` | Probe common ports (8080, 8000) | Lightweight, no container needed |
 | **vLLM** | OpenAI-compatible | Probe `/v1/models` | High throughput, production-grade |
 | **LocalAI** | OpenAI-compatible | Probe `/v1/models` | Multi-backend, batteries included |
@@ -58,8 +59,12 @@ class LLMProvider:
         return False
 
 
+class TransformersProvider(LLMProvider):
+    """HuggingFace Transformers: in-process inference with KV cache injection (CAG)."""
+    ...
+
 class OllamaProvider(LLMProvider):
-    """Ollama-specific: /api/chat, /api/embeddings, /api/tags"""
+    """Ollama-specific (legacy fallback): /api/chat, /api/embeddings, /api/tags"""
     ...
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -73,12 +78,12 @@ Embeddings might come from a different source than the chat LLM:
 
 | Provider | How | Notes |
 |----------|-----|-------|
-| Ollama `nomic-embed-text` | `/api/embeddings` | Default if Ollama is the LLM provider |
-| Sentence-transformers (local) | Python in-process | No external dependency, CPU |
-| OpenAI-compatible `/v1/embeddings` | HTTP | vLLM, LocalAI, etc. |
+| **Sentence-transformers** (default) | Python in-process | `EMBED_MODEL=all-MiniLM-L6-v2`, no external dependency, CPU |
 | Fastembed (qdrant) | Python in-process | ONNX optimized, very fast |
+| Ollama `nomic-embed-text` | `/api/embeddings` | Legacy, if Ollama is the LLM provider |
+| OpenAI-compatible `/v1/embeddings` | HTTP | vLLM, LocalAI, etc. |
 
-If the LLM provider doesn't support embeddings, Atlas falls back to in-process sentence-transformers (no network dependency).
+Sentence-transformers is the default embedding provider. No external server required.
 
 ---
 
@@ -108,7 +113,7 @@ Atlas Cortex Server (:5100)
     /v1/embeddings        → proxies to embedding provider
     │
     ▼
-LLM Backend (Ollama, vLLM, llama.cpp, etc.)
+LLM Backend (HuggingFace Transformers, Ollama, vLLM, llama.cpp, etc.)
 ```
 
 This means:
@@ -214,36 +219,30 @@ $ python -m cortex.install
 
 [3/6] Scanning for existing LLM backends...
   Probing localhost and local network...
+  ✓ HuggingFace Transformers available (in-process, no server needed)
   ✓ Ollama found at localhost:11434 (3 models loaded)
   ✗ vLLM not found
   ✗ llama.cpp not found
   ✓ LM Studio found at 192.168.3.15:1234 (1 model)
 
   Which LLM backend should Atlas use?
-  > 1. Ollama at localhost:11434 (recommended — already running)
-    2. LM Studio at 192.168.3.15:1234
-    3. Install Ollama fresh
-    4. Install llama.cpp
+  > 1. HuggingFace Transformers (recommended — no external server needed)
+    2. Ollama at localhost:11434
+    3. LM Studio at 192.168.3.15:1234
+    4. Install Ollama fresh
     5. Other (provide URL)
 
-  Selected: Ollama at localhost:11434
+  Selected: HuggingFace Transformers
 
 [4/6] Selecting models for your hardware...
   Based on: 20 GB VRAM (AMD ROCm), 128 GB RAM
 
   Role          │ Recommended           │ Size    │ Why
   ──────────────┼───────────────────────┼─────────┼────────────────────
-  Fast          │ qwen2.5:14b           │ 9.0 GB  │ Quick answers, 55 tok/s
-  Thinking      │ qwen3:30b-a3b         │ 18.6 GB │ MoE, only 3B active
-  Embedding     │ nomic-embed-text      │ 274 MB  │ CPU, 768-dim, <10ms
+  Fast/CAG      │ Qwen/Qwen3-4B        │ ~8 GB   │ In-process, KV cache injection
+  Embedding     │ all-MiniLM-L6-v2     │ ~80 MB  │ CPU, 384-dim, <5ms
 
-  Already installed: qwen3:30b-a3b ✓, qwen2.5:14b ✓
-  Need to pull: nomic-embed-text
-
-  Accept recommendations? [Y/n/customize]
-  > Y
-
-  Pulling nomic-embed-text... ████████████████████ 274 MB  ✓
+  Models download automatically from HuggingFace on first use.
 
 [5/6] Scanning for chat interfaces...
   ✓ Open WebUI found at localhost:8080
@@ -353,7 +352,8 @@ atlas-cortex/
 │   ├── pipe.py                # Open WebUI Pipe function (optional)
 │   ├── providers/             # LLM backend providers
 │   │   ├── base.py            # LLMProvider interface
-│   │   ├── ollama.py          # Ollama provider
+│   │   ├── transformers.py    # HuggingFace Transformers provider (default)
+│   │   ├── ollama.py          # Ollama provider (legacy fallback)
 │   │   └── openai_compat.py   # Any OpenAI-compatible backend
 │   ├── pipeline/              # Processing layers
 │   │   ├── layer0_context.py
@@ -402,19 +402,19 @@ docker-compose.yml deploys:
 # cortex.env — generated by installer, editable
 
 # LLM Provider
-LLM_PROVIDER=ollama                  # ollama | openai_compatible
-LLM_URL=http://localhost:11434       # provider API URL
-LLM_API_KEY=                         # optional, for authenticated providers
+LLM_PROVIDER=transformers               # transformers | ollama | openai_compatible
+CAG_MODEL=Qwen/Qwen3-4B                 # HuggingFace model (Transformers provider)
+CAG_DEVICE=auto                          # auto | cuda | cpu
+CAG_DTYPE=auto                           # auto | float16 | bfloat16
+LLM_API_KEY=                             # optional, for authenticated providers
 
-# Models (auto-selected based on hardware, user can override)
-MODEL_FAST=qwen2.5:14b
-MODEL_THINKING=qwen3:30b-a3b
-MODEL_EMBEDDING=nomic-embed-text
+# Legacy Ollama config (set LLM_PROVIDER=ollama to use)
+# LLM_URL=http://localhost:11434
+# MODEL_FAST=qwen2.5:14b
+# MODEL_THINKING=qwen3:30b-a3b
 
-# Embedding Provider (can differ from LLM provider)
-EMBED_PROVIDER=ollama                # ollama | openai_compatible | sentence_transformers | fastembed
-EMBED_URL=http://localhost:11434     # only if external
-EMBED_MODEL=nomic-embed-text
+# Embedding Provider (sentence-transformers is default)
+EMBED_MODEL=all-MiniLM-L6-v2            # sentence-transformers model name
 
 # Atlas Server
 CORTEX_HOST=0.0.0.0
