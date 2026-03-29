@@ -39,7 +39,7 @@ Atlas Cortex is an Open WebUI **Pipe function** that intercepts all user message
 │  Layer 3: Filler + LLM Streaming                    ~500-4000ms │
 │    • Select pre-cached filler audio (0ms latency)              │
 │    • Stream filler TTS to satellite immediately                │
-│    • Fire Ollama API request in background                     │
+│    • Fire LLM request in background                       │
 │    • Sentence-level TTS streaming as LLM tokens arrive         │
 │    • Confidence assessment on response (see grounding.md)       │
 │    • If confidence < 0.5 → grounding loop (search/verify)      │
@@ -359,12 +359,12 @@ Selection is rule-based (no LLM needed for routing):
 | Component | Technology | Resource |
 |-----------|-----------|----------|
 | Core Pipe | Atlas Cortex server (Python) + optional Open WebUI Pipe | Standalone :5100 or embedded |
-| LLM Backend | **Any** — Ollama, vLLM, LocalAI, LM Studio, llama.cpp, etc. | Via provider interface |
+| LLM Backend | **HuggingFace Transformers** (default), Ollama, vLLM, LocalAI, etc. | Via provider interface |
 | Sentiment | VADER (vaderSentiment) | CPU, <1ms |
 | Speaker ID | resemblyzer | CPU, ~50ms, ~200MB RAM |
 | Memory (vector) | ChromaDB (embedded mode) | CPU, ~50MB RAM, persistent SQLite |
 | Memory (BM25) | SQLite FTS5 | CPU, sub-ms, built into Python |
-| Embeddings | Ollama / sentence-transformers / fastembed | CPU, ~5ms/embed |
+| Embeddings | sentence-transformers (default) / fastembed | CPU, ~5ms/embed |
 | Reranker | cross-encoder/ms-marco-MiniLM (optional) | CPU, ~20ms |
 | Smart Home | Home Assistant REST API (plugin, optional) | Discovered at install |
 | Search | SearXNG (optional) | Self-hosted |
