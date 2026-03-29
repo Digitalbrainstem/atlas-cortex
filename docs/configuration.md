@@ -18,15 +18,19 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | Backend type: `ollama`, `openai_compatible` |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `LLM_PROVIDER` | `transformers` | Backend type: `transformers`, `ollama`, `openai_compatible` |
+| `CAG_MODEL` | `Qwen/Qwen3-4B` | HuggingFace model for inference (Transformers provider) |
+| `CAG_DEVICE` | `auto` | Device for model inference (`auto`, `cuda`, `cpu`) |
+| `CAG_DTYPE` | `auto` | Model dtype (`auto`, `float16`, `bfloat16`) |
+| `EMBED_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers embedding model |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (legacy fallback) |
 | `LLM_URL` | — | Override URL for any LLM backend |
 | `LLM_API_KEY` | — | API key (required for OpenAI-compatible) |
 | `OPENAI_BASE_URL` | — | Custom OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | — | API key for OpenAI-compatible backends |
-| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers |
-| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning |
-| `MODEL_EMBEDDING` | — | Embedding model (Docker only) |
+| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers (Ollama/OpenAI providers) |
+| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning (Ollama/OpenAI providers) |
+| `MODEL_EMBEDDING` | — | Embedding model (legacy, Docker only) |
 
 ## TTS (Text-to-Speech)
 
@@ -117,8 +121,9 @@ These are typically set in `docker-compose.yml`, not in application code:
 |----------|---------|-------------|
 | `TZ` | `America/New_York` | Container timezone |
 | `PUID` / `PGID` | `99` / `100` | Container user/group IDs |
-| `OLLAMA_HOST` | `0.0.0.0` | Ollama bind address |
-| `OLLAMA_KEEP_ALIVE` | `0` | Model keep-alive duration |
+| `HF_HOME` | `/hf_cache` | HuggingFace cache directory (volume-mounted) |
+| `OLLAMA_HOST` | `0.0.0.0` | Ollama bind address (legacy, if enabled) |
+| `OLLAMA_KEEP_ALIVE` | `0` | Model keep-alive duration (legacy, if enabled) |
 | `WHISPER_MODEL` | `large-v3-turbo-q5_0` | Whisper model variant |
 | `WHISPER_BEAM` | `5` | Whisper beam search width |
 | `WHISPER_LANG` | `en` | Whisper language |
@@ -128,10 +133,22 @@ These are typically set in `docker-compose.yml`, not in application code:
 
 ## Minimal Configuration
 
-For a basic setup with Ollama running locally, no environment variables are required — defaults work out of the box:
+For a basic setup with HuggingFace Transformers, no environment variables are required — defaults work out of the box. Models download automatically on first use:
 
 ```bash
 python -m cortex.server
+```
+
+To use a specific model:
+
+```bash
+CAG_MODEL=Qwen/Qwen3-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
+```
+
+To use Ollama as a legacy fallback:
+
+```bash
+LLM_PROVIDER=ollama OLLAMA_BASE_URL=http://localhost:11434 python -m cortex.server
 ```
 
 For Home Assistant integration, set just two variables:

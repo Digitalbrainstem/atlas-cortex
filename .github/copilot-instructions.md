@@ -126,7 +126,7 @@ Layer 2 plugins extend `CortexPlugin` (in `cortex/plugins/base.py`) and register
 
 ### LLM Providers (`cortex/providers/`)
 
-`LLMProvider` is the abstract base class. Concrete implementations: `OllamaProvider`, `OpenAICompatibleProvider`. Use `get_provider()` factory which reads `LLM_PROVIDER` env var. Models: `MODEL_FAST` and `MODEL_THINKING` env vars (defaults: `qwen2.5:14b` / `qwen3:30b-a3b`, production uses `qwen2.5:7b` for both).
+`LLMProvider` is the abstract base class. Concrete implementations: `TransformersProvider` (default), `OllamaProvider` (legacy fallback), `OpenAICompatibleProvider`. Use `get_provider()` factory which reads `LLM_PROVIDER` env var (default: `transformers`). Transformers provider uses `CAG_MODEL` env var (default: `Qwen/Qwen3-4B`). Embeddings use sentence-transformers via `EMBED_MODEL` (default: `all-MiniLM-L6-v2`). Ollama/OpenAI providers use `MODEL_FAST` and `MODEL_THINKING` env vars.
 
 ### Safety (`cortex/safety/`)
 
@@ -158,7 +158,7 @@ SQLite with WAL mode and foreign keys enabled. Schema has 50+ tables. `init_db()
 
 ### LoRA System (`cortex/evolution/`)
 
-LoRAs are **discovered** at startup via `discover_and_register()` — not composed automatically. The `model_registry` DB table tracks all known models and LoRA adapters. Admin API (`/admin/loras/compose`) composes a LoRA into an Ollama model on demand. Groups: `ultra-9b-v2/` (11 domains), `core-4b-h100/`, `focused-9b/` (specialty).
+LoRAs are **discovered** at startup via `discover_and_register()` — not composed automatically. The `model_registry` DB table tracks all known models and LoRA adapters. LoRA manager uses the `peft` library for adapter loading/composition. Admin API (`/admin/loras/compose`) composes a LoRA on demand. Model scout scans local HuggingFace cache for available models. Groups: `ultra-9b-v2/` (11 domains), `core-4b-h100/`, `focused-9b/` (specialty).
 
 ### Public Chat (`/chat`)
 
@@ -167,8 +167,8 @@ The `/chat` endpoint serves a public-facing chat SPA (from `admin/dist/chat.html
 ### Docker Containers
 
 The full Docker stack (`docker/docker-compose.yml`) includes:
-- `atlas-cortex` — Main server + admin UI (port 5100, host networking)
-- `atlas-ollama` — LLM inference (port 11434)
+- `atlas-cortex` — Main server + admin UI (port 5100, host networking, HF cache volume)
+- `atlas-ollama` — LLM inference (port 11434, optional — commented out by default)
 - `atlas-qwen-tts` — Primary TTS via Qwen3-TTS (port 7860, NVIDIA GPU)
 - `atlas-fish-tts` — Story character voices via Fish Audio S2 (port 8860, NVIDIA GPU)
 - `atlas-orpheus` — Backup TTS (port 5005, NVIDIA GPU)
@@ -184,7 +184,7 @@ Vue 3 + Vite + Pinia SPA with 20 views. Build output goes to `admin/dist/` and i
 
 ### Mock Infrastructure (`mocks/`)
 
-GPU-free development with realistic timing. `python -m mocks.run` starts mock Ollama, Whisper, and Kokoro servers. See `docs/development-mocks.md` for full guide and `mocks/data/` for benchmark timing data.
+GPU-free development with realistic timing. `python -m mocks.run` starts mock LLM, Whisper, and Kokoro servers. See `docs/development-mocks.md` for full guide and `mocks/data/` for benchmark timing data.
 
 ## Key Conventions
 
@@ -194,6 +194,6 @@ GPU-free development with realistic timing. `python -m mocks.run` starts mock Ol
 - Data classes use `@dataclass` from the standard library (not Pydantic, except for API request/response models in `server.py`).
 - Optional heavy dependencies (ChromaDB, zeroconf) use try/except import with graceful fallback — check the `_HAS_*` flags.
 - Interaction logging in the pipeline is best-effort (wrapped in try/except, never raises).
-- Environment variables drive configuration — see `CORTEX_*`, `LLM_PROVIDER`, `OLLAMA_BASE_URL`, `HA_URL`, `HA_TOKEN` in the README.
+- Environment variables drive configuration — see `CORTEX_*`, `LLM_PROVIDER`, `CAG_MODEL`, `EMBED_MODEL`, `HA_URL`, `HA_TOKEN` in the README.
 - The admin panel (`admin/`) is a separate Vue 3 + Vite + Pinia SPA with 20 views. Its build output goes to `admin/dist/` and is served as static files by the FastAPI server.
 - Branch protection on `main` — all changes must go through pull requests.
