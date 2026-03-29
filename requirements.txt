@@ -15,6 +15,11 @@ aiohttp>=3.9.0
 # ── Safety / Embeddings ──────────────────────────────────────────
 numpy>=1.24.0
 
+# ── HuggingFace Transformers (default LLM provider) ──────────────
+transformers>=4.40.0
+accelerate>=0.28.0
+sentence-transformers>=2.2.0
+
 # ── Admin Panel Auth ─────────────────────────────────────────────
 PyJWT>=2.8.0
 bcrypt>=4.0.0

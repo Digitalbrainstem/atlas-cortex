@@ -9,10 +9,16 @@ from cortex.providers import get_provider, LLMProvider, OllamaProvider, OpenAICo
 
 
 class TestGetProvider:
-    def test_default_returns_ollama(self, monkeypatch):
+    def test_default_returns_transformers_or_ollama_fallback(self, monkeypatch):
         monkeypatch.delenv("LLM_PROVIDER", raising=False)
         provider = get_provider()
-        assert isinstance(provider, OllamaProvider)
+        try:
+            import torch  # noqa: F401
+            from cortex.providers.transformers_provider import TransformersProvider
+            assert isinstance(provider, TransformersProvider)
+        except ImportError:
+            # Falls back to Ollama when torch is not installed
+            assert isinstance(provider, OllamaProvider)
 
     def test_explicit_ollama(self):
         provider = get_provider("ollama")

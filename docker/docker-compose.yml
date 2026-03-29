@@ -14,11 +14,14 @@ services:
     volumes:
       - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/data:/data
       - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/loras:/loras:ro
+      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/huggingface:/root/.cache/huggingface
     environment:
-      # LLM — runs on primary GPU (atlas-ollama, port 11434)
-      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      # LLM — HuggingFace Transformers on local GPU (default), or Ollama fallback
+      - LLM_PROVIDER=${LLM_PROVIDER:-transformers}
       - LLM_URL=${LLM_URL:-http://localhost:11434}
       - LLM_API_KEY=${LLM_API_KEY:-}
+      - CAG_MODEL=${CAG_MODEL:-Qwen/Qwen3-4B}
+      - EMBED_MODEL=${EMBED_MODEL:-all-MiniLM-L6-v2}
       - MODEL_FAST=${MODEL_FAST:-qwen3.5:9b}
       - MODEL_THINKING=${MODEL_THINKING:-qwen3.5:27b}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING:-nomic-embed-text}
@@ -45,8 +48,6 @@ services:
       atlas-piper:
         condition: service_started
       atlas-whisper:
-        condition: service_started
-      atlas-ollama:
         condition: service_started
       atlas-qwen-tts:
         condition: service_started
@@ -166,29 +167,26 @@ services:
     networks:
       - atlas
 
-  # ── Ollama LLM — primary GPU (port 11434) ──────────────────────
-  # Main LLM backend on the largest GPU. Runs qwen2.5/qwen3.
-  # GPU: Use override files for AMD ROCm, Intel, or NVIDIA.
-  atlas-ollama:
-    image: ${OLLAMA_LLM_IMAGE:-ollama/ollama:latest}
-    container_name: atlas-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/ollama:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-0}
-      - OLLAMA_MODELS=/root/.ollama/models
-    networks:
-      - atlas
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo -e \"GET / HTTP/1.0\\n\\n\" > /dev/tcp/localhost/11434'"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+  # Legacy: Ollama service (uncomment if using LLM_PROVIDER=ollama)
+  #   image: ${OLLAMA_LLM_IMAGE:-ollama/ollama:latest}
+  #   container_name: atlas-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/ollama:/root/.ollama
+  #   environment:
+  #     - OLLAMA_HOST=0.0.0.0
+  #     - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-0}
+  #     - OLLAMA_MODELS=/root/.ollama/models
+  #   networks:
+  #     - atlas
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "bash -c 'echo -e \"GET / HTTP/1.0\\n\\n\" > /dev/tcp/localhost/11434'"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 30s
 
   # ── Orpheus TTS — single llama.cpp CUDA + SNAC container (port 5005) ─
   # All-in-one Orpheus TTS: llama.cpp CUDA for inference, SNAC for audio.

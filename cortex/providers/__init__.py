@@ -3,22 +3,25 @@
 Usage::
 
     from cortex.providers import get_provider
-    provider = get_provider()          # auto from environment
+    provider = get_provider()          # auto from environment (default: transformers)
     provider = get_provider("ollama")
     provider = get_provider("openai_compatible")
     provider = get_provider("transformers")  # direct GPU with KV cache support
 """
 
-# Module ownership: LLM providers: Ollama, OpenAI-compatible, Transformers
+# Module ownership: LLM providers: Transformers (default), Ollama, OpenAI-compatible
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from .base import LLMProvider
 from .ollama import OllamaProvider
 from .openai_compat import OpenAICompatibleProvider
+
+logger = logging.getLogger(__name__)
 
 # Transformers provider is optional (requires torch)
 try:
@@ -49,13 +52,23 @@ def get_provider(
     """Return a configured LLMProvider.
 
     If *provider_name* is omitted, reads ``LLM_PROVIDER`` from the environment
-    (default: ``"ollama"``).
+    (default: ``"transformers"``).  Falls back to Ollama when torch is not
+    installed.
     """
     if provider_name is None:
-        provider_name = os.environ.get("LLM_PROVIDER", "ollama")
+        provider_name = os.environ.get("LLM_PROVIDER", "transformers")
 
     provider_name = provider_name.lower().replace("-", "_")
     cls = _PROVIDERS.get(provider_name)
+
+    # Fallback: if transformers requested but not available, fall back to ollama
+    if cls is None and provider_name == "transformers":
+        logger.warning(
+            "TransformersProvider not available (torch not installed). "
+            "Falling back to Ollama."
+        )
+        cls = _PROVIDERS.get("ollama")
+
     if cls is None:
         raise ValueError(
             f"Unknown provider '{provider_name}'. "
