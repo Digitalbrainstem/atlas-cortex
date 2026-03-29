@@ -23,12 +23,18 @@ from cortex.memory.vector import VectorStore, get_embedding
 from cortex.memory.hot import rrf_fuse, hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
 from cortex.memory.controller import MemorySystem, get_memory_system, set_memory_system
-from cortex.memory.palace import MemoryPalace, KnowledgeBank, PalaceRecall, get_palace, set_palace
+from cortex.memory.cag import CAGEngine, KnowledgeBank, CAGRecall, get_cag_engine, set_cag_engine
 
 # Backward compat aliases (old private names used in tests)
 _classify_memory = classify_memory
 _KEEP_TYPES = KEEP_TYPES
 _DROP_TYPES = DROP_TYPES
+
+# Backward compat aliases (Memory Palace → CAG rename)
+MemoryPalace = CAGEngine
+PalaceRecall = CAGRecall
+get_palace = get_cag_engine
+set_palace = set_cag_engine
 
 __all__ = [
     "redact_pii",
@@ -46,8 +52,13 @@ __all__ = [
     "MemorySystem",
     "get_memory_system",
     "set_memory_system",
-    "MemoryPalace",
+    "CAGEngine",
     "KnowledgeBank",
+    "CAGRecall",
+    "get_cag_engine",
+    "set_cag_engine",
+    # Backward compat
+    "MemoryPalace",
     "PalaceRecall",
     "get_palace",
     "set_palace",

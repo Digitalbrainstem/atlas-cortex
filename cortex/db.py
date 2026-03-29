@@ -1165,7 +1165,7 @@ CREATE TABLE IF NOT EXISTS satellite_commands (
 CREATE INDEX IF NOT EXISTS idx_sat_cmd_satellite ON satellite_commands(satellite_id);
 CREATE INDEX IF NOT EXISTS idx_sat_cmd_created   ON satellite_commands(created_at);
 
--- Memory Palace (knowledge injection / KV cache banks)
+-- CAG (Cache-Augmented Generation) — knowledge injection / KV cache banks
 CREATE TABLE IF NOT EXISTS kv_cache_banks (
     bank_id     TEXT PRIMARY KEY,
     title       TEXT NOT NULL,
@@ -1179,12 +1179,12 @@ CREATE TABLE IF NOT EXISTS kv_cache_banks (
     last_accessed REAL DEFAULT 0
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS palace_fts USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS cag_fts USING fts5(
     bank_id, title, text, tags,
     tokenize='porter unicode61'
 );
 
-CREATE TABLE IF NOT EXISTS palace_usage_log (
+CREATE TABLE IF NOT EXISTS cag_usage_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     bank_id     TEXT NOT NULL,
     query       TEXT,

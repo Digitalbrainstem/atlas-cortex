@@ -59,5 +59,5 @@ class LLMProvider(abc.ABC):
         return False
 
     def supports_kv_cache(self) -> bool:
-        """Whether this provider supports Memory Palace KV cache injection."""
+        """Whether this provider supports CAG (Cache-Augmented Generation) KV cache injection."""
         return False
