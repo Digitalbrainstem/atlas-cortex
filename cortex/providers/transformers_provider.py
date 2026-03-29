@@ -1,4 +1,4 @@
-"""Transformers-based LLM provider with Memory Palace KV cache support.
+"""Transformers-based LLM provider with CAG (Cache-Augmented Generation) KV cache support.
 
 Runs HuggingFace transformers models directly on GPU, bypassing Ollama.
 Supports pre-computed KV cache injection for zero-token knowledge injection.
@@ -12,14 +12,14 @@ Usage::
     async for token in await provider.chat(messages, stream=True):
         print(token, end="")
 
-    # Chat with Memory Palace KV cache
+    # Chat with CAG KV cache
     async for token in await provider.chat(messages, stream=True, kv_cache=cache, prefix_len=128):
         print(token, end="")
 
 Env vars:
-    PALACE_MODEL       — HuggingFace model ID (default: Qwen/Qwen3-4B)
-    PALACE_DEVICE      — Device (default: cuda)
-    PALACE_DTYPE       — Torch dtype (default: float16)
+    CAG_MODEL       — HuggingFace model ID (default: Qwen/Qwen3-4B)
+    CAG_DEVICE      — Device (default: cuda)
+    CAG_DTYPE       — Torch dtype (default: float16)
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class TransformersProvider(LLMProvider):
     """Direct HuggingFace transformers inference with KV cache support.
 
     This provider loads a model directly onto the GPU, enabling:
-    - Pre-computed KV cache injection (Memory Palace)
+    - Pre-computed KV cache injection (CAG)
     - Full control over generation parameters
     - Thinking mode support for Qwen3 models
     """
@@ -59,9 +59,9 @@ class TransformersProvider(LLMProvider):
         dtype: str | None = None,
         **kwargs: Any,
     ) -> None:
-        self.model_name = model_name or os.environ.get("PALACE_MODEL", "Qwen/Qwen3-4B")
-        self.device = device or os.environ.get("PALACE_DEVICE", "cuda")
-        self._dtype_str = dtype or os.environ.get("PALACE_DTYPE", "float16")
+        self.model_name = model_name or os.environ.get("CAG_MODEL", "Qwen/Qwen3-4B")
+        self.device = device or os.environ.get("CAG_DEVICE", "cuda")
+        self._dtype_str = dtype or os.environ.get("CAG_DTYPE", "float16")
         self._model = None
         self._tokenizer = None
         self._loaded = False
@@ -170,7 +170,7 @@ class TransformersProvider(LLMProvider):
         if temperature > 0.01:
             gen_kwargs["temperature"] = temperature
 
-        # Memory Palace: inject pre-computed KV cache
+        # CAG: inject pre-computed KV cache
         if kv_cache is not None and prefix_len > 0:
             cache_clone = self._clone_cache(kv_cache)
             gen_kwargs["past_key_values"] = cache_clone
@@ -254,7 +254,7 @@ class TransformersProvider(LLMProvider):
         return "qwen3" in self.model_name.lower()
 
     def supports_kv_cache(self) -> bool:
-        """Whether this provider supports Memory Palace KV cache injection."""
+        """Whether this provider supports CAG (Cache-Augmented Generation) KV cache injection."""
         return True
 
     async def aclose(self) -> None:
