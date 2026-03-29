@@ -493,12 +493,14 @@ class TestLoRATrainer:
 
 class TestModelScout:
 
-    async def test_scan_ollama_no_server(self):
-        """Scan should return empty list when Ollama is not available."""
+    async def test_scan_local_no_cache(self):
+        """Scan should return empty list when no HuggingFace cache exists."""
+        import os
+        from unittest.mock import patch as _patch
         from cortex.evolution.scout import ModelScout
         scout = ModelScout()
-        scout._ollama_base = "http://localhost:1"  # Unreachable
-        result = await scout.scan_ollama_library()
+        with _patch.dict(os.environ, {"HF_HOME": "/nonexistent/path"}):
+            result = await scout.scan_local_models()
         assert result == []
 
     async def test_scan_registry_empty(self):

@@ -25,13 +25,13 @@ _cached_config: AtlasConfig | None = None  # noqa: F821 — forward ref resolved
 class ModelConfig:
     fast: str = "qwen2.5:14b"
     thinking: str = "qwen3:30b-a3b"
-    provider: str = "ollama"
+    provider: str = "transformers"
 
 
 @dataclass
 class ServerConfig:
     url: str = "http://localhost:5100"
-    ollama_url: str = "http://localhost:11434"
+    llm_url: str = ""
 
 
 @dataclass
@@ -106,7 +106,9 @@ def load_config(path: Path | None = None) -> AtlasConfig:
     # Env-var overrides
     config.model.fast = os.environ.get("MODEL_FAST", config.model.fast)
     config.model.thinking = os.environ.get("MODEL_THINKING", config.model.thinking)
-    config.server.ollama_url = os.environ.get("OLLAMA_BASE_URL", config.server.ollama_url)
+    config.server.llm_url = os.environ.get(
+        "LLM_URL", os.environ.get("OLLAMA_BASE_URL", config.server.llm_url)
+    )
 
     if path is None:
         _cached_config = config
@@ -129,11 +131,11 @@ def save_default_config(path: Path | None = None) -> Path:
 model:
   fast: qwen2.5:14b
   thinking: qwen3:30b-a3b
-  provider: ollama
+  provider: transformers
 
 server:
   url: http://localhost:5100
-  ollama_url: http://localhost:11434
+  llm_url: ""
 
 memory:
   auto_recall: true

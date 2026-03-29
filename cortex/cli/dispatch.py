@@ -58,9 +58,23 @@ class AgentDispatcher:
             logger.debug("Memory bridge unavailable for dispatch: %s", exc)
 
     async def _detect_gpus(self) -> list[GPUSlot]:
-        """Detect available GPUs via Ollama's running-model endpoint."""
+        """Detect available GPUs via system inspection."""
         slots: list[GPUSlot] = []
 
+        # Try torch first (works with HuggingFace/transformers stack)
+        try:
+            import torch
+            if torch.cuda.is_available():
+                for i in range(torch.cuda.device_count()):
+                    name = torch.cuda.get_device_name(i)
+                    mem = torch.cuda.get_device_properties(i).total_mem // (1024 * 1024)
+                    slots.append(GPUSlot(device_id=f"cuda:{i}", vram_mb=mem))
+            if slots:
+                return slots
+        except Exception:
+            pass
+
+        # Fallback: try Ollama API (legacy/optional)
         try:
             import httpx
 

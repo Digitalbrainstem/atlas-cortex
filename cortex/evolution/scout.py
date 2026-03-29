@@ -54,33 +54,33 @@ class ModelScout:
 
     def __init__(self) -> None:
         self.registry = ModelRegistry()
-        self._ollama_base = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-    async def scan_ollama_library(self) -> list[dict[str, Any]]:
-        """Check Ollama for available models.  Returns list of candidates."""
+    async def scan_local_models(self) -> list[dict[str, Any]]:
+        """Check local HuggingFace cache for available models."""
+        candidates: list[dict[str, Any]] = []
         try:
-            import httpx
+            hf_cache = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+            hub_cache = hf_cache / "hub"
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(f"{self._ollama_base}/api/tags")
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                models = data.get("models", [])
-                candidates: list[dict[str, Any]] = []
-                for m in models:
-                    name = m.get("name", "")
-                    size = m.get("size", 0)
-                    candidates.append({
-                        "name": name,
-                        "size_bytes": size,
-                        "source": "ollama",
-                        "modified_at": m.get("modified_at", ""),
-                    })
-                return candidates
+            if hub_cache.exists():
+                for model_dir in hub_cache.iterdir():
+                    if model_dir.is_dir() and model_dir.name.startswith("models--"):
+                        # models--Qwen--Qwen3-4B -> Qwen/Qwen3-4B
+                        name = model_dir.name.removeprefix("models--").replace("--", "/")
+                        size = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
+                        candidates.append({
+                            "name": name,
+                            "size_bytes": size,
+                            "source": "huggingface_cache",
+                            "path": str(model_dir),
+                        })
         except Exception:
-            log.debug("Ollama scan failed", exc_info=True)
-            return []
+            log.debug("Local model scan failed", exc_info=True)
+
+        return candidates
+
+    # Backward-compat alias
+    scan_ollama_library = scan_local_models
 
     async def scan_registry(self) -> list[dict[str, Any]]:
         """Check model_registry for candidates needing evaluation."""

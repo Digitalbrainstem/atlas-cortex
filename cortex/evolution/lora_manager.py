@@ -1,8 +1,8 @@
 """LoRA adapter lifecycle manager.
 
-Discovers on-disk LoRA adapters, composes them into named Ollama models
-(via Modelfile + ``/api/create``), and provides fast domain → model lookups
-at inference time.
+Discovers on-disk LoRA adapters, registers them for dynamic loading via
+the ``peft`` library, and provides fast domain → model lookups at
+inference time.
 """
 
 from __future__ import annotations
@@ -18,46 +18,27 @@ from cortex.middleware.lora_tools import discover_loras, get_lora_info
 
 logger = logging.getLogger(__name__)
 
-# Lazy import — httpx is available but we don't want a hard top-level dep
-_httpx: Any = None
-
-
-def _get_httpx() -> Any:
-    global _httpx
-    if _httpx is None:
-        import httpx
-        _httpx = httpx
-    return _httpx
-
 
 @dataclass
 class ComposedModel:
-    """A LoRA adapter that has been baked into a named Ollama model."""
+    """A registered LoRA adapter for dynamic loading via peft."""
 
     domain: str
-    model_name: str  # e.g. "atlas-coding:latest"
+    model_name: str  # e.g. "atlas-coding"
     base_model: str
     adapter_path: str
     info: dict[str, Any] = field(default_factory=dict)
 
 
 class LoRAManager:
-    """Discover, compose, and manage LoRA-backed Ollama models.
+    """Discover, register, and manage LoRA adapters.
 
-    Ollama doesn't support dynamic adapter loading at inference time.
-    Instead we create a Modelfile that bakes the adapter into a named
-    model, run ``ollama create``, and then call that model by name.
+    Adapters are registered in-memory and loaded dynamically at
+    inference time via the ``peft`` library.  No model baking or
+    external HTTP calls are required.
     """
 
-    def __init__(
-        self,
-        ollama_url: str | None = None,
-        timeout: float = 120.0,
-    ) -> None:
-        self._ollama_url = (
-            ollama_url
-            or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        ).rstrip("/")
+    def __init__(self, timeout: float = 120.0, **_kw: Any) -> None:
         self._timeout = timeout
         # domain -> ComposedModel
         self._composed: dict[str, ComposedModel] = {}
@@ -71,41 +52,21 @@ class LoRAManager:
         """
         return discover_loras(lora_dir)
 
-    async def _list_ollama_atlas_models(self) -> list[str]:
-        """Query Ollama for existing ``atlas-*`` models."""
-        httpx = _get_httpx()
+    async def _list_registered_models(self) -> list[str]:
+        """List currently registered atlas-* models from the DB."""
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(f"{self._ollama_url}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-                models = data.get("models", [])
-                return [
-                    m["name"]
-                    for m in models
-                    if m.get("name", "").startswith("atlas-")
-                ]
+            from cortex.db import get_db
+
+            db = get_db()
+            rows = db.execute(
+                "SELECT model_name FROM model_registry WHERE model_name LIKE 'atlas-%'"
+            ).fetchall()
+            return [r["model_name"] for r in rows]
         except Exception as exc:
-            logger.warning("Could not list Ollama models: %s", exc)
+            logger.warning("Could not list registered models: %s", exc)
             return []
 
     # ── Composition ───────────────────────────────────────────────
-
-    @staticmethod
-    def build_modelfile(base_model: str, adapter_path: str) -> str:
-        """Build the Modelfile content for Ollama."""
-        # Ollama expects the path to the actual weights file
-        p = Path(adapter_path)
-        safetensors = p / "adapter_model.safetensors"
-        bin_file = p / "adapter_model.bin"
-        if safetensors.exists():
-            weight_path = str(safetensors)
-        elif bin_file.exists():
-            weight_path = str(bin_file)
-        else:
-            # Fall back to the directory itself
-            weight_path = str(p)
-        return f"FROM {base_model}\nADAPTER {weight_path}\n"
 
     async def compose(
         self,
@@ -113,25 +74,19 @@ class LoRAManager:
         base_model: str,
         adapter_path: str | Path,
     ) -> ComposedModel | None:
-        """Create a composed Ollama model for *domain*.
+        """Register a LoRA adapter for a domain.
 
-        Generates a Modelfile, calls ``/api/create``, and registers
-        the result in the in-memory lookup table.
+        Unlike the old Ollama workflow, we don't bake the adapter into
+        a separate model.  Instead, we register the adapter path and
+        load it dynamically at inference time using the peft library.
         """
         adapter_path = str(adapter_path)
-        model_name = f"atlas-{domain}:latest"
-        modelfile = self.build_modelfile(base_model, adapter_path)
+        model_name = f"atlas-{domain}"
 
-        httpx = _get_httpx()
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    f"{self._ollama_url}/api/create",
-                    json={"model": model_name, "modelfile": modelfile},
-                )
-                resp.raise_for_status()
-        except Exception as exc:
-            logger.error("Failed to compose %s: %s", model_name, exc)
+        # Verify adapter exists
+        p = Path(adapter_path)
+        if not (p / "adapter_config.json").exists():
+            logger.error("No adapter_config.json in %s", adapter_path)
             return None
 
         info = get_lora_info(adapter_path)
@@ -143,21 +98,18 @@ class LoRAManager:
             info=info,
         )
         self._composed[domain] = composed
-        logger.info("Composed LoRA model %s (domain=%s)", model_name, domain)
+        logger.info("Registered LoRA adapter %s (domain=%s)", model_name, domain)
         return composed
 
     async def compose_all(
         self,
         base_model: str,
         lora_dir: str | Path,
-        ollama_url: str | None = None,
+        **_kw: Any,
     ) -> list[ComposedModel]:
-        """Discover all LoRAs and compose each into an Ollama model.
+        """Discover all LoRAs and register each as a peft adapter.
 
-        *ollama_url* is accepted for backward-compat but ignored (the
-        instance URL from ``__init__`` is used).
-
-        Returns the list of successfully composed models.
+        Returns the list of successfully registered models.
         """
         loras = self.discover(lora_dir)
         if not loras:
@@ -170,10 +122,10 @@ class LoRAManager:
                 composed.append(result)
                 self._register_in_db(result)
 
-        # Also pick up any pre-existing atlas-* models in Ollama
-        existing = await self._list_ollama_atlas_models()
+        # Also pick up any pre-existing atlas-* models from the DB
+        existing = await self._list_registered_models()
         for name in existing:
-            # e.g. "atlas-coding:latest" -> "coding"
+            # e.g. "atlas-coding" -> "coding"
             domain = name.split(":")[0].removeprefix("atlas-")
             if domain and domain not in self._composed:
                 self._composed[domain] = ComposedModel(
@@ -182,10 +134,10 @@ class LoRAManager:
                     base_model=base_model,
                     adapter_path="",
                 )
-                logger.info("Found pre-existing Ollama model %s", name)
+                logger.info("Found pre-existing registered model %s", name)
 
         logger.info(
-            "LoRA composition complete: %d composed, %d total active",
+            "LoRA registration complete: %d registered, %d total active",
             len(composed),
             len(self._composed),
         )
@@ -199,33 +151,17 @@ class LoRAManager:
         return cm.model_name if cm else None
 
     def list_active(self) -> list[ComposedModel]:
-        """Return all currently composed LoRA models."""
+        """Return all currently registered LoRA models."""
         return list(self._composed.values())
 
     # ── Removal ───────────────────────────────────────────────────
 
     async def remove(self, domain: str) -> bool:
-        """Remove a composed LoRA model from Ollama."""
+        """Unregister a LoRA adapter."""
         cm = self._composed.pop(domain, None)
         if cm is None:
             return False
-
-        httpx = _get_httpx()
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.request(
-                    "DELETE",
-                    f"{self._ollama_url}/api/delete",
-                    json={"model": cm.model_name},
-                )
-                resp.raise_for_status()
-        except Exception as exc:
-            logger.error("Failed to remove %s: %s", cm.model_name, exc)
-            # Put it back so the state stays consistent
-            self._composed[domain] = cm
-            return False
-
-        logger.info("Removed composed model %s", cm.model_name)
+        logger.info("Unregistered LoRA adapter %s", cm.model_name)
         return True
 
     # ── Registry integration ──────────────────────────────────────
@@ -233,10 +169,9 @@ class LoRAManager:
     async def discover_and_register(self, lora_dir: str | Path) -> dict[str, dict[str, Any]]:
         """Discover LoRAs on disk and register them in the DB.
 
-        Unlike :meth:`compose_all`, this does NOT create Ollama models.
-        It just catalogs what adapters are available so the admin UI can
-        display them. Composition happens later when adapters are in a
-        compatible format (GGUF).
+        Catalogs what adapters are available so the admin UI can
+        display them.  Actual loading happens at inference time via
+        peft when :meth:`get_model_for_domain` is used.
 
         Returns a dict of domain → adapter info.
         """
@@ -252,8 +187,8 @@ class LoRAManager:
             registered[domain] = {"path": str(path), **info}
             logger.debug("Registered LoRA: %s at %s", domain, path)
 
-        # Also pick up any pre-existing atlas-* models in Ollama
-        existing = await self._list_ollama_atlas_models()
+        # Also pick up any pre-existing atlas-* models from the DB
+        existing = await self._list_registered_models()
         for name in existing:
             domain = name.split(":")[0].removeprefix("atlas-")
             if domain and domain not in self._composed:
@@ -263,10 +198,10 @@ class LoRAManager:
                     base_model="",
                     adapter_path="",
                 )
-                logger.info("Found pre-existing Ollama model %s", name)
+                logger.info("Found pre-existing registered model %s", name)
 
         logger.info(
-            "LoRA discovery complete: %d on disk, %d composable in Ollama",
+            "LoRA discovery complete: %d on disk, %d registered",
             len(registered),
             len(self._composed),
         )
