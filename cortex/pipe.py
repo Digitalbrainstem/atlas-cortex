@@ -43,7 +43,7 @@ class Pipe:
 
     class Valves:
         """User-configurable knobs shown in Open WebUI settings."""
-        LLM_PROVIDER: str = "ollama"
+        LLM_PROVIDER: str = "transformers"
         LLM_URL: str = "http://localhost:11434"
         LLM_API_KEY: str = ""
         MODEL_FAST: str = "qwen2.5:14b"

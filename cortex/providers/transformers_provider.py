@@ -42,6 +42,13 @@ try:
 except ImportError:
     pass
 
+_HAS_SENTENCE_TRANSFORMERS = False
+try:
+    from sentence_transformers import SentenceTransformer
+    _HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    pass
+
 
 class TransformersProvider(LLMProvider):
     """Direct HuggingFace transformers inference with KV cache support.
@@ -65,6 +72,11 @@ class TransformersProvider(LLMProvider):
         self._model = None
         self._tokenizer = None
         self._loaded = False
+        self._embed_model_name = kwargs.get(
+            "embed_model",
+            os.environ.get("EMBED_MODEL", "all-MiniLM-L6-v2"),
+        )
+        self._embed_model = None
 
     # ------------------------------------------------------------------
     # Model lifecycle
@@ -221,11 +233,20 @@ class TransformersProvider(LLMProvider):
         return c
 
     async def embed(self, text: str, model: str | None = None) -> list[float]:
-        """Embeddings not supported — use Ollama for embeddings."""
-        raise NotImplementedError(
-            "TransformersProvider does not support embeddings. "
-            "Use OllamaProvider for embedding generation."
-        )
+        """Generate embeddings using sentence-transformers."""
+        if not _HAS_SENTENCE_TRANSFORMERS:
+            raise RuntimeError(
+                "sentence-transformers required for embeddings. "
+                "Install: pip install sentence-transformers"
+            )
+        if self._embed_model is None:
+            model_name = model or self._embed_model_name
+            loop = asyncio.get_event_loop()
+            self._embed_model = await loop.run_in_executor(
+                None, SentenceTransformer, model_name,
+            )
+        embedding = self._embed_model.encode(text, convert_to_numpy=True)
+        return embedding.tolist()
 
     async def list_models(self) -> list[dict[str, Any]]:
         return [{
@@ -248,7 +269,7 @@ class TransformersProvider(LLMProvider):
             return False
 
     def supports_embeddings(self) -> bool:
-        return False
+        return _HAS_SENTENCE_TRANSFORMERS
 
     def supports_thinking(self) -> bool:
         return "qwen3" in self.model_name.lower()
