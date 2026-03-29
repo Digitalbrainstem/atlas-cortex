@@ -23,6 +23,7 @@ from cortex.memory.vector import VectorStore, get_embedding
 from cortex.memory.hot import rrf_fuse, hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
 from cortex.memory.controller import MemorySystem, get_memory_system, set_memory_system
+from cortex.memory.palace import MemoryPalace, KnowledgeBank, PalaceRecall, get_palace, set_palace
 
 # Backward compat aliases (old private names used in tests)
 _classify_memory = classify_memory
@@ -45,4 +46,9 @@ __all__ = [
     "MemorySystem",
     "get_memory_system",
     "set_memory_system",
+    "MemoryPalace",
+    "KnowledgeBank",
+    "PalaceRecall",
+    "get_palace",
+    "set_palace",
 ]
