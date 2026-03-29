@@ -90,14 +90,23 @@ class TestTransformersProvider:
         assert models[0]["supports_kv_cache"] is True
         assert models[0]["supports_thinking"] is True
 
-    def test_supports_embeddings_false(self):
-        p = TransformersProvider()
-        assert p.supports_embeddings() is False
+    def test_supports_embeddings(self):
+        try:
+            from sentence_transformers import SentenceTransformer  # noqa: F401
+            assert TransformersProvider().supports_embeddings() is True
+        except ImportError:
+            assert TransformersProvider().supports_embeddings() is False
 
-    async def test_embed_raises(self):
+    async def test_embed_without_sentence_transformers(self):
         p = TransformersProvider()
-        with pytest.raises(NotImplementedError):
-            await p.embed("test text")
+        from cortex.providers import transformers_provider as _mod
+        orig = _mod._HAS_SENTENCE_TRANSFORMERS
+        _mod._HAS_SENTENCE_TRANSFORMERS = False
+        try:
+            with pytest.raises(RuntimeError, match="sentence-transformers required"):
+                await p.embed("test text")
+        finally:
+            _mod._HAS_SENTENCE_TRANSFORMERS = orig
 
     def test_get_provider_transformers(self):
         p = get_provider("transformers")

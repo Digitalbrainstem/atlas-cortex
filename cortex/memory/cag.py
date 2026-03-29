@@ -1,8 +1,8 @@
 """CAG (Cache-Augmented Generation) — Pre-computed knowledge injection for Atlas Cortex.
 
 Two operating modes:
+- 'transformers': Pre-computes KV caches for zero-token knowledge injection (default)
 - 'ollama': Retrieves indexed knowledge text and injects into system prompt
-- 'transformers': Pre-computes KV caches for zero-token knowledge injection
 
 Usage:
     engine = CAGEngine()
@@ -39,7 +39,7 @@ try:
 except ImportError:
     pass
 
-CAG_MODE = os.environ.get("CAG_MODE", "ollama")  # 'ollama' or 'transformers'
+CAG_MODE = os.environ.get("CAG_MODE", "transformers")  # 'transformers' or 'ollama'
 CACHE_DIR = Path(os.environ.get("CAG_CACHE_DIR", "./data/kv_caches"))
 
 
