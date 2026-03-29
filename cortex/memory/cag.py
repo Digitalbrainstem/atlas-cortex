@@ -1,21 +1,21 @@
-"""Memory Palace — Pre-computed knowledge injection for Atlas Cortex.
+"""CAG (Cache-Augmented Generation) — Pre-computed knowledge injection for Atlas Cortex.
 
 Two operating modes:
 - 'ollama': Retrieves indexed knowledge text and injects into system prompt
 - 'transformers': Pre-computes KV caches for zero-token knowledge injection
 
 Usage:
-    palace = MemoryPalace()
-    await palace.init()
+    engine = CAGEngine()
+    await engine.init()
 
     # Index a document
-    bank_id = await palace.index_document("medical_guide.txt", text, tags=["medical"])
+    bank_id = await engine.index_document("medical_guide.txt", text, tags=["medical"])
 
     # Retrieve knowledge for a query
-    knowledge = await palace.recall(query="What is NeoCardiol's dosing?", top_k=3)
+    knowledge = await engine.recall(query="What is NeoCardiol's dosing?", top_k=3)
 
     # In transformers mode, get KV cache
-    cache, prefix_len = await palace.get_cache(bank_id, model_name="Qwen/Qwen3-4B")
+    cache, prefix_len = await engine.get_cache(bank_id, model_name="Qwen/Qwen3-4B")
 """
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ try:
 except ImportError:
     pass
 
-PALACE_MODE = os.environ.get("PALACE_MODE", "ollama")  # 'ollama' or 'transformers'
-CACHE_DIR = Path(os.environ.get("PALACE_CACHE_DIR", "./data/kv_caches"))
+CAG_MODE = os.environ.get("CAG_MODE", "ollama")  # 'ollama' or 'transformers'
+CACHE_DIR = Path(os.environ.get("CAG_CACHE_DIR", "./data/kv_caches"))
 
 
 @dataclass
@@ -59,8 +59,8 @@ class KnowledgeBank:
 
 
 @dataclass
-class PalaceRecall:
-    """Result from a Memory Palace recall query."""
+class CAGRecall:
+    """Result from a CAG (Cache-Augmented Generation) recall query."""
     bank_id: str
     title: str
     text: str
@@ -69,11 +69,11 @@ class PalaceRecall:
     cache_available: bool = False
 
 
-class MemoryPalace:
-    """Pre-computed knowledge injection system."""
+class CAGEngine:
+    """CAG (Cache-Augmented Generation) — pre-computed knowledge injection system."""
 
     def __init__(self, db_conn=None, mode: str | None = None):
-        self._mode = mode or PALACE_MODE
+        self._mode = mode or CAG_MODE
         self._db = db_conn
         self._model = None
         self._tokenizer = None
@@ -86,7 +86,7 @@ class MemoryPalace:
         if self._db:
             _ensure_tables(self._db)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        logger.info("Memory Palace initialized (mode=%s)", self._mode)
+        logger.info("CAG engine initialized (mode=%s)", self._mode)
 
     @property
     def mode(self) -> str:
@@ -102,12 +102,12 @@ class MemoryPalace:
         build_cache: bool = True,
         model_name: str | None = None,
     ) -> str:
-        """Index a document into the Memory Palace.
+        """Index a document into the CAG engine.
 
         Returns the bank_id (content hash).
         """
         source_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
-        bank_id = f"palace_{source_hash}"
+        bank_id = f"cag_{source_hash}"
         tags = tags or []
         now = time.time()
 
@@ -122,10 +122,10 @@ class MemoryPalace:
             )
             # Also index in FTS for search
             self._db.execute(
-                "DELETE FROM palace_fts WHERE bank_id = ?", (bank_id,)
+                "DELETE FROM cag_fts WHERE bank_id = ?", (bank_id,)
             )
             self._db.execute(
-                """INSERT INTO palace_fts (bank_id, title, text, tags)
+                """INSERT INTO cag_fts (bank_id, title, text, tags)
                    VALUES (?, ?, ?, ?)""",
                 (bank_id, title, text, json.dumps(tags)),
             )
@@ -147,7 +147,7 @@ class MemoryPalace:
             logger.warning("PyTorch not available — cannot build KV cache")
             return
 
-        model_name = model_name or os.environ.get("PALACE_MODEL", "Qwen/Qwen3-4B")
+        model_name = model_name or os.environ.get("CAG_MODEL", "Qwen/Qwen3-4B")
         self._ensure_model_loaded(model_name)
 
         msgs = [{"role": "system", "content": text}]
@@ -201,7 +201,7 @@ class MemoryPalace:
             gc.collect()
             torch.cuda.empty_cache()
 
-        logger.info("Loading model %s for Memory Palace...", model_name)
+        logger.info("Loading model %s for CAG engine...", model_name)
         self._tokenizer = AutoTokenizer.from_pretrained(model_name)
         self._model = AutoModelForCausalLM.from_pretrained(
             model_name, dtype=torch.float16,
@@ -216,7 +216,7 @@ class MemoryPalace:
         query: str,
         top_k: int = 3,
         tags: list[str] | None = None,
-    ) -> list[PalaceRecall]:
+    ) -> list[CAGRecall]:
         """Retrieve relevant knowledge banks for a query.
 
         Uses FTS5 BM25 matching against indexed document text.
@@ -238,10 +238,10 @@ class MemoryPalace:
         rows = self._db.execute(
             f"""SELECT f.bank_id, f.title, f.text, f.tags,
                        b.cache_path,
-                       bm25(palace_fts) AS score
-                FROM palace_fts f
+                       bm25(cag_fts) AS score
+                FROM cag_fts f
                 LEFT JOIN kv_cache_banks b ON b.bank_id = f.bank_id
-                WHERE palace_fts MATCH ?
+                WHERE cag_fts MATCH ?
                 {tag_filter}
                 ORDER BY score
                 LIMIT ?""",
@@ -256,7 +256,7 @@ class MemoryPalace:
                 "UPDATE kv_cache_banks SET last_accessed = ? WHERE bank_id = ?",
                 (now, bank_id),
             )
-            results.append(PalaceRecall(
+            results.append(CAGRecall(
                 bank_id=bank_id,
                 title=row["title"],
                 text=row["text"],
@@ -383,12 +383,12 @@ class MemoryPalace:
                 cache_path.unlink()
 
         self._db.execute("DELETE FROM kv_cache_banks WHERE bank_id = ?", (bank_id,))
-        self._db.execute("DELETE FROM palace_fts WHERE bank_id = ?", (bank_id,))
+        self._db.execute("DELETE FROM cag_fts WHERE bank_id = ?", (bank_id,))
         self._db.commit()
         return True
 
     async def get_stats(self) -> dict:
-        """Return Memory Palace statistics."""
+        """Return CAG engine statistics."""
         if not self._db:
             return {"mode": self._mode, "banks": 0}
 
@@ -411,22 +411,22 @@ class MemoryPalace:
 
 # ── Module-level singleton ───────────────────────────────────────────
 
-_palace: MemoryPalace | None = None
+_cag_engine: CAGEngine | None = None
 
 
-def get_palace() -> MemoryPalace | None:
-    return _palace
+def get_cag_engine() -> CAGEngine | None:
+    return _cag_engine
 
 
-def set_palace(palace: MemoryPalace) -> None:
-    global _palace
-    _palace = palace
+def set_cag_engine(engine: CAGEngine) -> None:
+    global _cag_engine
+    _cag_engine = engine
 
 
 # ── Database helpers ─────────────────────────────────────────────────
 
 def _ensure_tables(conn):
-    """Create Memory Palace tables if they don't exist."""
+    """Create CAG (Cache-Augmented Generation) tables if they don't exist."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS kv_cache_banks (
             bank_id     TEXT PRIMARY KEY,
@@ -441,12 +441,12 @@ def _ensure_tables(conn):
             last_accessed REAL DEFAULT 0
         );
 
-        CREATE VIRTUAL TABLE IF NOT EXISTS palace_fts USING fts5(
+        CREATE VIRTUAL TABLE IF NOT EXISTS cag_fts USING fts5(
             bank_id, title, text, tags,
             tokenize='porter unicode61'
         );
 
-        CREATE TABLE IF NOT EXISTS palace_usage_log (
+        CREATE TABLE IF NOT EXISTS cag_usage_log (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             bank_id     TEXT NOT NULL,
             query       TEXT,

@@ -1,4 +1,4 @@
-"""Tests for the Transformers LLM provider (Memory Palace KV cache support)."""
+"""Tests for the Transformers LLM provider (CAG KV cache support)."""
 from __future__ import annotations
 
 import pytest
