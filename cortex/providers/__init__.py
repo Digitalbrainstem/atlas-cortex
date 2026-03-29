@@ -5,10 +5,11 @@ Usage::
     from cortex.providers import get_provider
     provider = get_provider()          # auto from environment
     provider = get_provider("ollama")
-    provider = get_provider("openai_compatible", base_url="http://...")
+    provider = get_provider("openai_compatible")
+    provider = get_provider("transformers")  # direct GPU with KV cache support
 """
 
-# Module ownership: LLM providers: Ollama, OpenAI-compatible
+# Module ownership: LLM providers: Ollama, OpenAI-compatible, Transformers
 
 from __future__ import annotations
 
@@ -19,12 +20,24 @@ from .base import LLMProvider
 from .ollama import OllamaProvider
 from .openai_compat import OpenAICompatibleProvider
 
-__all__ = ["LLMProvider", "OllamaProvider", "OpenAICompatibleProvider", "get_provider"]
+# Transformers provider is optional (requires torch)
+try:
+    from .transformers_provider import TransformersProvider
+    _HAS_TRANSFORMERS = True
+except ImportError:
+    TransformersProvider = None  # type: ignore[misc, assignment]
+    _HAS_TRANSFORMERS = False
 
-_PROVIDERS = {
+__all__ = ["LLMProvider", "OllamaProvider", "OpenAICompatibleProvider", "get_provider"]
+if _HAS_TRANSFORMERS:
+    __all__.append("TransformersProvider")
+
+_PROVIDERS: dict[str, type[LLMProvider]] = {
     "ollama": OllamaProvider,
     "openai_compatible": OpenAICompatibleProvider,
 }
+if _HAS_TRANSFORMERS:
+    _PROVIDERS["transformers"] = TransformersProvider
 
 
 def get_provider(
