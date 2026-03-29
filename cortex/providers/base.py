@@ -57,3 +57,7 @@ class LLMProvider(abc.ABC):
     def supports_thinking(self) -> bool:
         """Whether models on this provider support extended thinking."""
         return False
+
+    def supports_kv_cache(self) -> bool:
+        """Whether this provider supports Memory Palace KV cache injection."""
+        return False
