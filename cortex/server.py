@@ -145,9 +145,8 @@ async def lifespan(app: FastAPI):
             from cortex.evolution.lora_manager import LoRAManager, set_lora_manager
 
             lora_dir = os.getenv("LORA_DIR", os.path.expanduser("~/.cortex/loras"))
-            ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-            mgr = LoRAManager(ollama_url=ollama_url)
+            mgr = LoRAManager()
             set_lora_manager(mgr)
 
             # Discover and register in DB (no Ollama composition — adapters
