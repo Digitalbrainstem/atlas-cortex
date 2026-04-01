@@ -1,4 +1,4 @@
-"""Atlas Coding Pipeline — 12-stage spec-to-working-code system.
+"""Atlas Coding Pipeline — 14-stage spec-to-working-committed-code system.
 
 Two models run simultaneously on the same GPU:
 - Generator (Qwen3.5-4B, port 8080): Writes code at 110 tok/s
