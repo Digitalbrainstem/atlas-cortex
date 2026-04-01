@@ -20,6 +20,7 @@ from cortex.evolution.engine import EvolutionEngine
 from cortex.evolution.lora_gguf import LoRAGGUFManager
 from cortex.evolution.lora_manager import LoRAManager
 from cortex.evolution.registry import ModelRegistry
+from cortex.evolution.self_improve import SelfImprover
 
 import json
 import sqlite3
@@ -34,6 +35,7 @@ __all__ = [
     "LoRAGGUFManager",
     "LoRAManager",
     "ModelRegistry",
+    "SelfImprover",
 ]
 
 
