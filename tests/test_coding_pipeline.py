@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
 import textwrap
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -657,15 +658,25 @@ class TestCodingPipelineIntegration:
                 # Patch codex validation
                 with patch("cortex.coding.pipeline.CodexPipeline.validate", new_callable=AsyncMock) as mock_codex:
                     mock_codex.return_value = MagicMock(valid=True, stages_passed=["syntax"], stages_failed=[])
-                    # Patch pytest run
+                    # Patch pytest run and git commit
                     with patch.object(CodingPipeline, "_run_pytest", return_value=(True, "1 passed")):
-                        pipeline = CodingPipeline(generator_url="http://localhost:8080")
-                        spec = "Build a greeting function in main.py"
-                        result = await pipeline.generate_project(spec, output_dir=str(tmp_path))
+                        with patch.object(CodingPipeline, "_stage_git_commit", return_value="abc123def456"):
+                            pipeline = CodingPipeline(generator_url="http://localhost:8080")
+                            spec = "Build a greeting function in main.py"
+                            result = await pipeline.generate_project(spec, output_dir=str(tmp_path))
 
-                        assert isinstance(result, ProjectResult)
-                        assert len(result.stages) == 12
-                        assert result.tests_passed
+                            assert isinstance(result, ProjectResult)
+                            assert len(result.stages) == 14
+                            assert result.tests_passed
+                            assert result.commit_sha == "abc123def456"
+                            # Verify stage names
+                            stage_names = [s.name for s in result.stages]
+                            assert stage_names == [
+                                "parse_spec", "fetch_docs", "dep_graph", "contract",
+                                "tests_first", "generate", "known_bugs", "spec_adherence",
+                                "codex", "cross_review", "apply_review_fixes",
+                                "pytest_loop", "error_memory", "git_commit",
+                            ]
 
     async def test_pipeline_minimal_no_output_dir(self) -> None:
         contract = "def main(): ..."
@@ -678,5 +689,112 @@ class TestCodingPipelineIntegration:
                     pipeline = CodingPipeline(generator_url="http://localhost:8080")
                     result = await pipeline.generate_project("Build something")
                     assert isinstance(result, ProjectResult)
+                    assert len(result.stages) == 14
                     # Without output_dir, fix loop returns 0 iterations
                     assert result.fix_iterations == 0
+                    # Without output_dir, git commit is skipped
+                    assert result.commit_sha == ""
+
+
+# =========================================================================
+# Stage 11: Apply review fixes
+# =========================================================================
+
+
+class TestApplyReviewFixes:
+    def _mock_llm_call(self, return_value: str):
+        return patch("cortex.coding.pipeline._llm_call", new_callable=AsyncMock, return_value=return_value)
+
+    async def test_no_reviews_is_noop(self) -> None:
+        pipeline = CodingPipeline(generator_url="http://localhost:8080")
+        files = {"main.py": "x = 1\n"}
+        new_files, count = await pipeline._stage_apply_review_fixes(files, [], "contract")
+        assert new_files == files
+        assert count == 0
+
+    async def test_applies_fixes_from_reviews(self) -> None:
+        pipeline = CodingPipeline(generator_url="http://localhost:8080")
+        files = {"main.py": "x = 1 / y\n"}
+        reviews = [
+            ReviewResult(
+                file_path="main.py",
+                issues=[ReviewIssue(line=1, severity="bug", description="Division by zero", suggested_fix="Add zero check")],
+                approved=False,
+            ),
+        ]
+        patched_response = "### main.py\n```python\nif y != 0:\n    x = 1 / y\n```"
+        with self._mock_llm_call(patched_response):
+            new_files, count = await pipeline._stage_apply_review_fixes(files, reviews, "contract")
+            assert count == 1
+            assert "y != 0" in new_files["main.py"]
+
+    async def test_skips_suggestions_only(self) -> None:
+        pipeline = CodingPipeline(generator_url="http://localhost:8080")
+        files = {"main.py": "x = 1\n"}
+        reviews = [
+            ReviewResult(
+                file_path="main.py",
+                issues=[ReviewIssue(line=1, severity="suggestion", description="Could add docstring")],
+                approved=True,
+            ),
+        ]
+        # Suggestions are not "bug" or "warning" so nothing to fix
+        new_files, count = await pipeline._stage_apply_review_fixes(files, reviews, "contract")
+        assert count == 0
+
+    async def test_handles_llm_failure_gracefully(self) -> None:
+        pipeline = CodingPipeline(generator_url="http://localhost:8080")
+        files = {"main.py": "x = 1\n"}
+        reviews = [
+            ReviewResult(
+                file_path="main.py",
+                issues=[ReviewIssue(severity="bug", description="bad")],
+                approved=False,
+            ),
+        ]
+        with patch("cortex.coding.pipeline._llm_call", new_callable=AsyncMock, side_effect=Exception("timeout")):
+            new_files, count = await pipeline._stage_apply_review_fixes(files, reviews, "contract")
+            assert new_files == files
+            assert count == 0
+
+
+# =========================================================================
+# Stage 14: Git commit
+# =========================================================================
+
+
+class TestGitCommit:
+    @staticmethod
+    def _init_git(path) -> None:
+        """Set up a git repo with identity in the given directory."""
+        subprocess.run(["git", "init"], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=str(path), capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), capture_output=True)
+
+    def test_skipped_without_output_dir(self) -> None:
+        result = ProjectResult(tests_passed=True)
+        sha = CodingPipeline._stage_git_commit(None, "spec", result)
+        assert sha == ""
+
+    def test_skipped_when_tests_failing(self, tmp_path) -> None:
+        result = ProjectResult(tests_passed=False)
+        sha = CodingPipeline._stage_git_commit(str(tmp_path), "spec", result)
+        assert sha == ""
+
+    def test_commits_when_tests_pass(self, tmp_path) -> None:
+        self._init_git(tmp_path)
+        (tmp_path / "main.py").write_text("x = 1\n")
+        result = ProjectResult(tests_passed=True, fix_iterations=2, review_fixes_applied=1)
+        sha = CodingPipeline._stage_git_commit(str(tmp_path), "Build a calculator", result)
+        assert len(sha) == 40  # full SHA
+
+    def test_commit_message_contains_spec(self, tmp_path) -> None:
+        self._init_git(tmp_path)
+        (tmp_path / "main.py").write_text("x = 1\n")
+        result = ProjectResult(tests_passed=True)
+        CodingPipeline._stage_git_commit(str(tmp_path), "Build a calculator", result)
+        proc = subprocess.run(
+            ["git", "log", "--oneline", "-1"],
+            cwd=str(tmp_path), capture_output=True, text=True,
+        )
+        assert "Build a calculator" in proc.stdout

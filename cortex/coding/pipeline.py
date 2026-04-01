@@ -1,18 +1,20 @@
-"""12-stage coding pipeline: spec → working tested code.
+"""14-stage coding pipeline: spec → working tested committed code.
 
 Stages:
  1. Parse spec
- 2. Fetch documentation
+ 2. Fetch real documentation
  3. Build dependency graph
  4. Generate interface contract
- 5. Generate tests first
- 6. Generate code (cumulative context, dependency order)
- 7. Known bugs check
+ 5. Generate tests FIRST
+ 6. Generate code (cumulative context, dependency ordered)
+ 7. Known bugs scan
  8. Spec adherence check
- 9. Codex validation (syntax, imports, execute)
-10. Cross-family review (Omnicoder)
-11. Fix loop (pytest-driven)
-12. Error memory
+ 9. Codex validation (syntax, imports, static, execute)
+10. Cross-family review (Omnicoder reviews Qwen's code)
+11. Apply review fixes (Qwen fixes issues Omnicoder found)
+12. Pytest loop (run tests, feed errors, fix, repeat until passing)
+13. Error memory (store all bugs found for future prevention)
+14. Git commit (clean, working, tested)
 """
 from __future__ import annotations
 
@@ -52,7 +54,7 @@ class StageResult:
 
 @dataclass
 class ProjectResult:
-    """Final outcome of the full 12-stage pipeline."""
+    """Final outcome of the full 14-stage pipeline."""
 
     files: dict[str, str] = field(default_factory=dict)
     test_files: dict[str, str] = field(default_factory=dict)
@@ -61,8 +63,10 @@ class ProjectResult:
     bug_warnings: list[BugWarning] = field(default_factory=list)
     violations: list[Violation] = field(default_factory=list)
     reviews: list[ReviewResult] = field(default_factory=list)
+    review_fixes_applied: int = 0
     fix_iterations: int = 0
     contract: str = ""
+    commit_sha: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -142,11 +146,12 @@ def _strip_fences(text: str) -> str:
 
 
 class CodingPipeline:
-    """Full 12-stage coding pipeline: spec → working tested code.
+    """Full 14-stage coding pipeline: spec → working tested committed code.
 
-    Two models run simultaneously:
+    Two models run simultaneously on the same GPU:
     - generator_url: Qwen3.5-4B (port 8080) — writes code at 110 tok/s
-    - reviewer_url:  Omnicoder-9B (port 8081) — cross-family review
+    - reviewer_url:  Omnicoder-9B (port 8081) — cross-family review,
+      different model family catches different blind spots
     """
 
     def __init__(
@@ -187,87 +192,112 @@ class CodingPipeline:
         *,
         max_fix_iterations: int = 15,
     ) -> ProjectResult:
-        """Run the full 12-stage pipeline."""
+        """Run the full 14-stage pipeline."""
         result = ProjectResult()
 
         # ---- Stage 1: Parse spec ----
         parsed = self.spec_parser.parse(spec)
         result.stages.append(StageResult("parse_spec", True, f"libs={parsed.required_libraries}"))
-        log.info("Stage 1/12 — Spec parsed: %d libs, %d constraints", len(parsed.required_libraries), len(parsed.constraints))
+        log.info("Stage 1/14 — Spec parsed: %d libs, %d constraints", len(parsed.required_libraries), len(parsed.constraints))
 
-        # ---- Stage 2: Fetch documentation ----
+        # ---- Stage 2: Fetch real documentation ----
         docs = await self._stage_fetch_docs(parsed)
         result.stages.append(StageResult("fetch_docs", True, f"{len(docs)} libraries documented"))
-        log.info("Stage 2/12 — Docs fetched for %d libraries", len(docs))
+        log.info("Stage 2/14 — Docs fetched for %d libraries", len(docs))
 
         # ---- Stage 3: Build dependency graph ----
         dep_order = self._stage_dep_graph(parsed)
         result.stages.append(StageResult("dep_graph", True, f"order={dep_order}"))
-        log.info("Stage 3/12 — Generation order: %s", dep_order)
+        log.info("Stage 3/14 — Generation order: %s", dep_order)
 
         # ---- Stage 4: Generate interface contract ----
         contract = await self._stage_contract(spec, docs)
         result.contract = contract
         result.stages.append(StageResult("contract", bool(contract), f"{len(contract)} chars"))
-        log.info("Stage 4/12 — Contract generated (%d chars)", len(contract))
+        log.info("Stage 4/14 — Contract generated (%d chars)", len(contract))
 
-        # ---- Stage 5: Generate tests first ----
+        # ---- Stage 5: Generate tests FIRST ----
         test_files = await self._stage_tests(spec, contract, dep_order)
         result.test_files = test_files
         result.stages.append(StageResult("tests_first", bool(test_files), f"{len(test_files)} test files"))
-        log.info("Stage 5/12 — %d test files generated", len(test_files))
+        log.info("Stage 5/14 — %d test files generated", len(test_files))
 
-        # ---- Stage 6: Generate code ----
+        # ---- Stage 6: Generate code (cumulative context, dependency ordered) ----
         files = await self._stage_generate(spec, contract, dep_order, docs)
         result.files = files
         result.stages.append(StageResult("generate", bool(files), f"{len(files)} files"))
-        log.info("Stage 6/12 — %d source files generated", len(files))
+        log.info("Stage 6/14 — %d source files generated", len(files))
 
-        # ---- Stage 7: Known bugs check ----
+        # ---- Stage 7: Known bugs scan ----
         bugs = self.known_bugs.scan(files)
         result.bug_warnings = bugs
         result.stages.append(StageResult("known_bugs", True, f"{len(bugs)} warnings"))
-        log.info("Stage 7/12 — %d known-bug warnings", len(bugs))
+        log.info("Stage 7/14 — %d known-bug warnings", len(bugs))
 
         # ---- Stage 8: Spec adherence check ----
         violations = self.spec_parser.check_adherence(files, parsed)
         result.violations = violations
         errors = [v for v in violations if v.severity == "error"]
         result.stages.append(StageResult("spec_adherence", len(errors) == 0, f"{len(violations)} violations"))
-        log.info("Stage 8/12 — %d spec violations (%d errors)", len(violations), len(errors))
+        log.info("Stage 8/14 — %d spec violations (%d errors)", len(violations), len(errors))
 
-        # ---- Stage 9: Codex validation ----
+        # ---- Stage 9: Codex validation (syntax, imports, static, execute) ----
         codex_ok = await self._stage_codex(files)
         result.stages.append(StageResult("codex", codex_ok, ""))
-        log.info("Stage 9/12 — Codex validation: %s", "PASS" if codex_ok else "FAIL")
+        log.info("Stage 9/14 — Codex validation: %s", "PASS" if codex_ok else "FAIL")
 
-        # ---- Stage 10: Cross-family review ----
+        # ---- Stage 10: Cross-family review (Omnicoder reviews Qwen's code) ----
         if self._reviewer:
             reviews = await self._stage_review(files, contract)
             result.reviews = reviews
             bugs_found = sum(1 for r in reviews for i in r.issues if i.severity == "bug")
             result.stages.append(StageResult("cross_review", bugs_found == 0, f"{bugs_found} bugs"))
-            log.info("Stage 10/12 — Cross-review: %d bugs found", bugs_found)
+            log.info("Stage 10/14 — Cross-review: %d bugs found", bugs_found)
         else:
             result.stages.append(StageResult("cross_review", True, "skipped (no reviewer)"))
-            log.info("Stage 10/12 — Cross-review skipped (no reviewer URL)")
+            log.info("Stage 10/14 — Cross-review skipped (no reviewer URL)")
 
-        # ---- Stage 11: Fix loop ----
+        # ---- Stage 11: Apply review fixes (Qwen fixes issues Omnicoder found) ----
+        fixes_applied = 0
+        if result.reviews:
+            files, fixes_applied = await self._stage_apply_review_fixes(
+                files, result.reviews, contract,
+            )
+            result.files = files
+        result.review_fixes_applied = fixes_applied
+        result.stages.append(StageResult(
+            "apply_review_fixes",
+            True,
+            f"{fixes_applied} fixes applied" if fixes_applied else "nothing to fix",
+        ))
+        log.info("Stage 11/14 — Review fixes: %d applied", fixes_applied)
+
+        # ---- Stage 12: Pytest loop (run tests, feed errors, fix, repeat) ----
         final_files, iterations, tests_ok = await self._stage_fix_loop(
             files, test_files, output_dir, max_iterations=max_fix_iterations,
         )
         result.files = final_files
         result.fix_iterations = iterations
         result.tests_passed = tests_ok
-        result.stages.append(StageResult("fix_loop", tests_ok, f"{iterations} iterations"))
-        log.info("Stage 11/12 — Fix loop: %d iterations, tests_passed=%s", iterations, tests_ok)
+        result.stages.append(StageResult("pytest_loop", tests_ok, f"{iterations} iterations"))
+        log.info("Stage 12/14 — Pytest loop: %d iterations, tests_passed=%s", iterations, tests_ok)
 
-        # ---- Stage 12: Error memory ----
+        # ---- Stage 13: Error memory (store all bugs for future prevention) ----
         self._stage_error_memory(result)
         result.stages.append(StageResult("error_memory", True, "recorded"))
-        log.info("Stage 12/12 — Error memory updated")
+        log.info("Stage 13/14 — Error memory updated")
 
-        # Write files to disk if requested
+        # ---- Stage 14: Git commit (clean, working, tested) ----
+        commit_sha = self._stage_git_commit(output_dir, spec, result)
+        result.commit_sha = commit_sha
+        result.stages.append(StageResult(
+            "git_commit",
+            bool(commit_sha),
+            commit_sha[:8] if commit_sha else "skipped (no output_dir or tests failing)",
+        ))
+        log.info("Stage 14/14 — Git commit: %s", commit_sha[:8] if commit_sha else "skipped")
+
+        # Write files to disk (final state, after all fixes)
         if output_dir:
             self._write_project(result, output_dir)
 
@@ -381,6 +411,62 @@ class CodingPipeline:
         results.extend(project_reviews)
         return results
 
+    async def _stage_apply_review_fixes(
+        self,
+        files: dict[str, str],
+        reviews: list[ReviewResult],
+        contract: str,
+    ) -> tuple[dict[str, str], int]:
+        """Ask the generator to fix issues the reviewer found."""
+        actionable = [
+            issue
+            for r in reviews
+            for issue in r.issues
+            if issue.severity in ("bug", "warning")
+        ]
+        if not actionable:
+            return files, 0
+
+        issues_text = "\n".join(
+            f"- [{i.severity.upper()}] {i.description}"
+            + (f" (suggested: {i.suggested_fix})" if i.suggested_fix else "")
+            for i in actionable
+        )
+        fix_prompt = textwrap.dedent(f"""\
+            A cross-family code reviewer (different model) found these issues:
+
+            {issues_text}
+
+            ## Contract
+            ```python
+            {contract}
+            ```
+
+            ## Current source files
+            {self._files_as_context(files)}
+
+            Fix ALL issues listed above. Return every fixed file as:
+            ### filename.py
+            ```python
+            <code>
+            ```
+
+            Only include files that need changes.""")
+
+        try:
+            raw = await _llm_call(
+                self.generator, _CODE_GEN_SYSTEM, fix_prompt,
+                model=self._gen_model, max_tokens=8192,
+            )
+            patched = self._parse_multi_file_response(raw)
+            if patched:
+                files.update(patched)
+                return files, len(patched)
+        except Exception as exc:
+            log.warning("Review-fix stage failed: %s", exc)
+
+        return files, 0
+
     async def _stage_fix_loop(
         self,
         files: dict[str, str],
@@ -453,6 +539,52 @@ class CodingPipeline:
                 fix=bug.fix_suggestion,
                 library=bug.bug_id.split("-")[0],
             )
+
+    @staticmethod
+    def _stage_git_commit(
+        output_dir: str | None,
+        spec: str,
+        result: ProjectResult,
+    ) -> str:
+        """Commit the generated project to git if tests passed."""
+        if not output_dir or not result.tests_passed:
+            return ""
+        try:
+            # Init repo if needed
+            subprocess.run(
+                ["git", "init"],
+                cwd=output_dir, capture_output=True, text=True, timeout=10,
+            )
+            subprocess.run(
+                ["git", "add", "."],
+                cwd=output_dir, capture_output=True, text=True, timeout=10,
+            )
+            # Build a concise commit subject from the first line of the spec
+            subject = spec.strip().splitlines()[0][:72] if spec.strip() else "Generated project"
+            body = (
+                f"Auto-generated by Atlas Coding Pipeline (14-stage)\n\n"
+                f"Stages passed: {sum(1 for s in result.stages if s.passed)}/{len(result.stages)}\n"
+                f"Fix iterations: {result.fix_iterations}\n"
+                f"Review fixes applied: {result.review_fixes_applied}\n"
+                f"Bug warnings: {len(result.bug_warnings)}"
+            )
+            msg = f"{subject}\n\n{body}"
+            proc = subprocess.run(
+                ["git", "commit", "-m", msg, "--allow-empty"],
+                cwd=output_dir, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                log.warning("Git commit failed: %s", proc.stderr)
+                return ""
+            # Extract commit SHA
+            sha_proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=output_dir, capture_output=True, text=True, timeout=5,
+            )
+            return sha_proc.stdout.strip() if sha_proc.returncode == 0 else ""
+        except Exception as exc:
+            log.warning("Git commit stage failed: %s", exc)
+            return ""
 
     # ==================================================================
     # Helpers
