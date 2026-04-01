@@ -1193,6 +1193,66 @@ CREATE TABLE IF NOT EXISTS cag_usage_log (
     latency_ms  REAL DEFAULT 0,
     created_at  REAL DEFAULT 0
 );
+
+-- Session Memory: conversation persistence & crash recovery
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    room        TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',
+    crash_count INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cs_user_status
+    ON conversation_sessions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_cs_updated
+    ON conversation_sessions(updated_at);
+
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    turn_index  INTEGER NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    model_used  TEXT,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    timestamp   REAL NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES conversation_sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_ct_session
+    ON conversation_turns(session_id, turn_index);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_turn_fts USING fts5(
+    session_id, role, content,
+    tokenize='porter unicode61'
+);
+
+-- ───────── Knowledge Tree ─────────
+
+CREATE TABLE IF NOT EXISTS knowledge_nodes (
+    id          TEXT PRIMARY KEY,
+    parent_id   TEXT,
+    title       TEXT NOT NULL,
+    summary     TEXT,
+    content     TEXT,
+    token_count INTEGER DEFAULT 0,
+    level       INTEGER DEFAULT 0,
+    keywords    TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (parent_id) REFERENCES knowledge_nodes(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_parent ON knowledge_nodes(parent_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_level  ON knowledge_nodes(level);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_node_fts USING fts5(
+    title, summary, content, keywords,
+    content=knowledge_nodes,
+    content_rowid=rowid,
+    tokenize='porter unicode61'
+);
 """
 
 

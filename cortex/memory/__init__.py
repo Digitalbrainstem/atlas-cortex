@@ -24,6 +24,11 @@ from cortex.memory.hot import rrf_fuse, hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
 from cortex.memory.controller import MemorySystem, get_memory_system, set_memory_system
 from cortex.memory.cag import CAGEngine, KnowledgeBank, CAGRecall, get_cag_engine, set_cag_engine
+from cortex.memory.sessions import SessionStore, Session, Turn, get_session_store, set_session_store
+from cortex.memory.compaction import ContextCompactor, CompactionResult
+from cortex.memory.knowledge_tree import KnowledgeTree, TreeNode, TreeStats
+from cortex.memory.memory_index import MemoryIndex
+from cortex.memory.proactive_loader import ProactiveLoader, ContextBundle
 
 # Backward compat aliases (old private names used in tests)
 _classify_memory = classify_memory
@@ -57,6 +62,19 @@ __all__ = [
     "CAGRecall",
     "get_cag_engine",
     "set_cag_engine",
+    "SessionStore",
+    "Session",
+    "Turn",
+    "get_session_store",
+    "set_session_store",
+    "ContextCompactor",
+    "CompactionResult",
+    "KnowledgeTree",
+    "TreeNode",
+    "TreeStats",
+    "MemoryIndex",
+    "ProactiveLoader",
+    "ContextBundle",
     # Backward compat
     "MemoryPalace",
     "PalaceRecall",
