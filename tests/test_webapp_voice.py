@@ -327,7 +327,7 @@ class TestUnifiedDashboard:
             / "NavBar.vue"
         )
         content = navbar_path.read_text()
-        assert "adminItems" in content
+        assert "navGroups" in content
         assert "'Dashboard'" in content or '"Dashboard"' in content
         assert "'Plugins'" in content or '"Plugins"' in content
         assert "'System'" in content or '"System"' in content
