@@ -27,7 +27,7 @@ use `python -m mocks.run` which sets them automatically.
 
 | Service | Real | Mock | Port |
 |---------|------|------|------|
-| **LLM** (Ollama) | qwen2.5:7b on GPU | Pre-recorded responses + simulated latency | 11434 |
+| **LLM** | Qwen3.5 on GPU via llama.cpp | Pre-recorded responses + simulated latency | 11434 |
 | **STT** (Whisper) | faster-whisper on Vulkan GPU | Returns transcriptions by audio length | 10300 |
 | **TTS** (Kokoro) | Kokoro on GPU | Generates sine-wave PCM with real timing | 8880 |
 
@@ -136,7 +136,7 @@ mocks/
 ├── __init__.py              # Package marker
 ├── benchmark.py             # Captures real timing from live hardware
 ├── conftest.py              # Pytest fixtures (auto-start mock servers)
-├── mock_llm_server.py       # Mock Ollama API (/api/chat, /api/tags)
+├── mock_llm_server.py       # Mock LLM API (OpenAI-compatible /v1/chat/completions)
 ├── mock_stt_server.py       # Mock Whisper API (/inference)
 ├── mock_tts_server.py       # Mock Kokoro API (/v1/audio/speech)
 ├── run.py                   # Starts all mocks + sets env vars
@@ -147,7 +147,7 @@ mocks/
 
 ### Mock LLM Server
 
-- Matches Ollama `/api/chat` endpoint (streaming + non-streaming)
+- Matches OpenAI-compatible `/v1/chat/completions` endpoint (streaming + non-streaming)
 - Looks up pre-recorded responses by question text (fuzzy match)
 - Unknown questions get a generic mock response with average timing
 - Simulates realistic TTFT and per-token streaming delays
@@ -184,7 +184,7 @@ The timing data is specific to this hardware configuration:
 |-----------|------|
 | Server CPU | AMD Ryzen 7 5700G |
 | Server GPU | Intel Arc B580 (12GB, Vulkan) |
-| LLM | qwen2.5:7b (Q4_K_M) via Ollama |
+| LLM | Qwen3.5-4B (Q4_K_M) via llama.cpp |
 | STT | faster-whisper (Vulkan inference) |
 | TTS | Kokoro (GPU accelerated) |
 | Satellite | Pi Zero 2W + ReSpeaker 2-mic HAT |

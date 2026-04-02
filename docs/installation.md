@@ -2,7 +2,7 @@
 
 ## Design Principles
 
-1. **No hardcoded backends** — HuggingFace Transformers is the default, with Ollama and others as fallbacks
+1. **No hardcoded backends** — llama.cpp (via OpenAI-compatible API) is the default, with Transformers and others as alternatives
 2. **Discovery-first** — the installer finds what's already running before suggesting new installs
 3. **Two-stage setup** — deterministic installer first (no LLM), then LLM-assisted refinement
 4. **Voice routes through Cortex** — HA voice pipeline → Atlas Cortex → LLM, never HA → LLM directly
@@ -11,15 +11,15 @@
 
 ## LLM Backend Abstraction
 
-Atlas Cortex talks to LLMs through a **provider interface**, not directly to Ollama.
+Atlas Cortex talks to LLMs through a **provider interface**, not directly to any single backend.
 
 ### Supported Providers
 
 | Provider | API Style | How Detected | Notes |
 |----------|-----------|-------------|-------|
-| **HuggingFace Transformers** (default) | In-process Python | Always available | KV cache injection (CAG), no external server needed |
-| **Ollama** (legacy fallback) | `/api/chat`, `/api/embeddings` | Probe `localhost:11434/api/tags` | Set `LLM_PROVIDER=ollama` |
-| **llama.cpp server** | OpenAI-compatible `/v1/chat/completions` | Probe common ports (8080, 8000) | Lightweight, no container needed |
+| **llama.cpp server** (default) | OpenAI-compatible `/v1/chat/completions` | Probe common ports (8080, 8000) | Lightweight, fast, GGUF models |
+| **HuggingFace Transformers** | In-process Python | Always available | KV cache injection (CAG), no external server needed |
+| **Ollama** (deprecated) | `/api/chat`, `/api/embeddings` | Probe `localhost:11434/api/tags` | Set `LLM_PROVIDER=ollama` |
 | **vLLM** | OpenAI-compatible | Probe `/v1/models` | High throughput, production-grade |
 | **LocalAI** | OpenAI-compatible | Probe `/v1/models` | Multi-backend, batteries included |
 | **LM Studio** | OpenAI-compatible | Probe `localhost:1234/v1/models` | GUI-friendly, popular on desktop |
@@ -64,7 +64,7 @@ class TransformersProvider(LLMProvider):
     ...
 
 class OllamaProvider(LLMProvider):
-    """Ollama-specific (legacy fallback): /api/chat, /api/embeddings, /api/tags"""
+    """Ollama-specific (deprecated): /api/chat, /api/embeddings, /api/tags"""
     ...
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -80,7 +80,7 @@ Embeddings might come from a different source than the chat LLM:
 |----------|-----|-------|
 | **Sentence-transformers** (default) | Python in-process | `EMBED_MODEL=all-MiniLM-L6-v2`, no external dependency, CPU |
 | Fastembed (qdrant) | Python in-process | ONNX optimized, very fast |
-| Ollama `nomic-embed-text` | `/api/embeddings` | Legacy, if Ollama is the LLM provider |
+| Ollama `nomic-embed-text` | `/api/embeddings` | Deprecated, if Ollama is enabled |
 | OpenAI-compatible `/v1/embeddings` | HTTP | vLLM, LocalAI, etc. |
 
 Sentence-transformers is the default embedding provider. No external server required.
@@ -113,7 +113,7 @@ Atlas Cortex Server (:5100)
     /v1/embeddings        → proxies to embedding provider
     │
     ▼
-LLM Backend (HuggingFace Transformers, Ollama, vLLM, llama.cpp, etc.)
+LLM Backend (llama.cpp, HuggingFace Transformers, vLLM, etc.)
 ```
 
 This means:
@@ -128,11 +128,11 @@ This means:
 
 ### The Problem
 
-If HA's voice pipeline connects directly to Ollama, it bypasses everything Atlas provides: no memory, no personality, no device commands, no sentiment, no filler streaming, no user profiles.
+If HA's voice pipeline connects directly to the LLM backend, it bypasses everything Atlas provides: no memory, no personality, no device commands, no sentiment, no filler streaming, no user profiles.
 
 ### The Solution
 
-HA voice pipeline → Atlas Cortex → LLM backend. Atlas is the conversation agent, not Ollama.
+HA voice pipeline → Atlas Cortex → LLM backend. Atlas is the conversation agent, not the LLM directly.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -149,7 +149,7 @@ HA voice pipeline → Atlas Cortex → LLM backend. Atlas is the conversation ag
 │       │                                                            │
 │       ▼                                                            │
 │  HA Conversation Agent: Atlas Cortex                              │
-│  (NOT Ollama directly)                                            │
+│  (NOT the LLM directly)                                            │
 │       │                                                            │
 │       │  HA sends: { text, satellite_id, [speaker_id] }          │
 │       │  Atlas receives it as a normal request with metadata      │
@@ -220,26 +220,25 @@ $ python -m cortex.install
 [3/6] Scanning for existing LLM backends...
   Probing localhost and local network...
   ✓ HuggingFace Transformers available (in-process, no server needed)
-  ✓ Ollama found at localhost:11434 (3 models loaded)
+  ✓ llama.cpp found at localhost:8080 (Qwen3.5 loaded)
   ✗ vLLM not found
-  ✗ llama.cpp not found
   ✓ LM Studio found at 192.168.3.15:1234 (1 model)
 
   Which LLM backend should Atlas use?
-  > 1. HuggingFace Transformers (recommended — no external server needed)
-    2. Ollama at localhost:11434
+  > 1. llama.cpp at localhost:8080 (recommended — fastest, lowest memory)
+    2. HuggingFace Transformers (in-process, no external server)
     3. LM Studio at 192.168.3.15:1234
-    4. Install Ollama fresh
-    5. Other (provide URL)
+    4. Other (provide URL)
 
-  Selected: HuggingFace Transformers
+  Selected: llama.cpp
 
 [4/6] Selecting models for your hardware...
   Based on: 20 GB VRAM (AMD ROCm), 128 GB RAM
 
   Role          │ Recommended           │ Size    │ Why
   ──────────────┼───────────────────────┼─────────┼────────────────────
-  Fast/CAG      │ Qwen/Qwen3-4B        │ ~8 GB   │ In-process, KV cache injection
+  Fast/CAG      │ Qwen3.5-4B (Q4)      │ ~2.7 GB │ GGUF, 4-bit quantized
+  Thinking      │ Qwen3.5-27B (Q4)     │ ~16 GB  │ GGUF, complex reasoning
   Embedding     │ all-MiniLM-L6-v2     │ ~80 MB  │ CPU, 384-dim, <5ms
 
   Models download automatically from HuggingFace on first use.
@@ -352,9 +351,9 @@ atlas-cortex/
 │   ├── pipe.py                # Open WebUI Pipe function (optional)
 │   ├── providers/             # LLM backend providers
 │   │   ├── base.py            # LLMProvider interface
-│   │   ├── transformers.py    # HuggingFace Transformers provider (default)
-│   │   ├── ollama.py          # Ollama provider (legacy fallback)
-│   │   └── openai_compat.py   # Any OpenAI-compatible backend
+│   │   ├── transformers.py    # HuggingFace Transformers provider
+│   │   ├── ollama.py          # Ollama provider (deprecated)
+│   │   └── openai_compat.py   # OpenAI-compatible backend (default — llama.cpp, vLLM, etc.)
 │   ├── pipeline/              # Processing layers
 │   │   ├── layer0_context.py
 │   │   ├── layer1_instant.py
@@ -402,16 +401,17 @@ docker-compose.yml deploys:
 # cortex.env — generated by installer, editable
 
 # LLM Provider
-LLM_PROVIDER=transformers               # transformers | ollama | openai_compatible
-CAG_MODEL=Qwen/Qwen3-4B                 # HuggingFace model (Transformers provider)
+LLM_PROVIDER=openai_compatible           # openai_compatible | transformers | ollama (deprecated)
+CAG_MODEL=Qwen/Qwen3.5-4B               # Model identifier for tokenizer
 CAG_DEVICE=auto                          # auto | cuda | cpu
 CAG_DTYPE=auto                           # auto | float16 | bfloat16
 LLM_API_KEY=                             # optional, for authenticated providers
 
-# Legacy Ollama config (set LLM_PROVIDER=ollama to use)
-# LLM_URL=http://localhost:11434
-# MODEL_FAST=qwen2.5:14b
-# MODEL_THINKING=qwen3:30b-a3b
+# llama.cpp config (default backend)
+LLM_URL=http://localhost:8080
+LLM_MODEL=qwen35-4b-q4.gguf
+MODEL_FAST=qwen3.5:9b
+MODEL_THINKING=qwen3.5:27b
 
 # Embedding Provider (sentence-transformers is default)
 EMBED_MODEL=all-MiniLM-L6-v2            # sentence-transformers model name
@@ -492,7 +492,7 @@ Start
  │
  ├─ Scan for existing LLM backends
  │   ├─ Found? → offer to use existing
- │   └─ Not found? → offer to install (Ollama default, others available)
+ │   └─ Not found? → offer to install (llama.cpp recommended, others available)
  │
  ├─ Backend selected/installed
  │

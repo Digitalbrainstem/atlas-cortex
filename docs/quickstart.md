@@ -82,7 +82,7 @@ docker compose -f docker/docker-compose.yml \
 
 ### Prerequisites
 - Python 3.11+
-- [Ollama](https://ollama.com) (or any OpenAI-compatible LLM backend)
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) or any OpenAI-compatible LLM backend
 
 ### Steps
 
