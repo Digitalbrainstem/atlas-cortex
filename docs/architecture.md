@@ -267,9 +267,9 @@ Timeline:
   1ms    → No instant answer match, no HA command match
   2ms    → Select filler: "Good question — "
   3ms    → Start streaming filler tokens to user
-  50ms   → Background thread: POST /api/chat to Ollama
+  50ms   → Background thread: POST /v1/chat/completions to llama.cpp
   300ms  → Filler complete, user sees: "Good question — "
-  800ms  → First real token arrives from Ollama
+  800ms  → First real token arrives from llama.cpp
   801ms  → Continue streaming: "the sky appears blue because..."
   
 User perceives: continuous response from 3ms
@@ -347,9 +347,9 @@ The pipe auto-selects the LLM based on query analysis:
 
 | Signal | Model | Reasoning |
 |--------|-------|-----------|
-| Short question, factual | Qwen2.5 14B (Turbo) | Fast, no thinking overhead |
-| Code, explanation, multi-step | Qwen3 30B-A3B | Thinking mode beneficial |
-| "explain in detail", "analyze", "compare" | Qwen3 30B-A3B (Deep) | Full thinking budget |
+| Short question, factual | Qwen3.5 (MODEL_FAST) | Fast, no thinking overhead |
+| Code, explanation, multi-step | Qwen3.5 (MODEL_THINKING) | Thinking mode beneficial |
+| "explain in detail", "analyze", "compare" | Qwen3.5 (MODEL_THINKING) | Full thinking budget |
 
 Selection is rule-based (no LLM needed for routing):
 - Message length, keyword detection, conversation depth, explicit user cues
@@ -359,7 +359,7 @@ Selection is rule-based (no LLM needed for routing):
 | Component | Technology | Resource |
 |-----------|-----------|----------|
 | Core Pipe | Atlas Cortex server (Python) + optional Open WebUI Pipe | Standalone :5100 or embedded |
-| LLM Backend | **HuggingFace Transformers** (default), Ollama, vLLM, LocalAI, etc. | Via provider interface |
+| LLM Backend | **llama.cpp** (default, via OpenAI-compatible API), HuggingFace Transformers, vLLM, etc. | Via provider interface |
 | Sentiment | VADER (vaderSentiment) | CPU, <1ms |
 | Speaker ID | resemblyzer | CPU, ~50ms, ~200MB RAM |
 | Memory (vector) | ChromaDB (embedded mode) | CPU, ~50MB RAM, persistent SQLite |

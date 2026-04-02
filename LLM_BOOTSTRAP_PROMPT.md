@@ -35,7 +35,7 @@ python -m mocks.run
 LLM_URL=http://localhost:11434 \
 STT_HOST=localhost STT_PORT=10300 \
 TTS_PROVIDER=kokoro KOKORO_HOST=localhost KOKORO_PORT=8880 \
-LLM_PROVIDER=ollama MODEL_FAST=qwen2.5:7b MODEL_THINKING=qwen2.5:7b \
+LLM_PROVIDER=openai_compatible MODEL_FAST=qwen3.5:4b MODEL_THINKING=qwen3.5:4b \
 python -m cortex.server
 ```
 
@@ -83,6 +83,7 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - RX 7900 XT (20GB, ROCm) — LLM inference + LoRA training at night
 - RTX 4060 (8GB, CUDA) — TTS (Qwen3-TTS), specialist models (vision, embeddings)
 - TTS hierarchy: Qwen3-TTS → Fish Audio S2 (stories) → Orpheus → Kokoro → Piper
+- LLM backend: llama.cpp via OpenAI-compatible API (GGUF models, Q4 quantized)
 
 ### Remaining Parts (Planned)
 - P13: Legacy Protocol
@@ -102,12 +103,15 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - **Last resort: Piper** — Ultra-fast CPU, basic quality
 
 ### LLM Configuration
-- `LLM_PROVIDER=transformers` — default; uses HuggingFace Transformers with KV cache injection (CAG)
-- `CAG_MODEL=Qwen/Qwen3-4B` — HuggingFace model for inference
+- `LLM_PROVIDER=openai_compatible` — **default**; talks to llama.cpp server via OpenAI-compatible API
+- `LLM_URL=http://localhost:8080` — llama.cpp server endpoint (atlas-llm container)
+- `LLM_MODEL=qwen35-4b-q4.gguf` — GGUF model file (Q4 quantized, 2.7GB)
+- `LLM_KV_TYPE=q4_0` — KV cache quantization (4-bit, ~4× memory savings)
+- `LLM_CTX_SIZE=65536` — context window (Qwen3.5 supports up to 262K)
+- `CAG_MODEL=Qwen/Qwen3.5-4B` — model identifier for CAG/tokenizer
 - `EMBED_MODEL=all-MiniLM-L6-v2` — sentence-transformers embedding model
-- `LLM_PROVIDER=ollama` — legacy fallback (set `OLLAMA_BASE_URL`)
-- `MODEL_FAST=qwen2.5:14b` — factual questions (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
-- `MODEL_THINKING=qwen3:30b-a3b` — reasoning tasks (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
+- `LLM_PROVIDER=transformers` — alternative; HuggingFace Transformers with KV cache injection
+- `LLM_PROVIDER=ollama` — deprecated (llama.cpp is strictly faster)
 
 ### Satellite Hardware (Reference)
 - Pi Zero 2W + ReSpeaker 2-mic HAT
@@ -182,7 +186,7 @@ cortex/
 ├── memory/                      # HOT/COLD memory system
 ├── safety/                      # Input/Output guardrails, jailbreak defense
 ├── plugins/                     # CortexPlugin ABC + PluginRegistry
-├── providers/                   # LLM providers (Transformers, Ollama, OpenAI)
+├── providers/                   # LLM providers (OpenAI-compat default, Transformers, Ollama deprecated)
 ├── profiles/                    # User profiles, parental controls
 ├── context/                     # Token budgeting
 ├── scheduling/                  # Alarms, timers, reminders
@@ -218,7 +222,7 @@ mocks/
 ├── run.py                       # Start all mock servers
 ├── benchmark.py                 # 35-question corpus
 ├── benchmark_voice.py           # Voice pipeline benchmark
-├── mock_llm_server.py           # Mock Ollama
+├── mock_llm_server.py           # Mock LLM (OpenAI-compatible)
 ├── mock_stt_server.py           # Mock Whisper
 ├── mock_tts_server.py           # Mock Kokoro
 └── data/                        # Benchmark results

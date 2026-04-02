@@ -126,7 +126,7 @@ Layer 2 plugins extend `CortexPlugin` (in `cortex/plugins/base.py`) and register
 
 ### LLM Providers (`cortex/providers/`)
 
-`LLMProvider` is the abstract base class. Concrete implementations: `TransformersProvider` (default), `OllamaProvider` (legacy fallback), `OpenAICompatibleProvider`. Use `get_provider()` factory which reads `LLM_PROVIDER` env var (default: `transformers`). Transformers provider uses `CAG_MODEL` env var (default: `Qwen/Qwen3-4B`). Embeddings use sentence-transformers via `EMBED_MODEL` (default: `all-MiniLM-L6-v2`). Ollama/OpenAI providers use `MODEL_FAST` and `MODEL_THINKING` env vars.
+`LLMProvider` is the abstract base class. Concrete implementations: `OpenAICompatibleProvider` (default — llama.cpp, vLLM, etc.), `TransformersProvider` (HuggingFace), `OllamaProvider` (deprecated). Use `get_provider()` factory which reads `LLM_PROVIDER` env var (default: `openai_compatible`). Tokenizer uses `CAG_MODEL` env var (default: `Qwen/Qwen3.5-4B`). Embeddings use sentence-transformers via `EMBED_MODEL` (default: `all-MiniLM-L6-v2`). OpenAI-compatible provider uses `MODEL_FAST` and `MODEL_THINKING` env vars.
 
 ### Safety (`cortex/safety/`)
 
@@ -168,7 +168,7 @@ The `/chat` endpoint serves a public-facing chat SPA (from `admin/dist/chat.html
 
 The full Docker stack (`docker/docker-compose.yml`) includes:
 - `atlas-cortex` — Main server + admin UI (port 5100, host networking, HF cache volume)
-- `atlas-ollama` — LLM inference (port 11434, optional — commented out by default)
+- `atlas-llm` — llama.cpp server for LLM inference (port 8080, Qwen3.5 GGUF models)
 - `atlas-qwen-tts` — Primary TTS via Qwen3-TTS (port 7860, NVIDIA GPU)
 - `atlas-fish-tts` — Story character voices via Fish Audio S2 (port 8860, NVIDIA GPU)
 - `atlas-orpheus` — Backup TTS (port 5005, NVIDIA GPU)

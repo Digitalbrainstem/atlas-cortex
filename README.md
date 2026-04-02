@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🧠 Atlas Cortex
+<img src="docs/images/atlas-logo.svg" alt="Atlas Cortex" width="120" />
+
+# Atlas Cortex
 
 **A self-evolving AI assistant that learns, adapts, and grows with your household.**
 
@@ -34,7 +36,7 @@ Atlas Cortex transforms a local LLM into an intelligent home assistant that unde
 - **Self-learning** — commands that go to the LLM are analyzed nightly and converted into fast regex patterns
 
 ### 🗣️ Voice & Speech Engine
-- **Multi-TTS stack** — Qwen3-TTS (primary), Fish Audio S2 (story character voices), Orpheus (emotional), Kokoro (CPU), Piper (fast fallback)
+- **Multi-TTS stack** — Qwen3-TTS (primary GPU), Fish Audio S2 (story character voices, GPU), Orpheus (emotional, GPU), Kokoro (CPU), Piper (fast CPU fallback)
 - **Voice identification** — recognizes family members by voice, personalizes responses per person
 - **TTS hot-swap** — swap voice models at runtime for character voices in stories
 - **Sentence-boundary streaming** — starts speaking before the full response is generated
@@ -208,7 +210,7 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 │  GPU 0 (Largest)│     │  GPU 1 (Second) │     │  iGPU (Fallback)│
 │  ═══════════════│     │  ═══════════════│     │  ═══════════════│
 │  LLM Inference  │     │  Voice / TTS    │     │  Lightweight    │
-│  Transformers   │     │  Qwen3-TTS      │     │  tasks only     │
+│  llama.cpp      │     │  Qwen3-TTS      │     │  tasks only     │
 │  20GB+ VRAM     │     │  8-12GB VRAM    │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
@@ -222,10 +224,10 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 ### Prerequisites
 
 - **Python 3.11+**
-- **[HuggingFace Transformers](https://huggingface.co/docs/transformers/)** — models download automatically on first use
+- **[llama.cpp](https://github.com/ggml-org/llama.cpp)** (recommended) or any OpenAI-compatible LLM server
 - **[Open WebUI](https://github.com/open-webui/open-webui) v0.8.5+** (recommended) or any OpenAI-compatible client
 
-> **Note:** [Ollama](https://ollama.com) is still supported as a legacy fallback — set `LLM_PROVIDER=ollama` to use it.
+> **Note:** The default LLM backend is `openai_compatible` pointing to a llama.cpp server. HuggingFace Transformers is available as an alternative (`LLM_PROVIDER=transformers`). Ollama is deprecated.
 
 ### Quick Start (Docker)
 
@@ -234,8 +236,8 @@ Atlas detects all GPUs at startup and assigns optimal roles:
 git clone https://github.com/Betanu701/atlas-cortex.git
 cd atlas-cortex
 
-# Start with Docker Compose (includes Qwen3-TTS, Whisper, Kokoro, Piper, and more)
-# HuggingFace models download automatically via cached volume
+# Start with Docker Compose (includes llama.cpp, Qwen3-TTS, Whisper, Kokoro, Piper, and more)
+# GGUF models download automatically via cached volume
 docker compose -f docker/docker-compose.yml up -d
 
 # For NVIDIA GPU support:
@@ -257,14 +259,15 @@ cd atlas-cortex
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies (includes transformers, accelerate, sentence-transformers)
+# Install dependencies
 pip install -r requirements.txt
 
-# Run the interactive installer
+# Run the interactive installer (detects hardware, configures LLM backend)
 python -m cortex.install
 
-# Or start the server directly (HuggingFace models download on first use)
-CAG_MODEL=Qwen/Qwen3-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
+# Or start the server directly with llama.cpp backend
+LLM_PROVIDER=openai_compatible OPENAI_BASE_URL=http://localhost:8080/v1 \
+CAG_MODEL=Qwen/Qwen3.5-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
 ```
 
 ### Connect to Open WebUI
@@ -322,16 +325,17 @@ Atlas finds available services on your network and configures integrations autom
 | `CORTEX_HOST` | `0.0.0.0` | Server bind address |
 | `CORTEX_PORT` | `5100` | Server port |
 | `CORTEX_DATA_DIR` | `./data` | Database and state directory |
-| `LLM_PROVIDER` | `transformers` | LLM backend (`transformers`, `ollama`, `openai_compatible`) |
-| `CAG_MODEL` | `Qwen/Qwen3-4B` | HuggingFace model for inference (Transformers provider) |
+| `LLM_PROVIDER` | `openai_compatible` | LLM backend (`openai_compatible`, `transformers`, `ollama`) |
+| `CAG_MODEL` | `Qwen/Qwen3.5-4B` | Model identifier for tokenizer / Transformers inference |
 | `CAG_DEVICE` | `auto` | Device for model inference (`auto`, `cuda`, `cpu`) |
 | `CAG_DTYPE` | `auto` | Model dtype (`auto`, `float16`, `bfloat16`) |
 | `EMBED_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers embedding model |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API URL (legacy fallback) |
+| `LLM_URL` | `http://localhost:8080` | llama.cpp server endpoint |
+| `LLM_MODEL` | `qwen35-4b-q4.gguf` | GGUF model file for llama.cpp |
 | `OPENAI_BASE_URL` | — | Custom OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | — | API key for OpenAI-compatible backends |
-| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers (Ollama/OpenAI providers) |
-| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning (Ollama/OpenAI providers) |
+| `MODEL_FAST` | `qwen3.5:9b` | Model for quick factual answers (OpenAI-compatible providers) |
+| `MODEL_THINKING` | `qwen3.5:27b` | Model for complex reasoning (OpenAI-compatible providers) |
 | `HA_URL` | — | Home Assistant URL (e.g., `http://192.168.1.100:8123`) |
 | `HA_TOKEN` | — | Home Assistant long-lived access token |
 | `CORTEX_JWT_SECRET` | `atlas-cortex-change-me` | Secret key for admin JWT tokens (change in production!) |
@@ -339,7 +343,7 @@ Atlas finds available services on your network and configures integrations autom
 
 ## 📡 API Reference
 
-Atlas exposes an **OpenAI-compatible API** so any client that works with OpenAI/Ollama works with Atlas.
+Atlas exposes an **OpenAI-compatible API** so any client that works with OpenAI works with Atlas.
 
 ### Chat Completions
 
@@ -411,7 +415,7 @@ atlas-cortex/
 │   ├── auth.py                    # JWT authentication (bcrypt + PyJWT)
 │   ├── pipe.py                    # Open WebUI Pipe function
 │   ├── db.py                      # SQLite schema (50+ tables, WAL mode)
-│   ├── admin/                     # Admin API domain routers (9 sub-routers)
+│   ├── admin/                     # Admin API domain routers (19 sub-routers, 144+ endpoints)
 │   ├── pipeline/                  # 4-layer processing pipeline
 │   │   ├── layer0_context.py      #   Context assembly, sentiment, spatial
 │   │   ├── layer1_instant.py      #   Instant answers (math, date, identity)
@@ -419,8 +423,8 @@ atlas-cortex/
 │   │   └── layer3_llm.py          #   Filler streaming + LLM generation
 │   ├── providers/                 # LLM backend abstraction
 │   │   ├── transformers.py        #   HuggingFace Transformers provider (default)
-│   │   ├── ollama.py              #   Ollama provider (legacy fallback)
-│   │   └── openai_compat.py       #   Any OpenAI-compatible backend
+│   │   ├── ollama.py              #   Ollama provider (deprecated)
+│   │   └── openai_compat.py       #   OpenAI-compatible backend (default — llama.cpp, vLLM, etc.)
 │   ├── speech/                    # All audio synthesis/transcription
 │   │   ├── tts.py                 #   Multi-provider TTS with hot-swap
 │   │   ├── stt.py                 #   Whisper + Wyoming STT
@@ -583,6 +587,29 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Roadmap](docs/roadmap.md) | Future features and implementation plan |
 | [Phases](docs/phases.md) | Implementation roadmap and dependency graph |
 | [Installation](docs/installation.md) | Installer flow, backend abstraction |
+
+## 🏛️ The Atlas Ecosystem
+
+Atlas is part of a larger family of projects, each named after a Greek deity:
+
+| Codename | Project | Purpose |
+|----------|---------|---------|
+| **ATLAS** | Atlas Cortex | Core AI brain — self-evolving home assistant |
+| **ATHENA** | Nexus Academy | Adaptive learning game for children |
+| **APOLLO** | ContextForge | Unlimited memory SDK for LLM applications |
+| **HEPHAESTUS** | Coding Pipeline | AI-assisted code generation forge |
+| **HERMES** | Satellite System | Multi-room communication network |
+| **IRIS** | Atlas Sight | Vision and accessibility services |
+
+### Branding
+
+Atlas uses a **Frost + Aurora** color palette:
+
+| Color | Hex | Usage |
+|-------|-----|-------|
+| Frost Cyan | `#22d3ee` | Primary accent, interactive elements |
+| Aurora Purple | `#a78bfa` | Secondary accent, highlights |
+| Dark Slate | `#0f172a` | Backgrounds, panels |
 
 ## 🤝 Contributing
 
