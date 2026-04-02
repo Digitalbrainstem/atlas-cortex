@@ -4,12 +4,12 @@
 #
 # Builds a complete, ready-to-flash live ISO for Surface Go tablets
 # using Debian 12 (Bookworm) debootstrap. No desktop environment,
-# no display manager, no X11 — just Cage (Wayland kiosk) + Chromium.
+# no display manager — X11 (startx) + Chromium kiosk via .bash_profile.
 #
 # Architecture:
 #   UEFI → GRUB → linux-surface kernel → systemd →
-#   atlas-satellite (WiFi setup) → Cage → Chromium (kiosk) →
-#   PipeWire (audio) + IPTS (touch)
+#   getty autologin → .bash_profile → startx → .xinitrc →
+#   Chromium (kiosk) + PipeWire (audio) + IPTS (touch)
 #
 # Requirements (build machine):
 #   sudo apt install debootstrap squashfs-tools xorriso \
@@ -191,17 +191,20 @@ info "Kernel version: $KERNEL_VER"
 
 
 # ══════════════════════════════════════════════════════════════════
-# Phase 5: Install display stack (Cage + Mesa + XWayland)
+# Phase 5: Install display stack (X11 + xinit)
 # ══════════════════════════════════════════════════════════════════
-step 5 "Installing display stack (Cage Wayland kiosk)"
+step 5 "Installing display stack (X11 kiosk via startx)"
 
 chroot_exec "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    cage \
+    xserver-xorg-core \
+    xserver-xorg-input-libinput \
+    xserver-xorg-video-intel \
+    xinit \
+    x11-xserver-utils \
     libgl1-mesa-dri \
-    xwayland \
-    libinput-tools"
+    unclutter"
 
-ok "Display stack installed (Cage + Mesa + XWayland)"
+ok "Display stack installed (X11 + xinit + Mesa)"
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -358,43 +361,6 @@ ok "Atlas user and system configuration done"
 # ══════════════════════════════════════════════════════════════════
 step 12 "Deploying systemd services"
 
-# ── cage.service (Wayland kiosk) ──────────────────────────────────
-cat > "$ROOTFS/etc/systemd/system/cage.service" << 'EOF'
-[Unit]
-Description=Atlas Kiosk Display
-After=atlas-satellite.service atlas-runtime-dir.service
-Wants=atlas-satellite.service
-ConditionPathExists=/usr/bin/cage
-
-[Service]
-Type=simple
-User=atlas
-Group=atlas
-SupplementaryGroups=video input render audio
-
-PAMName=login
-TTYPath=/dev/tty1
-StandardInput=tty
-StandardOutput=journal
-StandardError=journal
-
-Environment=WLR_LIBINPUT_NO_DEVICES=1
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=XDG_SESSION_TYPE=wayland
-Environment=XDG_CURRENT_DESKTOP=cage
-
-ExecStartPre=/bin/sleep 3
-ExecStart=/usr/bin/cage -s -- /usr/local/bin/atlas-kiosk
-
-Restart=on-failure
-RestartSec=5
-MemoryMax=1G
-TasksMax=512
-
-[Install]
-WantedBy=graphical.target
-EOF
-
 # ── atlas-satellite.service ───────────────────────────────────────
 # Starts early (no network dependency) because it serves the local
 # WiFi setup page on localhost:8080.
@@ -441,7 +407,7 @@ EOF
 cat > "$ROOTFS/etc/systemd/system/atlas-runtime-dir.service" << 'EOF'
 [Unit]
 Description=Create XDG_RUNTIME_DIR for atlas user
-Before=cage.service atlas-satellite.service pipewire-alsa-fix.service
+Before=atlas-satellite.service pipewire-alsa-fix.service
 
 [Service]
 Type=oneshot
@@ -476,7 +442,6 @@ cat > "$ROOTFS/etc/systemd/system/getty@tty1.service.d/override.conf" << 'EOF'
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin atlas --noclear %I $TERM
-Type=idle
 EOF
 
 # ── logind overrides (no lid sleep, no blanking) ──────────────────
@@ -492,7 +457,7 @@ EOF
 
 # ── Enable services ───────────────────────────────────────────────
 chroot_exec "
-    systemctl enable cage.service
+    systemctl enable getty@tty1.service
     systemctl enable atlas-satellite.service
     systemctl enable atlas-runtime-dir.service
     systemctl enable atlas-first-boot.service
@@ -501,7 +466,7 @@ chroot_exec "
     systemctl enable avahi-daemon.service
     systemctl enable iptsd.service 2>/dev/null || true
     systemctl enable ssh.service 2>/dev/null || true
-    systemctl set-default graphical.target
+    systemctl set-default multi-user.target
 "
 
 ok "Systemd services deployed and enabled"
@@ -512,26 +477,51 @@ ok "Systemd services deployed and enabled"
 # ══════════════════════════════════════════════════════════════════
 step 13 "Deploying kiosk launcher and helper scripts"
 
-# ── atlas-kiosk (launched by cage.service) ────────────────────────
-# The setup server on localhost:8080 handles WiFi setup, mDNS discovery,
-# and auto-redirects to the Atlas avatar once connected.
-cat > "$ROOTFS/usr/local/bin/atlas-kiosk" << 'KIOSK_EOF'
-#!/bin/bash
-# Atlas Kiosk — launched by cage.service inside Cage Wayland compositor
-# Always starts with local setup page; it auto-redirects to Atlas when ready.
-set -euo pipefail
+# ── .bash_profile (auto-start X on tty1) ──────────────────────────
+cat > "$ROOTFS/home/atlas/.bash_profile" << 'BASH_PROFILE_EOF'
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    startx -- -nocursor 2>/dev/null
+fi
+BASH_PROFILE_EOF
+chroot_exec "chown atlas:atlas /home/atlas/.bash_profile"
 
+# ── .xinitrc (launch Chromium kiosk) ─────────────────────────────
+cat > "$ROOTFS/home/atlas/.xinitrc" << 'XINITRC_EOF'
+#!/bin/sh
+# Disable screen blanking / power management
+xset s off
+xset -dpms
+xset s noblank
+
+# Hide cursor after 3 seconds idle
+unclutter -idle 3 &
+
+# Determine kiosk URL
 SETUP_URL="http://localhost:8080"
+KIOSK_URL="$SETUP_URL"
 
-# Wait for the setup server to come online (started by atlas-satellite)
-for attempt in $(seq 1 30); do
-    if curl -sf "$SETUP_URL" >/dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
+# Try mDNS discovery for Atlas server
+ATLAS_HOST=$(avahi-resolve -n atlas-cortex.local 2>/dev/null | awk '{print $2}')
+if [ -n "$ATLAS_HOST" ]; then
+    KIOSK_URL="http://${ATLAS_HOST}:5100/chat"
+elif [ -f /opt/atlas-satellite/config.json ]; then
+    SERVER_URL=$(python3 -c "
+import json, sys
+try:
+    cfg = json.load(open('/opt/atlas-satellite/config.json'))
+    url = cfg.get('server_url','')
+    if url:
+        # Convert ws:// to http:// if needed
+        url = url.replace('ws://','http://').replace('wss://','https://')
+        # Strip /ws/satellite path
+        url = url.split('/ws/')[0]
+        print(url + '/chat')
+except Exception:
+    pass
+" 2>/dev/null)
+    [ -n "$SERVER_URL" ] && KIOSK_URL="$SERVER_URL"
+fi
 
-# Launch Chromium in kiosk mode pointing at local setup page
 exec chromium \
     --kiosk \
     --no-first-run \
@@ -548,10 +538,35 @@ exec chromium \
     --use-fake-ui-for-media-stream \
     --enable-features=OverlayScrollbar \
     --check-for-update-interval=31536000 \
-    --ozone-platform=wayland \
-    "$SETUP_URL"
-KIOSK_EOF
-chmod +x "$ROOTFS/usr/local/bin/atlas-kiosk"
+    --disk-cache-dir=/tmp/chromium-cache \
+    "$KIOSK_URL"
+XINITRC_EOF
+chroot_exec "chown atlas:atlas /home/atlas/.xinitrc && chmod +x /home/atlas/.xinitrc"
+
+# ── X11 config for Intel GPU (Surface Go) ────────────────────────
+mkdir -p "$ROOTFS/etc/X11/xorg.conf.d"
+cat > "$ROOTFS/etc/X11/xorg.conf.d/20-intel.conf" << 'XORG_EOF'
+Section "Device"
+    Driver      "intel"
+    Option      "TearFree" "true"
+    Option      "AccelMethod" "sna"
+    Option      "DRI" "3"
+EndSection
+
+Section "ServerFlags"
+    Option "BlankTime"   "0"
+    Option "StandbyTime" "0"
+    Option "SuspendTime" "0"
+    Option "OffTime"     "0"
+EndSection
+XORG_EOF
+
+# ── Allow atlas user to start X without root ──────────────────────
+mkdir -p "$ROOTFS/etc/X11/Xwrapper.config.d"
+cat > "$ROOTFS/etc/X11/Xwrapper.config" << 'XWRAP_EOF'
+allowed_users=anybody
+needs_root_rights=yes
+XWRAP_EOF
 
 # ── atlas-first-boot script ──────────────────────────────────────
 cat > "$ROOTFS/usr/local/bin/atlas-first-boot" << 'FIRSTBOOT_EOF'
