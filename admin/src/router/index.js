@@ -128,6 +128,31 @@ const routes = [
     name: 'legacy',
     component: () => import('../views/LegacyView.vue'),
   },
+  {
+    path: '/memory',
+    name: 'memory',
+    component: () => import('../views/MemoryView.vue'),
+  },
+  {
+    path: '/pipeline',
+    name: 'pipeline',
+    component: () => import('../views/PipelineView.vue'),
+  },
+  {
+    path: '/tools',
+    name: 'tools',
+    component: () => import('../views/ToolsView.vue'),
+  },
+  {
+    path: '/coding',
+    name: 'coding',
+    component: () => import('../views/CodingView.vue'),
+  },
+  {
+    path: '/orchestrator',
+    name: 'orchestrator',
+    component: () => import('../views/OrchestratorView.vue'),
+  },
 ];
 
 const router = createRouter({

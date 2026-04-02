@@ -26,6 +26,11 @@ from cortex.admin.intercom import router as intercom_router
 from cortex.admin.media import router as media_router
 from cortex.admin.loras import router as loras_router
 from cortex.admin.legacy import router as legacy_router
+from cortex.admin.memory import router as memory_router
+from cortex.admin.pipeline import router as pipeline_router
+from cortex.admin.tools import router as tools_router
+from cortex.admin.coding import router as coding_router
+from cortex.admin.orchestrator import router as orchestrator_router
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -49,3 +54,8 @@ router.include_router(intercom_router)
 router.include_router(media_router)
 router.include_router(loras_router)
 router.include_router(legacy_router)
+router.include_router(memory_router)
+router.include_router(pipeline_router)
+router.include_router(tools_router)
+router.include_router(coding_router)
+router.include_router(orchestrator_router)

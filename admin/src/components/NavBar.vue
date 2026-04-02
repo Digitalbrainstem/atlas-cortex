@@ -13,25 +13,60 @@ const chatItems = [
   { name: 'Chat', route: 'chat', icon: '💬' },
 ];
 
-const adminItems = [
-  { name: 'Dashboard', route: 'dashboard', icon: '📊' },
-  { name: 'Users', route: 'users', icon: '👥' },
-  { name: 'Satellites', route: 'satellites', icon: '📡' },
-  { name: 'Parental Controls', route: 'parental', icon: '👨‍👩‍👧' },
-  { name: 'Safety', route: 'safety', icon: '🛡️' },
-  { name: 'Voice', route: 'voice', icon: '🎙️' },
-  { name: 'Avatar', route: 'avatar', icon: '🎭' },
-  { name: 'Devices', route: 'devices', icon: '📱' },
-  { name: 'Plugins', route: 'plugins', icon: '🧩' },
-  { name: 'Scheduling', route: 'scheduling', icon: '⏰' },
-  { name: 'Routines', route: 'routines', icon: '🔄' },
-  { name: 'Learning', route: 'learning', icon: '📚' },
-  { name: 'Proactive', route: 'proactive', icon: '⚡' },
-  { name: 'Media', route: 'media', icon: '🎵' },
-  { name: 'Intercom', route: 'intercom', icon: '📢' },
-  { name: 'Legacy', route: 'legacy', icon: '📡' },
-  { name: 'Evolution', route: 'evolution', icon: '🧬' },
-  { name: 'System', route: 'system', icon: '⚙️' },
+const navGroups = [
+  {
+    label: 'Core',
+    items: [
+      { name: 'Dashboard', route: 'dashboard', icon: '📊' },
+      { name: 'Users', route: 'users', icon: '👥' },
+    ],
+  },
+  {
+    label: 'Intelligence',
+    items: [
+      { name: 'Pipeline', route: 'pipeline', icon: '🔀' },
+      { name: 'Memory', route: 'memory', icon: '🧠' },
+      { name: 'Orchestrator', route: 'orchestrator', icon: '🎯' },
+      { name: 'Evolution', route: 'evolution', icon: '🧬' },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { name: 'Tools', route: 'tools', icon: '🛠️' },
+      { name: 'Coding', route: 'coding', icon: '💻' },
+      { name: 'Plugins', route: 'plugins', icon: '🧩' },
+    ],
+  },
+  {
+    label: 'Content',
+    items: [
+      { name: 'Media', route: 'media', icon: '🎵' },
+      { name: 'Stories', route: 'stories', icon: '📖' },
+      { name: 'Learning', route: 'learning', icon: '📚' },
+      { name: 'Proactive', route: 'proactive', icon: '⚡' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { name: 'System', route: 'system', icon: '⚙️' },
+      { name: 'Devices', route: 'devices', icon: '📱' },
+      { name: 'Satellites', route: 'satellites', icon: '📡' },
+      { name: 'Safety', route: 'safety', icon: '🛡️' },
+      { name: 'Parental Controls', route: 'parental', icon: '👨‍👩‍👧' },
+      { name: 'Scheduling', route: 'scheduling', icon: '⏰' },
+      { name: 'Routines', route: 'routines', icon: '🔄' },
+      { name: 'Intercom', route: 'intercom', icon: '📢' },
+    ],
+  },
+  {
+    label: 'Voice',
+    items: [
+      { name: 'Voice', route: 'voice', icon: '🎙️' },
+      { name: 'Avatar', route: 'avatar', icon: '🎭' },
+    ],
+  },
 ];
 
 function isActive(routeName) {
@@ -81,16 +116,20 @@ function handleLogout() {
       <div v-if="!collapsed" class="nav-section-label">Admin</div>
       <div v-else class="nav-divider"></div>
 
-      <a
-        v-for="item in adminItems"
-        :key="item.route"
-        class="nav-item"
-        :class="{ active: isActive(item.route) }"
-        @click="navigate(item.route)"
-      >
-        <span class="nav-icon">{{ item.icon }}</span>
-        <span v-if="!collapsed" class="nav-label">{{ item.name }}</span>
-      </a>
+      <template v-for="group in navGroups" :key="group.label">
+        <div v-if="!collapsed" class="nav-group-label">{{ group.label }}</div>
+        <div v-else class="nav-divider"></div>
+        <a
+          v-for="item in group.items"
+          :key="item.route"
+          class="nav-item"
+          :class="{ active: isActive(item.route) }"
+          @click="navigate(item.route)"
+        >
+          <span class="nav-icon">{{ item.icon }}</span>
+          <span v-if="!collapsed" class="nav-label">{{ item.name }}</span>
+        </a>
+      </template>
     </div>
 
     <div class="sidebar-footer">
@@ -250,6 +289,17 @@ function handleLogout() {
   color: var(--text-muted);
   padding: 0.75rem 0.75rem 0.25rem;
   margin-top: 0.25rem;
+}
+
+.nav-group-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem 0.15rem;
+  margin-top: 0.15rem;
+  opacity: 0.7;
 }
 
 .nav-divider {

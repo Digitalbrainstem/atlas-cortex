@@ -37,7 +37,7 @@ class SatelliteConfig:
     led_count: int = 3
 
     # Wake word
-    wake_word_enabled: bool = False  # disabled by default (VAD-only mode)
+    wake_word_enabled: bool = True  # enabled by default — uses openwakeword when available
     wake_word_threshold: float = 0.5
     wake_word_model: str = ""
 
