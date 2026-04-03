@@ -23,30 +23,18 @@ import logging
 import random
 from dataclasses import dataclass, field
 
+from cortex.filler.phrases import (
+    MICRO_ACK_CASUAL,
+    MICRO_ACK_REASSURING,
+    MICRO_ACK_COMPLEX,
+)
+
 logger = logging.getLogger(__name__)
 
-# ── Phrase pools (escalating concern) ────────────────────────────
-
-POOL_CASUAL: list[str] = [
-    "Hmm...",
-    "Let me see...",
-    "One moment...",
-    "Mm-hmm...",
-    "Thinking...",
-]
-
-POOL_REASSURING: list[str] = [
-    "Almost there...",
-    "Still working on that...",
-    "Just a bit more...",
-    "Bear with me...",
-]
-
-POOL_COMPLEX: list[str] = [
-    "That's a big question...",
-    "Lots to consider here...",
-    "Digging deeper...",
-]
+# Re-export for backward compatibility and tests
+POOL_CASUAL: list[str] = MICRO_ACK_CASUAL
+POOL_REASSURING: list[str] = MICRO_ACK_REASSURING
+POOL_COMPLEX: list[str] = MICRO_ACK_COMPLEX
 
 # ── Settings keys for DB persistence ────────────────────────────
 

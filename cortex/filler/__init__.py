@@ -4,9 +4,9 @@ Fillers are short phrases streamed immediately to the user (0 ms perceived
 latency) while the LLM generates the real response in the background.
 
 Selection rules:
-  1. Sentiment filler chosen first (never repeat last 2 used).
+  1. Sentiment filler chosen first (never repeat last N used).
   2. Confidence filler appended when confidence < 0.8.
-  3. No filler for 'command' or 'casual' sentiments, or follow-up turns.
+  3. Follow-up turns often skip filler (60 % chance).
 
 Database-backed filler pools (per user, grown by nightly evolution job).
 Falls back to built-in default pools when no DB rows are present.
@@ -24,47 +24,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import sqlite3
 
+from cortex.filler.phrases import STREAM_FILLERS
+
 # ──────────────────────────────────────────────────────────────
 # Default filler pools (used when DB has no entries for a user)
 # ──────────────────────────────────────────────────────────────
 
-DEFAULT_FILLERS: dict[str, list[str]] = {
-    "greeting":   [
-        "Hey! ",
-        "Hey there! ",
-        "Morning! ",
-    ],
-    "question":   [
-        "Let me check. ",
-        "Hmm, one moment. ",
-        "Let me look into that. ",
-        "Good question, one sec. ",
-        "Let me think. ",
-    ],
-    "frustrated": [
-        "I hear you. Let me look. ",
-        "Let me see what I can do. ",
-        "Let me dig into that. ",
-    ],
-    "excited":    [
-        "Oh nice! Let me check. ",
-        "Love it! One sec. ",
-        "Let me see! ",
-    ],
-    "late_night": [
-        "Let me check. ",
-        "One moment. ",
-        "Let me take a look. ",
-    ],
-    "follow_up":  [
-        "Right — ",
-        "Okay — ",
-        "Sure thing. ",
-    ],
-    # command / casual → no filler
-    "command":    [],
-    "casual":     [],
-}
+DEFAULT_FILLERS: dict[str, list[str]] = STREAM_FILLERS
 
 CONFIDENCE_FILLERS: dict[str, list[str]] = {
     "medium": [
@@ -86,13 +52,10 @@ CONFIDENCE_FILLERS: dict[str, list[str]] = {
     ],
 }
 
-# Sentiments where no filler is ever appropriate
-_NO_FILLER_SENTIMENTS = {"command", "casual"}
-
 # In-memory dedup: track last N fillers per sentiment to avoid repetition
 # even when no DB connection is available.
 _recent_fillers: dict[str, deque[str]] = {}
-_RECENT_DEDUP_SIZE = 3
+_RECENT_DEDUP_SIZE = 8  # larger window for bigger pools
 
 
 def select_filler(
@@ -114,9 +77,6 @@ def select_filler(
     Returns:
         A filler string ready to stream, or ``""`` if no filler is appropriate.
     """
-    if sentiment in _NO_FILLER_SENTIMENTS:
-        return ""
-
     # Follow-up turns often need no filler
     if is_follow_up and random.random() < 0.6:
         return ""

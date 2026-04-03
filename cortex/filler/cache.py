@@ -1,9 +1,13 @@
 """Pre-generated filler audio cache.
 
-At server startup, all filler phrases are synthesized via TTS and the
-resulting PCM audio is stored in memory.  During pipeline execution a
-cached filler is selected and streamed to the satellite **instantly**
-(zero TTS latency) instead of synthesizing on the fly.
+At server startup, the first ``PRECACHE_PER_SENTIMENT`` filler phrases per
+sentiment are synthesized via TTS and stored in memory.  During pipeline
+execution a cached filler is selected and streamed to the satellite
+**instantly** (zero TTS latency) instead of synthesizing on the fly.
+
+Phrases beyond the pre-cache limit are lazy-cached: the text is available
+immediately but TTS audio is synthesized on first use and then cached for
+future requests.
 
 Calibration (run at first install or when hardware changes):
   1.  Measure end-to-end pipeline latency: send 3-5 test queries and
@@ -33,60 +37,23 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from cortex.filler.phrases import (
+    AUDIO_FILLERS,
+    MICRO_ACK_CASUAL,
+    MICRO_ACK_REASSURING,
+    MICRO_ACK_COMPLEX,
+    PRECACHE_PER_SENTIMENT,
+)
+
 logger = logging.getLogger(__name__)
 
-# ── Default phrases ──────────────────────────────────────────────
-# Each is designed to take ~4-6 seconds when spoken naturally.
-# Grouped by sentiment so the right tone is selected at runtime.
-
+# ── Assemble the full cacheable set ──────────────────────────────
+# Audio fillers from the master library + micro-ack phrases.
 CACHEABLE_FILLERS: dict[str, list[str]] = {
-    "question": [
-        "Good question — let me think about that for just a moment.",
-        "Hmm, let me look into that for you.",
-        "Alright, let me pull that together for you real quick.",
-        "Sure thing, let me see what I can find on that.",
-        "That's a great question, give me just a second.",
-        "Let me dig into that and see what comes up.",
-        "Okay, one moment while I check on that for you.",
-        "Hang on, let me find that out for you.",
-        "Let me think on that — I want to give you a good answer.",
-        "Bear with me for just a moment while I look that up.",
-    ],
-    "greeting": [
-        "Hey there! Give me just a second.",
-        "Hey! Let me see what I can help you with.",
-    ],
-    "frustrated": [
-        "I hear you — let me look into that right away.",
-        "Okay, let me see what I can do about that for you.",
-    ],
-    "excited": [
-        "Oh, nice! Let me check on that for you.",
-        "That sounds great — let me pull that up.",
-    ],
-    "late_night": [
-        "Alright, let me take a look at that for you.",
-        "Sure thing, one moment while I check.",
-    ],
-    # Micro-ack phrases (short, pre-cached for instant playback)
-    "micro_ack_casual": [
-        "Hmm...",
-        "Let me see...",
-        "One moment...",
-        "Mm-hmm...",
-        "Thinking...",
-    ],
-    "micro_ack_reassuring": [
-        "Almost there...",
-        "Still working on that...",
-        "Just a bit more...",
-        "Bear with me...",
-    ],
-    "micro_ack_complex": [
-        "That's a big question...",
-        "Lots to consider here...",
-        "Digging deeper...",
-    ],
+    **AUDIO_FILLERS,
+    "micro_ack_casual": MICRO_ACK_CASUAL,
+    "micro_ack_reassuring": MICRO_ACK_REASSURING,
+    "micro_ack_complex": MICRO_ACK_COMPLEX,
 }
 
 # Fingerprint of all phrases — changes when phrases are added/removed/edited
@@ -132,6 +99,7 @@ class FillerCache:
         self._recent: dict[str, deque[str]] = {}
         self._initialized = False
         self._initializing = False
+        self._voice: str = ""
 
     @property
     def ready(self) -> bool:
@@ -139,6 +107,10 @@ class FillerCache:
 
     async def initialize(self, voice: str | None = None, force: bool = False) -> None:
         """Load filler cache from disk, or generate and persist if missing.
+
+        Only the first ``PRECACHE_PER_SENTIMENT`` phrases per sentiment are
+        synthesized at startup.  The rest are available via :meth:`lazy_cache`
+        on first use.
 
         Args:
             voice: TTS voice ID to use. Falls back to system default.
@@ -155,8 +127,8 @@ class FillerCache:
             self._initialized = False
 
         from cortex.speech.voices import resolve_voice
-        voice = voice or resolve_voice()
-        key = _cache_key(voice)
+        self._voice = voice or resolve_voice()
+        key = _cache_key(self._voice)
         cache_file = _cache_dir() / f"{key}.json"
 
         # Try loading from disk first
@@ -170,21 +142,28 @@ class FillerCache:
                 )
                 logger.info(
                     "Filler cache loaded from disk: %d phrases (%.1f MB) [voice=%s]",
-                    loaded, total_bytes / 1024 / 1024, voice,
+                    loaded, total_bytes / 1024 / 1024, self._voice,
                 )
                 return
 
-        # Generate all phrases and save to disk
-        total = sum(len(v) for v in CACHEABLE_FILLERS.values())
-        logger.info("Filler cache: generating %d phrases for voice=%s...", total, voice)
+        # Pre-cache the first N phrases per sentiment (keeps startup fast)
+        total_available = sum(len(v) for v in CACHEABLE_FILLERS.values())
+        precache_count = sum(
+            min(len(v), PRECACHE_PER_SENTIMENT) for v in CACHEABLE_FILLERS.values()
+        )
+        logger.info(
+            "Filler cache: pre-caching %d of %d phrases for voice=%s...",
+            precache_count, total_available, self._voice,
+        )
 
         generated = 0
         for sentiment, phrases in CACHEABLE_FILLERS.items():
             self._cache[sentiment] = []
-            for phrase in phrases:
+            priority = phrases[:PRECACHE_PER_SENTIMENT]
+            for phrase in priority:
                 try:
                     audio_bytes, sample_rate, _ = await _synthesize_for_cache(
-                        phrase, voice)
+                        phrase, self._voice)
                     if audio_bytes:
                         duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
                         self._cache[sentiment].append(CachedFiller(
@@ -212,8 +191,10 @@ class FillerCache:
             len(f.audio) for fillers in self._cache.values() for f in fillers
         )
         logger.info(
-            "Filler cache ready: %d phrases cached (%.1f MB), saved to disk",
-            generated, total_bytes / 1024 / 1024,
+            "Filler cache ready: %d/%d phrases pre-cached (%.1f MB), "
+            "%d more available for lazy caching",
+            generated, total_available, total_bytes / 1024 / 1024,
+            total_available - generated,
         )
 
     def _save_to_disk(self, path: Path) -> None:
@@ -303,6 +284,36 @@ class FillerCache:
             for filler in self._cache.get(key, []):
                 if filler.phrase == phrase:
                     return filler
+        return None
+
+    async def lazy_cache(self, sentiment: str, phrase: str) -> CachedFiller | None:
+        """Synthesize and cache a phrase on demand (lazy caching).
+
+        Called when a phrase from the overflow pool (beyond the pre-cache
+        limit) is selected.  Returns the newly cached entry, or ``None``
+        on failure.
+        """
+        if not self._voice:
+            return None
+        try:
+            audio_bytes, sample_rate, _ = await _synthesize_for_cache(
+                phrase, self._voice)
+            if audio_bytes:
+                duration_ms = len(audio_bytes) / (sample_rate * 2) * 1000
+                entry = CachedFiller(
+                    phrase=phrase,
+                    audio=audio_bytes,
+                    sample_rate=sample_rate,
+                    duration_ms=duration_ms,
+                )
+                if sentiment not in self._cache:
+                    self._cache[sentiment] = []
+                self._cache[sentiment].append(entry)
+                logger.debug("Lazy-cached filler [%s] %.1fs: %r",
+                             sentiment, duration_ms / 1000, phrase[:50])
+                return entry
+        except Exception as e:
+            logger.debug("Lazy cache failed for %r: %s", phrase[:40], e)
         return None
 
     def reset(self) -> None:

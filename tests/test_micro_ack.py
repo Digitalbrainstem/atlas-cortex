@@ -142,6 +142,19 @@ class TestPhraseEscalation:
         engine.get_phrase()
         assert engine.ack_count == 2
 
+    def test_expanded_pool_sizes(self):
+        assert len(POOL_CASUAL) >= 50
+        assert len(POOL_REASSURING) >= 50
+        assert len(POOL_COMPLEX) >= 30
+
+    def test_high_variety_in_casual_pool(self):
+        engine = MicroAckEngine()
+        phrases = set()
+        for _ in range(30):
+            engine.reset()
+            phrases.add(engine.get_phrase())
+        assert len(phrases) >= 15, f"Only {len(phrases)} unique casual phrases in 30 draws"
+
 
 class TestReset:
     """Reset clears state between generations."""
@@ -240,8 +253,8 @@ class TestPhraseDedup:
     def test_variety_over_multiple_draws(self):
         engine = MicroAckEngine()
         phrases = set()
-        for _ in range(10):
+        for _ in range(30):
             engine.reset()
             phrases.add(engine.get_phrase())
-        # Should get variety from the 5-phrase casual pool
-        assert len(phrases) >= 2
+        # With 50+ phrases in the casual pool, expect high variety
+        assert len(phrases) >= 10
