@@ -68,6 +68,25 @@ CACHEABLE_FILLERS: dict[str, list[str]] = {
         "Alright, let me take a look at that for you.",
         "Sure thing, one moment while I check.",
     ],
+    # Micro-ack phrases (short, pre-cached for instant playback)
+    "micro_ack_casual": [
+        "Hmm...",
+        "Let me see...",
+        "One moment...",
+        "Mm-hmm...",
+        "Thinking...",
+    ],
+    "micro_ack_reassuring": [
+        "Almost there...",
+        "Still working on that...",
+        "Just a bit more...",
+        "Bear with me...",
+    ],
+    "micro_ack_complex": [
+        "That's a big question...",
+        "Lots to consider here...",
+        "Digging deeper...",
+    ],
 }
 
 # Fingerprint of all phrases — changes when phrases are added/removed/edited
@@ -271,6 +290,20 @@ class FillerCache:
             self._recent[sentiment] = deque(maxlen=3)
         self._recent[sentiment].append(choice.phrase)
         return choice
+
+    def get_micro_ack(self, phrase: str) -> CachedFiller | None:
+        """Return pre-cached audio for a micro-ack *phrase*.
+
+        Searches all ``micro_ack_*`` pools.  Returns ``None`` if the phrase
+        has not been pre-synthesized (caller should fall back to live TTS).
+        """
+        if not self._initialized:
+            return None
+        for key in ("micro_ack_casual", "micro_ack_reassuring", "micro_ack_complex"):
+            for filler in self._cache.get(key, []):
+                if filler.phrase == phrase:
+                    return filler
+        return None
 
     def reset(self) -> None:
         """Clear all cached fillers so ``initialize(force=True)`` can rebuild."""
