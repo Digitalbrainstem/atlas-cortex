@@ -20,6 +20,7 @@ from .events import (
     PipelineEvent,
     TextToken,
     FillerToken,
+    MicroAckToken,
     ExpressionEvent,
     SpeakingEvent,
     VisemeEvent,
@@ -240,6 +241,17 @@ async def _pipeline_event_generator(
 
     yield SpeakingEvent(speaking=True, user_id=user_id)
 
+    # Micro-ack engine: adaptive "thinking" sounds during long pauses
+    from cortex.filler.micro_ack import get_micro_ack_engine
+    _micro_ack = get_micro_ack_engine()
+    _is_complex_query = any(
+        kw in message.lower()
+        for kw in ("explain", "analyze", "compare", "step by step", "why does")
+    )
+    _micro_ack.reset(is_complex=_is_complex_query)
+    _filler_played = False
+    _micro_ack_clock = time.monotonic()
+
     _sentence_buf = ""
     async for chunk in stream_llm_response(
         message=message,
@@ -252,7 +264,17 @@ async def _pipeline_event_generator(
     ):
         if not first_token_ms:
             first_token_ms = (time.monotonic() - t3) * 1000
+            # The very first chunk from stream_llm_response is the filler
+            if chunk.strip():
+                _filler_played = True
         full_response_parts.append(chunk)
+
+        # Check if a micro-ack should fire before yielding this token
+        _elapsed = time.monotonic() - _micro_ack_clock
+        if _micro_ack.should_ack(_elapsed, _filler_played):
+            _phrase = _micro_ack.get_phrase()
+            yield MicroAckToken(text=_phrase, level=_micro_ack.ack_count)
+            _micro_ack_clock = time.monotonic()  # reset for next ack
 
         _sentence_buf += chunk
         if any(_sentence_buf.rstrip().endswith(p) for p in (".", "!", "?", "\n")):
@@ -280,6 +302,11 @@ async def _pipeline_event_generator(
 
     layer3_ms = (time.monotonic() - t3) * 1000
     total_ms = int(time.monotonic() * 1000) - start_ms
+
+    # Update micro-ack EMA with observed latency and persist
+    _micro_ack.update_latency(layer3_ms / 1000.0)
+    _micro_ack.save_ema(db_conn)
+
     logger.info(
         "Layer 3 (LLM): %.0fms (TTFT %.0fms) [total %dms] L0=%.0f L1=%.0f L2=%.0f",
         layer3_ms, first_token_ms, total_ms,

@@ -59,6 +59,13 @@ class TTSEvent(PipelineEvent):
 
 
 @dataclass
+class MicroAckToken(PipelineEvent):
+    """A brief micro-acknowledgment during long LLM generations."""
+    text: str
+    level: int = 1  # 1 = casual, 2 = reassuring
+
+
+@dataclass
 class LayerResult(PipelineEvent):
     """Metadata: which layer handled the request and timing info."""
     layer: str  # "instant", "tool", "llm"
@@ -71,6 +78,7 @@ __all__ = [
     "PipelineEvent",
     "TextToken",
     "FillerToken",
+    "MicroAckToken",
     "ExpressionEvent",
     "SpeakingEvent",
     "VisemeEvent",
