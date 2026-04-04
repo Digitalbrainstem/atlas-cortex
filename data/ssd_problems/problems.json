@@ -1,0 +1,1402 @@
+[
+    {
+        "id": "algo_001",
+        "prompt": "Write a Python function `binary_search(arr, target)` that performs binary search on a sorted list and returns the index of the target, or -1 if not found.",
+        "entry_point": "binary_search",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_002",
+        "prompt": "Write a Python function `bubble_sort(arr)` that sorts a list of integers in ascending order using the bubble sort algorithm and returns the sorted list.",
+        "entry_point": "bubble_sort",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_003",
+        "prompt": "Write a Python function `merge_sort(arr)` that sorts a list of integers using the merge sort algorithm and returns a new sorted list.",
+        "entry_point": "merge_sort",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_004",
+        "prompt": "Write a Python function `quick_sort(arr)` that sorts a list of integers using the quicksort algorithm and returns the sorted list. Use the last element as pivot.",
+        "entry_point": "quick_sort",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_005",
+        "prompt": "Write a Python function `insertion_sort(arr)` that sorts a list of integers in ascending order using insertion sort and returns the sorted list.",
+        "entry_point": "insertion_sort",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_006",
+        "prompt": "Write a Python function `linear_search(arr, target)` that returns the index of the first occurrence of target in the list, or -1 if not found.",
+        "entry_point": "linear_search",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_007",
+        "prompt": "Write a Python function `two_sum(nums, target)` that returns a list of two indices whose values add up to the target. Assume exactly one solution exists.",
+        "entry_point": "two_sum",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_008",
+        "prompt": "Write a Python function `fibonacci(n)` that returns the nth Fibonacci number (0-indexed, where fibonacci(0)=0, fibonacci(1)=1).",
+        "entry_point": "fibonacci",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_009",
+        "prompt": "Write a Python function `kadane(arr)` that finds the maximum sum contiguous subarray in a list of integers using Kadane's algorithm and returns the maximum sum.",
+        "entry_point": "kadane",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_010",
+        "prompt": "Write a Python function `merge_intervals(intervals)` that takes a list of [start, end] intervals and returns a list of merged overlapping intervals sorted by start time.",
+        "entry_point": "merge_intervals",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_011",
+        "prompt": "Write a Python function `search_rotated(nums, target)` that searches for a target value in a sorted array that has been rotated at some pivot. Return the index or -1 if not found. Must run in O(log n).",
+        "entry_point": "search_rotated",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_012",
+        "prompt": "Write a Python function `topological_sort(num_nodes, edges)` that performs topological sort on a directed acyclic graph. `edges` is a list of (u, v) pairs. Return a list of node indices in topological order.",
+        "entry_point": "topological_sort",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_013",
+        "prompt": "Write a Python function `dijkstra(graph, start)` that computes shortest distances from a start node. `graph` is a dict mapping node to list of (neighbor, weight) tuples. Return a dict of node to shortest distance.",
+        "entry_point": "dijkstra",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_014",
+        "prompt": "Write a Python function `counting_sort(arr)` that sorts a list of non-negative integers using counting sort and returns the sorted list.",
+        "entry_point": "counting_sort",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_015",
+        "prompt": "Write a Python function `heap_sort(arr)` that sorts a list of integers using heap sort and returns the sorted list.",
+        "entry_point": "heap_sort",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_016",
+        "prompt": "Write a Python function `dutch_national_flag(arr)` that sorts an array containing only 0s, 1s, and 2s in-place in a single pass and returns the sorted list.",
+        "entry_point": "dutch_national_flag",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_017",
+        "prompt": "Write a Python function `sliding_window_max(nums, k)` that returns a list of the maximum value in each sliding window of size k as it moves from left to right.",
+        "entry_point": "sliding_window_max",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_018",
+        "prompt": "Write a Python function `longest_increasing_subseq(nums)` that returns the length of the longest strictly increasing subsequence.",
+        "entry_point": "longest_increasing_subseq",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_019",
+        "prompt": "Write a Python function `coin_change(coins, amount)` that returns the minimum number of coins needed to make the given amount. Return -1 if not possible. `coins` is a list of coin denominations.",
+        "entry_point": "coin_change",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_020",
+        "prompt": "Write a Python function `knapsack_01(weights, values, capacity)` that solves the 0/1 knapsack problem and returns the maximum total value that fits in the given capacity.",
+        "entry_point": "knapsack_01",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_021",
+        "prompt": "Write a Python function `activity_selection(activities)` that takes a list of (start, end) tuples and returns the maximum number of non-overlapping activities.",
+        "entry_point": "activity_selection",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_022",
+        "prompt": "Write a Python function `selection_sort(arr)` that sorts a list of integers in ascending order using selection sort and returns the sorted list.",
+        "entry_point": "selection_sort",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_023",
+        "prompt": "Write a Python function `bfs(graph, start)` that performs breadth-first search on an adjacency list graph and returns a list of nodes in BFS order.",
+        "entry_point": "bfs",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_024",
+        "prompt": "Write a Python function `dfs(graph, start)` that performs depth-first search on an adjacency list graph and returns a list of nodes in DFS order (iterative or recursive).",
+        "entry_point": "dfs",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_025",
+        "prompt": "Write a Python function `find_kth_largest(nums, k)` that returns the kth largest element in an unsorted list. Do not fully sort the list.",
+        "entry_point": "find_kth_largest",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_026",
+        "prompt": "Write a Python function `floyd_warshall(dist_matrix)` that computes all-pairs shortest paths given an n\u00d7n distance matrix (use float('inf') for no edge). Return the updated matrix.",
+        "entry_point": "floyd_warshall",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_027",
+        "prompt": "Write a Python function `detect_cycle(graph)` that checks whether an undirected graph (adjacency list dict) contains a cycle. Return True if a cycle exists, False otherwise.",
+        "entry_point": "detect_cycle",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_028",
+        "prompt": "Write a Python function `three_sum(nums)` that finds all unique triplets in the list that sum to zero. Return a list of sorted triplets with no duplicates.",
+        "entry_point": "three_sum",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "algo_029",
+        "prompt": "Write a Python function `edit_distance(word1, word2)` that returns the minimum number of single-character edits (insert, delete, replace) to convert word1 into word2.",
+        "entry_point": "edit_distance",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "ds_001",
+        "prompt": "Write a Python class `Stack` with methods `push(val)`, `pop()`, `peek()`, and `is_empty()`. `pop` and `peek` should return None if the stack is empty.",
+        "entry_point": "Stack",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_002",
+        "prompt": "Write a Python class `Queue` with methods `enqueue(val)`, `dequeue()`, `peek()`, and `is_empty()`. `dequeue` and `peek` should return None if the queue is empty.",
+        "entry_point": "Queue",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_003",
+        "prompt": "Write a Python class `LinkedList` with methods `append(val)`, `prepend(val)`, `delete(val)`, `find(val)` (returns True/False), and `to_list()` (returns Python list of values).",
+        "entry_point": "LinkedList",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_004",
+        "prompt": "Write a Python function `reverse_linked_list(head)` that reverses a singly linked list in place. Each node has `.val` and `.next` attributes. Return the new head.",
+        "entry_point": "reverse_linked_list",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_005",
+        "prompt": "Write a Python class `DoublyLinkedList` with methods `append(val)`, `prepend(val)`, `delete(val)`, and `to_list()`. Each node should have `prev` and `next` pointers.",
+        "entry_point": "DoublyLinkedList",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_006",
+        "prompt": "Write a Python class `BinarySearchTree` with methods `insert(val)`, `search(val)` returning True/False, and `inorder()` returning a list of values in sorted order.",
+        "entry_point": "BinarySearchTree",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_007",
+        "prompt": "Write a Python function `is_valid_bst(root)` that checks whether a binary tree is a valid binary search tree. Each node has `.val`, `.left`, `.right` attributes.",
+        "entry_point": "is_valid_bst",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_008",
+        "prompt": "Write a Python class `MinHeap` with methods `insert(val)`, `extract_min()`, and `peek()`. Implement using a list with standard heap operations.",
+        "entry_point": "MinHeap",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_009",
+        "prompt": "Write a Python class `HashMap` that implements a hash map with methods `put(key, value)`, `get(key)` (returns None if missing), `remove(key)`, and `contains(key)`. Handle collisions with chaining.",
+        "entry_point": "HashMap",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_010",
+        "prompt": "Write a Python class `Trie` with methods `insert(word)`, `search(word)` returning True/False, and `starts_with(prefix)` returning True/False.",
+        "entry_point": "Trie",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_011",
+        "prompt": "Write a Python function `level_order_traversal(root)` that returns a list of lists, where each inner list contains node values at that depth level. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "level_order_traversal",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_012",
+        "prompt": "Write a Python class `CircularQueue` with a fixed capacity. Methods: `enqueue(val)` returning True/False, `dequeue()` returning the value or None, `is_full()`, `is_empty()`.",
+        "entry_point": "CircularQueue",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_013",
+        "prompt": "Write a Python class `LRUCache` with a given capacity. Methods: `get(key)` returns value or -1, `put(key, value)` inserts or updates. Evict the least recently used item when full.",
+        "entry_point": "LRUCache",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_014",
+        "prompt": "Write a Python class `UnionFind` with methods `find(x)`, `union(x, y)`, and `connected(x, y)`. Use path compression and union by rank.",
+        "entry_point": "UnionFind",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_015",
+        "prompt": "Write a Python function `flatten_nested_list(nested)` that takes an arbitrarily nested list of integers and returns a flat list of all integers in order.",
+        "entry_point": "flatten_nested_list",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_016",
+        "prompt": "Write a Python class `MaxStack` with methods `push(val)`, `pop()`, `top()`, and `get_max()`, all operating in O(1) time.",
+        "entry_point": "MaxStack",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_017",
+        "prompt": "Write a Python function `serialize_tree(root)` and `deserialize_tree(data)` that convert a binary tree to a string and back. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "serialize_tree",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_018",
+        "prompt": "Write a Python function `invert_binary_tree(root)` that inverts a binary tree (swap left and right children recursively) and returns the root. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "invert_binary_tree",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_019",
+        "prompt": "Write a Python function `max_depth(root)` that returns the maximum depth of a binary tree. A single-node tree has depth 1. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "max_depth",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_020",
+        "prompt": "Write a Python class `Deque` with methods `push_front(val)`, `push_back(val)`, `pop_front()`, `pop_back()`, and `is_empty()`. Pop methods return None if empty.",
+        "entry_point": "Deque",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_021",
+        "prompt": "Write a Python class `PriorityQueue` with methods `push(item, priority)`, `pop()` returning the highest-priority (lowest number) item, and `is_empty()`.",
+        "entry_point": "PriorityQueue",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_022",
+        "prompt": "Write a Python function `bst_delete(root, key)` that deletes a node with the given key from a BST and returns the root. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "bst_delete",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_023",
+        "prompt": "Write a Python function `lowest_common_ancestor(root, p, q)` that finds the lowest common ancestor of two nodes in a binary search tree. Nodes have `.val`, `.left`, `.right`.",
+        "entry_point": "lowest_common_ancestor",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_024",
+        "prompt": "Write a Python class `SegmentTree` that supports `update(index, value)` and `query(left, right)` for range sum queries on an integer array.",
+        "entry_point": "SegmentTree",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_025",
+        "prompt": "Write a Python class `BloomFilter` with methods `add(item)` and `might_contain(item)`. Initialize with a size and number of hash functions.",
+        "entry_point": "BloomFilter",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_026",
+        "prompt": "Write a Python function `has_cycle(head)` that detects if a singly linked list has a cycle. Return True if a cycle exists, False otherwise. Use Floyd's algorithm.",
+        "entry_point": "has_cycle",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_027",
+        "prompt": "Write a Python function `merge_two_sorted_lists(l1, l2)` that merges two sorted linked lists into one sorted linked list and returns the head. Nodes have `.val` and `.next`.",
+        "entry_point": "merge_two_sorted_lists",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_028",
+        "prompt": "Write a Python class `StackUsingQueues` that implements a stack using two queues. Methods: `push(val)`, `pop()`, `top()`, `is_empty()`.",
+        "entry_point": "StackUsingQueues",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "ds_029",
+        "prompt": "Write a Python class `SparseMatrix` that efficiently stores a sparse matrix. Methods: `set(row, col, val)`, `get(row, col)`, and `multiply(other)` returning a new SparseMatrix.",
+        "entry_point": "SparseMatrix",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "str_001",
+        "prompt": "Write a Python function `reverse_string(s)` that reverses a string without using slicing or the built-in `reversed()` function.",
+        "entry_point": "reverse_string",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_002",
+        "prompt": "Write a Python function `is_palindrome(s)` that returns True if the string is a palindrome, ignoring case and non-alphanumeric characters.",
+        "entry_point": "is_palindrome",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_003",
+        "prompt": "Write a Python function `count_vowels(s)` that returns the number of vowels (a, e, i, o, u, case-insensitive) in the given string.",
+        "entry_point": "count_vowels",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_004",
+        "prompt": "Write a Python function `first_unique_char(s)` that returns the index of the first non-repeating character in a string, or -1 if none exists.",
+        "entry_point": "first_unique_char",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_005",
+        "prompt": "Write a Python function `is_anagram(s1, s2)` that returns True if s1 and s2 are anagrams of each other (ignoring case and spaces).",
+        "entry_point": "is_anagram",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_006",
+        "prompt": "Write a Python function `caesar_cipher(text, shift)` that encrypts text using Caesar cipher with the given shift. Preserve case and leave non-alphabetic characters unchanged.",
+        "entry_point": "caesar_cipher",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_007",
+        "prompt": "Write a Python function `longest_common_prefix(strs)` that returns the longest common prefix string among a list of strings. Return empty string if no common prefix.",
+        "entry_point": "longest_common_prefix",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_008",
+        "prompt": "Write a Python function `valid_parentheses(s)` that returns True if the string contains only valid matched parentheses '()', '[]', '{}'.",
+        "entry_point": "valid_parentheses",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_009",
+        "prompt": "Write a Python function `compress_string(s)` that performs basic string compression using counts of repeated characters. Return the original string if compression doesn't shorten it. E.g., 'aabcccccaaa' -> 'a2b1c5a3'.",
+        "entry_point": "compress_string",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_010",
+        "prompt": "Write a Python function `longest_substring_no_repeat(s)` that returns the length of the longest substring without repeating characters.",
+        "entry_point": "longest_substring_no_repeat",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_011",
+        "prompt": "Write a Python function `word_frequency(text)` that returns a dictionary mapping each word (lowercased) to its frequency count. Words are separated by whitespace.",
+        "entry_point": "word_frequency",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_012",
+        "prompt": "Write a Python function `group_anagrams(words)` that groups a list of strings into lists of anagrams. Return a list of groups (order doesn't matter).",
+        "entry_point": "group_anagrams",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_013",
+        "prompt": "Write a Python function `title_case(s)` that converts a string to title case where the first letter of each word is capitalized and the rest are lowercase.",
+        "entry_point": "title_case",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_014",
+        "prompt": "Write a Python function `zigzag_conversion(s, num_rows)` that converts a string into a zigzag pattern on a given number of rows and reads it line by line. Return the resulting string.",
+        "entry_point": "zigzag_conversion",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_015",
+        "prompt": "Write a Python function `decode_string(s)` that decodes an encoded string where patterns like '3[ab]' mean 'ababab'. Nesting is allowed, e.g., '2[a3[b]]' -> 'abbbabbb'.",
+        "entry_point": "decode_string",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_016",
+        "prompt": "Write a Python function `minimum_window_substring(s, t)` that returns the minimum window in s which contains all characters of t. Return empty string if no such window exists.",
+        "entry_point": "minimum_window_substring",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_017",
+        "prompt": "Write a Python function `longest_palindromic_substring(s)` that returns the longest palindromic substring in the given string.",
+        "entry_point": "longest_palindromic_substring",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_018",
+        "prompt": "Write a Python function `regex_match(text, pattern)` that implements basic regex matching supporting '.' (any single char) and '*' (zero or more of preceding char). Return True if the pattern matches the entire text.",
+        "entry_point": "regex_match",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_019",
+        "prompt": "Write a Python function `roman_to_int(s)` that converts a Roman numeral string to an integer. Handle subtractive notation (e.g., IV=4, IX=9).",
+        "entry_point": "roman_to_int",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_020",
+        "prompt": "Write a Python function `int_to_roman(num)` that converts an integer (1 to 3999) to a Roman numeral string.",
+        "entry_point": "int_to_roman",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_021",
+        "prompt": "Write a Python function `reverse_words(s)` that reverses the order of words in a string. Words are separated by spaces. Remove leading/trailing spaces and reduce multiple spaces to one.",
+        "entry_point": "reverse_words",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_022",
+        "prompt": "Write a Python function `atoi(s)` that converts a string to a 32-bit signed integer. Handle leading whitespace, optional +/- sign, and stop at first non-digit. Clamp to [-2^31, 2^31-1].",
+        "entry_point": "atoi",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_023",
+        "prompt": "Write a Python function `wildcard_match(text, pattern)` that implements wildcard pattern matching. '?' matches any single character, '*' matches any sequence of characters (including empty).",
+        "entry_point": "wildcard_match",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_024",
+        "prompt": "Write a Python function `count_palindromic_substrings(s)` that returns the number of palindromic substrings in the given string.",
+        "entry_point": "count_palindromic_substrings",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_025",
+        "prompt": "Write a Python function `snake_to_camel(s)` that converts a snake_case string to camelCase. E.g., 'hello_world' -> 'helloWorld'.",
+        "entry_point": "snake_to_camel",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_026",
+        "prompt": "Write a Python function `camel_to_snake(s)` that converts a camelCase string to snake_case. E.g., 'helloWorld' -> 'hello_world'.",
+        "entry_point": "camel_to_snake",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_027",
+        "prompt": "Write a Python function `generate_parentheses(n)` that returns all combinations of n pairs of well-formed parentheses as a list of strings.",
+        "entry_point": "generate_parentheses",
+        "difficulty": "medium",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_028",
+        "prompt": "Write a Python function `text_justification(words, max_width)` that formats a list of words into lines of exactly max_width characters with full justification. Return a list of strings.",
+        "entry_point": "text_justification",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "str_029",
+        "prompt": "Write a Python function `kmp_search(text, pattern)` that implements the KMP string matching algorithm and returns the starting index of the first occurrence of pattern in text, or -1 if not found.",
+        "entry_point": "kmp_search",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "math_001",
+        "prompt": "Write a Python function `is_prime(n)` that returns True if n is a prime number, False otherwise. Handle edge cases for n <= 1.",
+        "entry_point": "is_prime",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_002",
+        "prompt": "Write a Python function `gcd(a, b)` that computes the greatest common divisor of two positive integers using the Euclidean algorithm.",
+        "entry_point": "gcd",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_003",
+        "prompt": "Write a Python function `lcm(a, b)` that computes the least common multiple of two positive integers.",
+        "entry_point": "lcm",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_004",
+        "prompt": "Write a Python function `factorial(n)` that returns the factorial of a non-negative integer n. Return 1 for n=0.",
+        "entry_point": "factorial",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_005",
+        "prompt": "Write a Python function `sieve_of_eratosthenes(n)` that returns a list of all prime numbers less than or equal to n.",
+        "entry_point": "sieve_of_eratosthenes",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_006",
+        "prompt": "Write a Python function `power(base, exp)` that computes base raised to the power exp using fast exponentiation (exponentiation by squaring). Handle negative exponents.",
+        "entry_point": "power",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_007",
+        "prompt": "Write a Python function `matrix_multiply(A, B)` that multiplies two matrices (2D lists) and returns the resulting matrix. Raise ValueError if dimensions are incompatible.",
+        "entry_point": "matrix_multiply",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_008",
+        "prompt": "Write a Python function `is_perfect_number(n)` that returns True if n is a perfect number (equal to the sum of its proper divisors), False otherwise.",
+        "entry_point": "is_perfect_number",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_009",
+        "prompt": "Write a Python function `prime_factors(n)` that returns a list of prime factors of n in ascending order, including duplicates.",
+        "entry_point": "prime_factors",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_010",
+        "prompt": "Write a Python function `newton_sqrt(n, tolerance=1e-10)` that computes the square root of n using Newton's method to within the given tolerance.",
+        "entry_point": "newton_sqrt",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_011",
+        "prompt": "Write a Python function `combinations(n, k)` that returns the number of ways to choose k items from n items (binomial coefficient) without using math.comb.",
+        "entry_point": "combinations",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_012",
+        "prompt": "Write a Python function `permutations_count(n, k)` that returns the number of permutations of k items from n items, i.e., n! / (n-k)!.",
+        "entry_point": "permutations_count",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_013",
+        "prompt": "Write a Python function `base_convert(number, from_base, to_base)` that converts a number string from one base (2-36) to another and returns the result as a string.",
+        "entry_point": "base_convert",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_014",
+        "prompt": "Write a Python function `matrix_transpose(matrix)` that returns the transpose of a 2D matrix (list of lists).",
+        "entry_point": "matrix_transpose",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_015",
+        "prompt": "Write a Python function `matrix_determinant(matrix)` that computes the determinant of a square matrix (2D list) using cofactor expansion.",
+        "entry_point": "matrix_determinant",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "math_016",
+        "prompt": "Write a Python function `solve_quadratic(a, b, c)` that returns a tuple of real solutions to ax^2 + bx + c = 0. Return an empty tuple if no real solutions, a 1-tuple if one, or a 2-tuple if two.",
+        "entry_point": "solve_quadratic",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_017",
+        "prompt": "Write a Python function `evaluate_rpn(tokens)` that evaluates a mathematical expression in Reverse Polish Notation. Tokens is a list of strings (numbers and operators +, -, *, /). Use integer division truncating toward zero.",
+        "entry_point": "evaluate_rpn",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_018",
+        "prompt": "Write a Python function `is_armstrong(n)` that returns True if n is an Armstrong number (sum of digits each raised to the power of the number of digits equals n).",
+        "entry_point": "is_armstrong",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_019",
+        "prompt": "Write a Python function `collatz_sequence(n)` that returns the Collatz sequence starting from n until it reaches 1. If even, divide by 2; if odd, multiply by 3 and add 1.",
+        "entry_point": "collatz_sequence",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_020",
+        "prompt": "Write a Python function `modular_exponentiation(base, exp, mod)` that efficiently computes (base^exp) % mod.",
+        "entry_point": "modular_exponentiation",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_021",
+        "prompt": "Write a Python function `extended_gcd(a, b)` that returns a tuple (g, x, y) such that a*x + b*y = g = gcd(a, b).",
+        "entry_point": "extended_gcd",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "math_022",
+        "prompt": "Write a Python function `nth_catalan(n)` that returns the nth Catalan number using dynamic programming.",
+        "entry_point": "nth_catalan",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_023",
+        "prompt": "Write a Python function `polynomial_evaluate(coefficients, x)` that evaluates a polynomial at x using Horner's method. Coefficients are ordered from highest to lowest degree.",
+        "entry_point": "polynomial_evaluate",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "math_024",
+        "prompt": "Write a Python function `matrix_inverse(matrix)` that returns the inverse of a square matrix using Gauss-Jordan elimination. Raise ValueError if the matrix is singular.",
+        "entry_point": "matrix_inverse",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "math_025",
+        "prompt": "Write a Python function `linear_regression(x_vals, y_vals)` that computes the slope and intercept of the least-squares regression line. Return a tuple (slope, intercept).",
+        "entry_point": "linear_regression",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_026",
+        "prompt": "Write a Python function `convex_hull(points)` that computes the convex hull of a set of 2D points using the Graham scan algorithm. Return the hull points in counter-clockwise order.",
+        "entry_point": "convex_hull",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "math_027",
+        "prompt": "Write a Python function `fast_fibonacci(n)` that computes the nth Fibonacci number in O(log n) time using matrix exponentiation.",
+        "entry_point": "fast_fibonacci",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "math_028",
+        "prompt": "Write a Python function `roman_addition(r1, r2)` that adds two Roman numeral strings and returns the result as a Roman numeral string.",
+        "entry_point": "roman_addition",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "math_029",
+        "prompt": "Write a Python function `integer_partition(n)` that returns the number of ways to express n as a sum of positive integers (order does not matter).",
+        "entry_point": "integer_partition",
+        "difficulty": "hard",
+        "category": "math"
+    },
+    {
+        "id": "fio_001",
+        "prompt": "Write a Python function `read_lines(filepath)` that reads a text file and returns a list of lines with trailing newlines stripped.",
+        "entry_point": "read_lines",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_002",
+        "prompt": "Write a Python function `write_lines(filepath, lines)` that writes a list of strings to a file, one per line. Create the file if it doesn't exist, overwrite if it does.",
+        "entry_point": "write_lines",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_003",
+        "prompt": "Write a Python function `count_lines(filepath)` that returns the number of lines in a text file.",
+        "entry_point": "count_lines",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_004",
+        "prompt": "Write a Python function `read_csv(filepath)` that reads a CSV file and returns a list of dictionaries where keys are column headers from the first row.",
+        "entry_point": "read_csv",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_005",
+        "prompt": "Write a Python function `write_csv(filepath, data, headers)` that writes a list of dictionaries to a CSV file with the given headers as the first row.",
+        "entry_point": "write_csv",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_006",
+        "prompt": "Write a Python function `read_json(filepath)` that reads a JSON file and returns the parsed Python object.",
+        "entry_point": "read_json",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_007",
+        "prompt": "Write a Python function `write_json(filepath, data, indent=2)` that writes a Python object to a JSON file with the specified indentation.",
+        "entry_point": "write_json",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_008",
+        "prompt": "Write a Python function `find_files(directory, extension)` that recursively finds all files with the given extension in a directory tree and returns a list of their full paths.",
+        "entry_point": "find_files",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_009",
+        "prompt": "Write a Python function `tail(filepath, n=10)` that returns the last n lines of a file as a list of strings.",
+        "entry_point": "tail",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_010",
+        "prompt": "Write a Python function `head(filepath, n=10)` that returns the first n lines of a file as a list of strings.",
+        "entry_point": "head",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_011",
+        "prompt": "Write a Python function `search_in_file(filepath, pattern)` that searches for a regex pattern in a text file and returns a list of (line_number, line_text) tuples for matching lines.",
+        "entry_point": "search_in_file",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_012",
+        "prompt": "Write a Python function `merge_files(file_list, output_path)` that concatenates the contents of multiple text files into a single output file.",
+        "entry_point": "merge_files",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_013",
+        "prompt": "Write a Python function `file_checksum(filepath, algorithm='sha256')` that computes and returns the hex digest checksum of a file. Support 'md5', 'sha1', and 'sha256'.",
+        "entry_point": "file_checksum",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_014",
+        "prompt": "Write a Python function `watch_file(filepath, callback, interval=1.0)` that monitors a file for modifications and calls `callback(filepath)` when the modification time changes. Run for one check cycle and return whether the file changed.",
+        "entry_point": "watch_file",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_015",
+        "prompt": "Write a Python function `safe_write(filepath, content)` that writes content to a file atomically by writing to a temporary file first and then renaming it to the target path.",
+        "entry_point": "safe_write",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_016",
+        "prompt": "Write a Python function `read_config(filepath)` that reads an INI-style config file and returns a nested dictionary with sections as top-level keys and key-value pairs as nested dicts.",
+        "entry_point": "read_config",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_017",
+        "prompt": "Write a Python function `diff_files(filepath1, filepath2)` that returns a list of unified diff lines between two text files, similar to the Unix diff command.",
+        "entry_point": "diff_files",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_018",
+        "prompt": "Write a Python function `rotate_log(filepath, max_size_bytes, backup_count=3)` that rotates a log file when it exceeds max_size_bytes, keeping up to backup_count backups named with .1, .2, etc.",
+        "entry_point": "rotate_log",
+        "difficulty": "hard",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_019",
+        "prompt": "Write a Python function `directory_size(dirpath)` that recursively calculates the total size in bytes of all files in a directory tree.",
+        "entry_point": "directory_size",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_020",
+        "prompt": "Write a Python function `copy_directory(src, dst)` that recursively copies a directory tree from src to dst, preserving file permissions.",
+        "entry_point": "copy_directory",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_021",
+        "prompt": "Write a Python function `parse_log_file(filepath)` that parses a common log file where each line has the format 'TIMESTAMP LEVEL MESSAGE' and returns a list of dicts with keys 'timestamp', 'level', 'message'.",
+        "entry_point": "parse_log_file",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_022",
+        "prompt": "Write a Python function `zip_directory(dirpath, output_zip)` that compresses an entire directory tree into a ZIP file.",
+        "entry_point": "zip_directory",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_023",
+        "prompt": "Write a Python function `unzip_file(zip_path, extract_to)` that extracts all contents of a ZIP file to the specified directory.",
+        "entry_point": "unzip_file",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_024",
+        "prompt": "Write a Python function `read_yaml(filepath)` that reads a simple YAML file (no external libraries) supporting key-value pairs and nested dicts with indentation. Return a dictionary.",
+        "entry_point": "read_yaml",
+        "difficulty": "hard",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_025",
+        "prompt": "Write a Python function `chunked_read(filepath, chunk_size=8192)` that yields chunks of bytes from a file, suitable for processing large files without loading them into memory.",
+        "entry_point": "chunked_read",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_026",
+        "prompt": "Write a Python function `csv_to_json(csv_path, json_path)` that converts a CSV file to a JSON file containing an array of objects.",
+        "entry_point": "csv_to_json",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_027",
+        "prompt": "Write a Python function `deduplicate_lines(filepath, output_path)` that reads a text file and writes only unique lines (in original order) to the output file.",
+        "entry_point": "deduplicate_lines",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "fio_028",
+        "prompt": "Write a Python function `parallel_file_search(directory, pattern, num_workers=4)` that searches for a regex pattern across all text files in a directory using concurrent.futures and returns a dict mapping filepath to list of matching lines.",
+        "entry_point": "parallel_file_search",
+        "difficulty": "hard",
+        "category": "file_io"
+    },
+    {
+        "id": "cls_001",
+        "prompt": "Write a Python class `Vector2D` with x and y attributes. Implement `__add__`, `__sub__`, `__mul__` (scalar), `magnitude()`, and `__repr__`.",
+        "entry_point": "Vector2D",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_002",
+        "prompt": "Write a Python class `BankAccount` with methods `deposit(amount)`, `withdraw(amount)` (returns False if insufficient funds), `get_balance()`, and `transfer(other_account, amount)`.",
+        "entry_point": "BankAccount",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_003",
+        "prompt": "Write a Python class `Fraction` that represents a fraction with numerator and denominator. Implement `__add__`, `__sub__`, `__mul__`, `__truediv__`, `__eq__`, and `__repr__`. Always store in reduced form.",
+        "entry_point": "Fraction",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_004",
+        "prompt": "Write a Python class `Matrix` that wraps a 2D list. Implement `__add__`, `__mul__` (matrix multiplication), `transpose()`, `__eq__`, and `__repr__`.",
+        "entry_point": "Matrix",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_005",
+        "prompt": "Write a Python class `Singleton` using a metaclass or __new__ that ensures only one instance of the class ever exists.",
+        "entry_point": "Singleton",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_006",
+        "prompt": "Write a Python class `Observable` implementing the observer pattern with methods `subscribe(callback)`, `unsubscribe(callback)`, and `notify(data)` that calls all subscribed callbacks.",
+        "entry_point": "Observable",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_007",
+        "prompt": "Write a Python class `LimitedList` that behaves like a list but has a maximum capacity. Raises OverflowError when attempting to add beyond capacity. Support `append`, `__getitem__`, `__len__`, and `__iter__`.",
+        "entry_point": "LimitedList",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_008",
+        "prompt": "Write a Python class `Temperature` with a value and unit ('C', 'F', or 'K'). Implement `to_celsius()`, `to_fahrenheit()`, `to_kelvin()`, `__eq__` (compare by converted value), and `__repr__`.",
+        "entry_point": "Temperature",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_009",
+        "prompt": "Write a Python class `EventEmitter` with methods `on(event, handler)`, `off(event, handler)`, and `emit(event, *args)`. Support multiple handlers per event.",
+        "entry_point": "EventEmitter",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_010",
+        "prompt": "Write a Python class `RateLimiter` that allows a maximum of `max_calls` calls within a `period` (seconds). Method `allow()` returns True if the call is within limits, False otherwise.",
+        "entry_point": "RateLimiter",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_011",
+        "prompt": "Write a Python class `StateMachine` with methods `add_transition(from_state, event, to_state)`, `trigger(event)`, and a `state` property. Raise ValueError on invalid transitions.",
+        "entry_point": "StateMachine",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_012",
+        "prompt": "Write a Python class `Polynomial` representing a polynomial. Support `__add__`, `__mul__`, `evaluate(x)`, `derivative()`, and `__repr__`. Store coefficients as a list.",
+        "entry_point": "Polynomial",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_013",
+        "prompt": "Write a Python class `ImmutableDict` that wraps a dictionary and prevents modification after creation. Support `__getitem__`, `__contains__`, `__len__`, `keys()`, `values()`, `items()`.",
+        "entry_point": "ImmutableDict",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_014",
+        "prompt": "Write a Python class `Graph` with methods `add_edge(u, v, weight=1)`, `remove_edge(u, v)`, `neighbors(node)`, `has_path(start, end)`, and `shortest_path(start, end)` using BFS.",
+        "entry_point": "Graph",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_015",
+        "prompt": "Write a Python class `Timer` used as a context manager that measures the execution time of a block of code. Access elapsed time via a `.elapsed` attribute (in seconds).",
+        "entry_point": "Timer",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_016",
+        "prompt": "Write a Python class `Cache` implementing a TTL-based cache with methods `set(key, value, ttl_seconds)`, `get(key)` (returns None if expired or missing), and `clear()`.",
+        "entry_point": "Cache",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_017",
+        "prompt": "Write a Python class `Pipeline` that chains processing steps. Methods: `add_step(func)` and `execute(data)` that passes data through each step in order and returns the final result.",
+        "entry_point": "Pipeline",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_018",
+        "prompt": "Write a Python class `Registry` implementing the registry pattern. Class methods: `register(name)` as a decorator, `create(name, *args, **kwargs)` to instantiate a registered class, and `list_registered()` returning names.",
+        "entry_point": "Registry",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_019",
+        "prompt": "Write a Python class `Money` with amount and currency. Implement `__add__` (raises ValueError if currencies differ), `__sub__`, `__mul__` (scalar), `convert(target_currency, rate)`, and `__repr__`.",
+        "entry_point": "Money",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_020",
+        "prompt": "Write a Python class `CircuitBreaker` with states CLOSED, OPEN, HALF_OPEN. Method `call(func, *args)` executes func, tracks failures, and opens the circuit after `failure_threshold` failures. Auto-resets after `recovery_timeout` seconds.",
+        "entry_point": "CircuitBreaker",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_021",
+        "prompt": "Write a Python class `TypedList` that only accepts elements of a specified type. Methods: `append(item)`, `extend(items)`, `__getitem__`, `__len__`, `__iter__`. Raise TypeError for wrong types.",
+        "entry_point": "TypedList",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_022",
+        "prompt": "Write a Python class `RetryDecorator` that can be used as `@RetryDecorator(max_retries=3, delay=1.0)` to retry a function on exception, with exponential backoff.",
+        "entry_point": "RetryDecorator",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_023",
+        "prompt": "Write a Python abstract base class `Shape` with abstract methods `area()` and `perimeter()`. Then implement concrete subclasses `Circle`, `Rectangle`, and `Triangle`.",
+        "entry_point": "Shape",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_024",
+        "prompt": "Write a Python class `ObjectPool` that manages a pool of reusable objects. Methods: `acquire()` returns an available object or creates one, `release(obj)` returns it to the pool. Set a max pool size.",
+        "entry_point": "ObjectPool",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_025",
+        "prompt": "Write a Python class `Expression` that represents a mathematical expression tree. Support `evaluate()`, `__repr__`, and creation from operators (+, -, *, /) and numeric leaf nodes.",
+        "entry_point": "Expression",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_026",
+        "prompt": "Write a Python class `Validator` with a chainable API for validating values. Methods: `required()`, `min_length(n)`, `max_length(n)`, `matches(pattern)`, `validate(value)` returning (bool, list_of_errors).",
+        "entry_point": "Validator",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_027",
+        "prompt": "Write a Python class `ConfigManager` that loads config from a dict, supports dot-notation access (e.g., `config.database.host`), and has a `get(key, default=None)` method for nested keys.",
+        "entry_point": "ConfigManager",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "cls_028",
+        "prompt": "Write a Python class `TaskQueue` with methods `add_task(func, *args, **kwargs)`, `run_all()` that executes tasks in FIFO order, and `run_parallel(max_workers)` using threads. Return results as a list.",
+        "entry_point": "TaskQueue",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "err_001",
+        "prompt": "Write a Python function `safe_divide(a, b)` that divides a by b and returns the result. Return None if b is zero instead of raising an exception.",
+        "entry_point": "safe_divide",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_002",
+        "prompt": "Write a Python function `safe_int(value)` that converts a value to an integer. Return None if the conversion fails.",
+        "entry_point": "safe_int",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_003",
+        "prompt": "Write a Python function `safe_json_parse(text)` that parses a JSON string. Return None if the string is not valid JSON.",
+        "entry_point": "safe_json_parse",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_004",
+        "prompt": "Write a Python function `validate_email(email)` that returns True if the email string is a valid email format (has exactly one @, non-empty local and domain parts, domain has at least one dot).",
+        "entry_point": "validate_email",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_005",
+        "prompt": "Write a Python function `retry(func, max_attempts=3, delay=0)` that calls func and retries up to max_attempts times if it raises an exception. Return the result on success, or re-raise the last exception.",
+        "entry_point": "retry",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_006",
+        "prompt": "Write a Python function `safe_get(dictionary, key_path, default=None)` that safely navigates a nested dictionary using a dot-separated key path. Return default if any key is missing.",
+        "entry_point": "safe_get",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_007",
+        "prompt": "Write a Python function `validate_password(password)` that returns a list of error messages. Check: min 8 chars, at least one uppercase, one lowercase, one digit, one special character. Return empty list if valid.",
+        "entry_point": "validate_password",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_008",
+        "prompt": "Write a Python function `safe_list_access(lst, index, default=None)` that returns the element at the given index, or default if the index is out of bounds.",
+        "entry_point": "safe_list_access",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_009",
+        "prompt": "Write a Python function `parse_date(date_str)` that tries to parse a date string in multiple formats ('YYYY-MM-DD', 'MM/DD/YYYY', 'DD.MM.YYYY'). Return a datetime.date object or None if no format matches.",
+        "entry_point": "parse_date",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_010",
+        "prompt": "Write a Python function `validate_url(url)` that returns True if the string is a valid HTTP or HTTPS URL with a proper hostname, False otherwise.",
+        "entry_point": "validate_url",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_011",
+        "prompt": "Write a Python function `safe_file_read(filepath)` that reads and returns the contents of a file as a string. Return None if the file doesn't exist or can't be read.",
+        "entry_point": "safe_file_read",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_012",
+        "prompt": "Write a Python function `validate_schema(data, schema)` that validates a dictionary against a schema dict where values are types. Return a list of field names that have wrong types. E.g., schema={'name': str, 'age': int}.",
+        "entry_point": "validate_schema",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_013",
+        "prompt": "Write a Python decorator `suppress_exceptions(*exception_types, default=None)` that catches specified exceptions from the decorated function and returns default instead.",
+        "entry_point": "suppress_exceptions",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_014",
+        "prompt": "Write a Python function `validate_credit_card(number)` that validates a credit card number string using the Luhn algorithm. Return True if valid, False otherwise.",
+        "entry_point": "validate_credit_card",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_015",
+        "prompt": "Write a Python function `bounded_int(value, min_val, max_val)` that converts value to int and clamps it to [min_val, max_val]. Raise TypeError if value cannot be converted to int.",
+        "entry_point": "bounded_int",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_016",
+        "prompt": "Write a Python context manager class `ErrorCollector` that collects exceptions instead of raising them. Access collected errors via a `.errors` list after the block exits.",
+        "entry_point": "ErrorCollector",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_017",
+        "prompt": "Write a Python function `sanitize_filename(filename)` that removes or replaces characters that are invalid in filenames across operating systems. Return the sanitized string.",
+        "entry_point": "sanitize_filename",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_018",
+        "prompt": "Write a Python function `validate_ip_address(ip)` that returns 'IPv4' if the string is a valid IPv4 address, 'IPv6' if valid IPv6, or 'Neither' otherwise.",
+        "entry_point": "validate_ip_address",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_019",
+        "prompt": "Write a Python function `safe_chain(*funcs)` that takes multiple functions and returns a new function that applies them in sequence, stopping and returning None if any function raises an exception.",
+        "entry_point": "safe_chain",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_020",
+        "prompt": "Write a Python function `ensure_type(value, expected_type)` that returns the value if it is an instance of expected_type. Raise TypeError with a descriptive message otherwise.",
+        "entry_point": "ensure_type",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_021",
+        "prompt": "Write a Python class `Result` implementing a Result monad with class methods `ok(value)` and `err(error)`, and instance methods `is_ok()`, `is_err()`, `unwrap()` (raises on error), and `unwrap_or(default)`.",
+        "entry_point": "Result",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_022",
+        "prompt": "Write a Python function `timeout_call(func, timeout_seconds, *args, **kwargs)` that calls func with the given args and raises TimeoutError if it doesn't complete within timeout_seconds. Use threading.",
+        "entry_point": "timeout_call",
+        "difficulty": "hard",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_023",
+        "prompt": "Write a Python function `graceful_degradation(primary_func, fallback_func, *args)` that calls primary_func with args, and if it raises any exception, calls fallback_func with the same args instead.",
+        "entry_point": "graceful_degradation",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_024",
+        "prompt": "Write a Python function `validate_json_schema(data, schema)` where schema defines types, required fields, and nested structures. Return a list of validation error strings. Schema format: {'field': {'type': str, 'required': True}}.",
+        "entry_point": "validate_json_schema",
+        "difficulty": "hard",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_025",
+        "prompt": "Write a Python decorator `log_exceptions(logger_func)` that catches any exception from the decorated function, calls logger_func with the exception info, then re-raises it.",
+        "entry_point": "log_exceptions",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_026",
+        "prompt": "Write a Python function `rate_limit_check(key, max_requests, window_seconds, store)` that checks if a key has exceeded max_requests in the time window using the provided dict store. Return True if allowed.",
+        "entry_point": "rate_limit_check",
+        "difficulty": "hard",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_027",
+        "prompt": "Write a Python function `parse_env_vars(env_string)` that parses a string in 'KEY=VALUE' format (one per line) and returns a dictionary. Skip blank lines and comments (lines starting with #). Handle quoted values.",
+        "entry_point": "parse_env_vars",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "err_028",
+        "prompt": "Write a Python class `Fallback` that takes a list of callables and tries them in order until one succeeds. Method `execute(*args, **kwargs)` returns the first successful result. Raises the last exception if all fail.",
+        "entry_point": "Fallback",
+        "difficulty": "hard",
+        "category": "error_handling"
+    }
+]

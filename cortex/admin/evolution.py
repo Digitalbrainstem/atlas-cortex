@@ -263,3 +263,43 @@ async def quality_metrics(
             (limit,),
         )
     return {"metrics": _h._rows(cur)}
+
+
+# ── Self-Distillation (SSD) ─────────────────────────────────────────
+
+
+def _get_ssd() -> "SelfDistillation":  # noqa: F821
+    """Lazy-init SelfDistillation singleton."""
+    from cortex.evolution.self_distillation import SelfDistillation, SSDConfig
+
+    import os
+
+    cfg = SSDConfig()
+    return SelfDistillation(
+        llm_url=os.getenv("LLM_API_URL", "http://localhost:8080"),
+        model_path=os.getenv("CAG_MODEL", "Qwen/Qwen3-4B"),
+        config=cfg,
+    )
+
+
+@router.get("/evolution/ssd")
+async def get_ssd_status(_: dict = Depends(require_admin)):
+    """Get SSD iteration history, current LoRA, baseline vs latest scores."""
+    ssd = _get_ssd()
+    return ssd.get_status()
+
+
+@router.post("/evolution/ssd/trigger")
+async def trigger_ssd(_: dict = Depends(require_admin)):
+    """Manually trigger an SSD iteration (if GPU is free)."""
+    import asyncio
+
+    ssd = _get_ssd()
+    can_run = await ssd.should_run()
+    if not can_run:
+        return {"ok": False, "reason": "GPU busy or SSD not eligible to run"}
+
+    # Run in background so the request returns immediately
+    task = asyncio.create_task(ssd.run_iteration())
+    log.info("SSD iteration triggered manually")
+    return {"ok": True, "message": "SSD iteration started"}

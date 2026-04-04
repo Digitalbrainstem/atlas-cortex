@@ -1,0 +1,212 @@
+[
+    {
+        "id": "test_algo_001",
+        "prompt": "Write a Python function `binary_search_leftmost(arr, target)` that returns the index of the leftmost occurrence of target in a sorted list with possible duplicates, or -1 if not found.",
+        "entry_point": "binary_search_leftmost",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "test_algo_002",
+        "prompt": "Write a Python function `max_subarray_product(nums)` that finds the contiguous subarray within a list of integers that has the largest product and returns that product.",
+        "entry_point": "max_subarray_product",
+        "difficulty": "medium",
+        "category": "algorithms"
+    },
+    {
+        "id": "test_algo_003",
+        "prompt": "Write a Python function `count_inversions(arr)` that counts the number of inversions in a list (pairs where i < j but arr[i] > arr[j]) using a modified merge sort. Return the count.",
+        "entry_point": "count_inversions",
+        "difficulty": "hard",
+        "category": "algorithms"
+    },
+    {
+        "id": "test_algo_004",
+        "prompt": "Write a Python function `is_sorted(arr)` that returns True if the list is sorted in non-decreasing order, False otherwise.",
+        "entry_point": "is_sorted",
+        "difficulty": "easy",
+        "category": "algorithms"
+    },
+    {
+        "id": "test_ds_001",
+        "prompt": "Write a Python class `MinStack` with methods `push(val)`, `pop()`, `top()`, and `get_min()`, all operating in O(1) time.",
+        "entry_point": "MinStack",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "test_ds_002",
+        "prompt": "Write a Python function `sorted_list_to_bst(nums)` that converts a sorted list of integers into a height-balanced binary search tree. Return the root node (with `.val`, `.left`, `.right`).",
+        "entry_point": "sorted_list_to_bst",
+        "difficulty": "medium",
+        "category": "data_structures"
+    },
+    {
+        "id": "test_ds_003",
+        "prompt": "Write a Python function `find_median_stream(nums)` that takes a list of numbers representing a stream and returns a list of running medians after each element is added.",
+        "entry_point": "find_median_stream",
+        "difficulty": "hard",
+        "category": "data_structures"
+    },
+    {
+        "id": "test_ds_004",
+        "prompt": "Write a Python class `QueueUsingStacks` that implements a queue using two stacks. Methods: `enqueue(val)`, `dequeue()`, `peek()`, `is_empty()`.",
+        "entry_point": "QueueUsingStacks",
+        "difficulty": "easy",
+        "category": "data_structures"
+    },
+    {
+        "id": "test_str_001",
+        "prompt": "Write a Python function `longest_common_subsequence(s1, s2)` that returns the length of the longest common subsequence of two strings.",
+        "entry_point": "longest_common_subsequence",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "test_str_002",
+        "prompt": "Write a Python function `run_length_decode(s)` that decodes a run-length encoded string. E.g., '3a2b1c' -> 'aaabbc'.",
+        "entry_point": "run_length_decode",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "test_str_003",
+        "prompt": "Write a Python function `is_subsequence(s, t)` that returns True if s is a subsequence of t (characters of s appear in t in order, not necessarily contiguously).",
+        "entry_point": "is_subsequence",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "test_str_004",
+        "prompt": "Write a Python function `interleave_strings(s1, s2, s3)` that returns True if s3 is formed by interleaving s1 and s2 while maintaining their relative character order.",
+        "entry_point": "interleave_strings",
+        "difficulty": "hard",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "test_str_005",
+        "prompt": "Write a Python function `remove_duplicates(s)` that removes duplicate characters from a string while preserving the order of first occurrences.",
+        "entry_point": "remove_duplicates",
+        "difficulty": "easy",
+        "category": "string_manipulation"
+    },
+    {
+        "id": "test_math_001",
+        "prompt": "Write a Python function `is_happy_number(n)` that returns True if n is a happy number. A happy number eventually reaches 1 when repeatedly replacing with the sum of squares of its digits.",
+        "entry_point": "is_happy_number",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "test_math_002",
+        "prompt": "Write a Python function `pascals_triangle(n)` that returns the first n rows of Pascal's triangle as a list of lists.",
+        "entry_point": "pascals_triangle",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "test_math_003",
+        "prompt": "Write a Python function `median(nums)` that returns the median value of a list of numbers without using statistics or sorting libraries.",
+        "entry_point": "median",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "test_math_004",
+        "prompt": "Write a Python function `matrix_rotate_90(matrix)` that rotates a square matrix 90 degrees clockwise in place and returns it.",
+        "entry_point": "matrix_rotate_90",
+        "difficulty": "medium",
+        "category": "math"
+    },
+    {
+        "id": "test_math_005",
+        "prompt": "Write a Python function `count_digits(n)` that returns the number of digits in a non-negative integer n without converting to string.",
+        "entry_point": "count_digits",
+        "difficulty": "easy",
+        "category": "math"
+    },
+    {
+        "id": "test_fio_001",
+        "prompt": "Write a Python function `word_count_file(filepath)` that reads a text file and returns a dictionary mapping each word (lowercased) to its occurrence count.",
+        "entry_point": "word_count_file",
+        "difficulty": "easy",
+        "category": "file_io"
+    },
+    {
+        "id": "test_fio_002",
+        "prompt": "Write a Python function `replace_in_file(filepath, old_text, new_text)` that replaces all occurrences of old_text with new_text in a file and writes the result back.",
+        "entry_point": "replace_in_file",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "test_fio_003",
+        "prompt": "Write a Python function `compare_files(filepath1, filepath2)` that returns True if both files have identical contents, False otherwise.",
+        "entry_point": "compare_files",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "test_fio_004",
+        "prompt": "Write a Python function `batch_rename(directory, pattern, replacement)` that renames all files in a directory by replacing the regex pattern in their names with the replacement string. Return a list of (old_name, new_name) tuples.",
+        "entry_point": "batch_rename",
+        "difficulty": "medium",
+        "category": "file_io"
+    },
+    {
+        "id": "test_cls_001",
+        "prompt": "Write a Python class `Counter` with methods `increment(key)`, `decrement(key)`, `get(key)` returning the count (default 0), and `most_common(n)` returning the n keys with highest counts.",
+        "entry_point": "Counter",
+        "difficulty": "easy",
+        "category": "class_design"
+    },
+    {
+        "id": "test_cls_002",
+        "prompt": "Write a Python class `SortedList` that maintains elements in sorted order. Methods: `add(val)`, `remove(val)`, `__contains__(val)`, `__getitem__(index)`, `__len__`. Use bisect for efficiency.",
+        "entry_point": "SortedList",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "test_cls_003",
+        "prompt": "Write a Python class `Middleware` that implements a middleware chain pattern. Methods: `use(handler_func)` adds middleware, `handle(request)` passes request through all middleware in order. Each handler receives (request, next_handler).",
+        "entry_point": "Middleware",
+        "difficulty": "hard",
+        "category": "class_design"
+    },
+    {
+        "id": "test_cls_004",
+        "prompt": "Write a Python class `LazyProperty` that works as a descriptor/decorator to compute a property value only once and cache the result on the instance.",
+        "entry_point": "LazyProperty",
+        "difficulty": "medium",
+        "category": "class_design"
+    },
+    {
+        "id": "test_err_001",
+        "prompt": "Write a Python function `safe_cast(value, to_type, default=None)` that attempts to cast value to to_type, returning default if the cast fails.",
+        "entry_point": "safe_cast",
+        "difficulty": "easy",
+        "category": "error_handling"
+    },
+    {
+        "id": "test_err_002",
+        "prompt": "Write a Python function `validate_port(port)` that returns True if port is a valid network port number (integer 1-65535), False otherwise. Handle string inputs by attempting conversion.",
+        "entry_point": "validate_port",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "test_err_003",
+        "prompt": "Write a Python function `deep_merge(dict1, dict2)` that recursively merges dict2 into dict1. For conflicting keys, dict2 values take precedence. Nested dicts are merged recursively. Return the merged dict.",
+        "entry_point": "deep_merge",
+        "difficulty": "medium",
+        "category": "error_handling"
+    },
+    {
+        "id": "test_err_004",
+        "prompt": "Write a Python class `CircuitBreakerAsync` that implements the circuit breaker pattern for async functions. States: CLOSED, OPEN, HALF_OPEN. Method `async call(coro)` manages state transitions based on failure counts and recovery timeout.",
+        "entry_point": "CircuitBreakerAsync",
+        "difficulty": "hard",
+        "category": "error_handling"
+    }
+]
