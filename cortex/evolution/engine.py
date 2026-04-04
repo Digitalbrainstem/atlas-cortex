@@ -126,7 +126,15 @@ class EvolutionEngine:
         return actionable
 
     async def run_nightly_evolution(self) -> dict:
-        """Full nightly pipeline: analyse → identify gaps → schedule training if needed."""
+        """Full nightly pipeline: analyse → identify gaps → schedule training if needed.
+
+        Job priority (highest to lowest):
+        1. drift_monitor   — check model quality
+        2. lora_training   — active LoRA training requests
+        3. model_evaluation — scheduled model evaluations
+        4. self_improvement — existing self-improvement loop
+        5. self_distillation — SSD (lowest, only if GPU idle)
+        """
         report = await self.run_analysis()
         if "error" in report:
             return report
@@ -138,7 +146,34 @@ class EvolutionEngine:
             scheduled.append(run_id)
 
         report["scheduled_training_runs"] = scheduled
+
+        # ── SSD: lowest priority — only if nothing else was scheduled ──
+        if not scheduled:
+            ssd_result = await self._try_self_distillation()
+            report["self_distillation"] = ssd_result
+
         return report
+
+    async def _try_self_distillation(self) -> dict:
+        """Attempt one SSD iteration.  Returns status dict."""
+        try:
+            from cortex.evolution.self_distillation import SelfDistillation, SSDConfig
+
+            cfg = SSDConfig()
+            if not cfg.enabled:
+                return {"status": "disabled"}
+
+            import os
+
+            ssd = SelfDistillation(
+                llm_url=os.getenv("LLM_API_URL", "http://localhost:8080"),
+                model_path=os.getenv("CAG_MODEL", "Qwen/Qwen3-4B"),
+                config=cfg,
+            )
+            return await ssd.run_iteration()
+        except Exception as exc:
+            log.error("SSD iteration failed: %s", exc, exc_info=True)
+            return {"status": "error", "error": str(exc)}
 
     def get_evolution_history(self, limit: int = 20) -> list[dict]:
         """Get recent evolution runs with results."""
