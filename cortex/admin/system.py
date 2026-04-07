@@ -1,8 +1,8 @@
-"""Evolution, system info, and settings endpoints."""
+"""Evolution, system info, settings, and self-recovery endpoints."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from cortex.db import get_db
 from cortex.admin import helpers as _h
@@ -171,3 +171,77 @@ async def set_system_setting(key: str, body: dict, admin: dict = Depends(require
     )
     db.commit()
     return {"key": key, "value": value}
+
+
+# ── Self-Recovery ─────────────────────────────────────────────────
+
+
+@router.get("/system/resources")
+async def get_resources(request: Request, _: dict = Depends(require_admin)):
+    """Return current resource levels and monitor state."""
+    monitor = getattr(request.app.state, "resource_monitor", None)
+    if monitor is None:
+        raise HTTPException(503, "Resource monitor not running")
+    return monitor.get_status()
+
+
+@router.put("/system/resources/thresholds")
+async def update_thresholds(request: Request, body: dict, _: dict = Depends(require_admin)):
+    """Update resource warning/critical thresholds."""
+    monitor = getattr(request.app.state, "resource_monitor", None)
+    if monitor is None:
+        raise HTTPException(503, "Resource monitor not running")
+    return monitor.update_thresholds(**body)
+
+
+@router.get("/system/snapshots")
+async def list_snapshots(request: Request, _: dict = Depends(require_admin)):
+    """List available state snapshots."""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    snapshots = snapshotter.list_snapshots()
+    return {
+        "snapshots": [
+            {"timestamp": s.timestamp, "path": s.path, "size_bytes": s.size_bytes}
+            for s in snapshots
+        ],
+        "latest_age_seconds": snapshotter.get_latest_snapshot_age(),
+    }
+
+
+@router.post("/system/snapshots")
+async def take_snapshot(request: Request, _: dict = Depends(require_admin)):
+    """Take a manual state snapshot now."""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    info = await snapshotter.take_snapshot()
+    return {"timestamp": info.timestamp, "path": info.path, "size_bytes": info.size_bytes}
+
+
+@router.post("/system/snapshots/restore")
+async def restore_snapshot(request: Request, body: dict, _: dict = Depends(require_admin)):
+    """Restore from a specific snapshot. Body: {\"path\": \"...\"}"""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    path = body.get("path", "")
+    if not path:
+        raise HTTPException(400, "path is required")
+    result = await snapshotter.restore_from_snapshot(path)
+    return result
+
+
+@router.get("/system/recovery")
+async def get_recovery_status(request: Request, _: dict = Depends(require_admin)):
+    """Return the last startup recovery result."""
+    recovery_result = getattr(request.app.state, "recovery_result", None)
+    if recovery_result is None:
+        return {"recovered": False, "issue": "", "details": "", "steps": []}
+    return {
+        "recovered": recovery_result.recovered,
+        "issue": recovery_result.issue,
+        "details": recovery_result.details,
+        "steps": recovery_result.steps,
+    }
