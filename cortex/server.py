@@ -72,6 +72,18 @@ async def lifespan(app: FastAPI):
 
     init_db()
 
+    # ── Self-recovery startup checks ────────────────────────────────
+    from cortex.system.recovery import SelfRecovery
+    _recovery = SelfRecovery()
+    _recovery_result = _recovery.run_startup_checks()
+    if _recovery_result.recovered:
+        logger.warning(
+            "Recovered from %s: %s (steps: %s)",
+            _recovery_result.issue,
+            _recovery_result.details,
+            _recovery_result.steps,
+        )
+
     # ── Integrity verification (blocking — Atlas won't start if this fails)
     from cortex.db import get_db
     from cortex.integrity import verify_startup_integrity, IntegrityError, IntegrityMonitor
@@ -176,6 +188,29 @@ async def lifespan(app: FastAPI):
     from cortex.avatar.eye_tracking import get_eye_tracker
     _eye_tracker = get_eye_tracker()
     register_service("eye-tracker", _eye_tracker.start, _eye_tracker.stop)
+
+    # ── Resource monitor + state snapshots ──────────────────────────
+    from cortex.system.resource_monitor import ResourceMonitor
+    from cortex.system.state_snapshot import StateSnapshot
+
+    async def _tts_announce(message: str) -> None:
+        try:
+            from cortex.avatar.broadcast import stream_tts_to_avatar
+            await stream_tts_to_avatar("default", message)
+        except Exception:
+            logger.debug("TTS announcement unavailable")
+
+    _resource_monitor = ResourceMonitor(announce_fn=_tts_announce)
+    register_service("resource-monitor", _resource_monitor.start, _resource_monitor.stop)
+
+    _snapshotter = StateSnapshot(state_fn=lambda: _resource_monitor.get_status())
+    _resource_monitor.set_snapshot_fn(_snapshotter.take_snapshot)
+    register_service("state-snapshots", _snapshotter.start, _snapshotter.stop)
+
+    # Store references for admin API
+    app.state.resource_monitor = _resource_monitor
+    app.state.snapshotter = _snapshotter
+    app.state.recovery_result = _recovery_result
 
     await start_all()
     yield

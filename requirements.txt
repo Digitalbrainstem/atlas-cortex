@@ -51,6 +51,9 @@ yt-dlp>=2024.0
 mutagen>=1.47
 plexapi>=4.15
 
+# ── System Monitoring ─────────────────────────────────────────────
+psutil>=5.9.0
+
 # CLI dependencies
 rich>=13.0
 prompt_toolkit>=3.0
