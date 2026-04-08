@@ -197,3 +197,31 @@ GPU-free development with realistic timing. `python -m mocks.run` starts mock LL
 - Environment variables drive configuration — see `CORTEX_*`, `LLM_PROVIDER`, `CAG_MODEL`, `EMBED_MODEL`, `HA_URL`, `HA_TOKEN` in the README.
 - The admin panel (`admin/`) is a separate Vue 3 + Vite + Pinia SPA with 20 views. Its build output goes to `admin/dist/` and is served as static files by the FastAPI server.
 - Branch protection on `main` — all changes must go through pull requests.
+
+## Atlas Memory (MCP)
+
+This machine has two MCP servers providing persistent memory across sessions:
+
+### Usage — Do this EVERY session:
+1. **Start of session**: Call `atlas_brief()` to see current research state, open questions, and recent activity
+2. **When you discover something important**: Call `atlas_remember(content, category, project)` to store it
+3. **When exploring an idea**: Call `atlas_think(idea)` to check for connections to existing knowledge
+4. **When making a decision**: Call `atlas_decide(decision, rationale, alternatives)` to record it
+5. **When researching**: Call `atlas_research("update", thread_name, finding)` to track progress
+
+### Available Tools:
+- `atlas_remember` — Store facts, decisions, insights (auto-deduplicates)
+- `atlas_recall` — Search memory (full-text + LIKE fallback)
+- `atlas_think` — Process ideas through curiosity engine (finds connections, gaps)
+- `atlas_research` — Track research threads (new/update/status/close)
+- `atlas_decide` — Record decisions with rationale
+- `atlas_brief` — Get personalized briefing (recent activity, open questions, stale threads)
+- `atlas_reflect` — Get proactive insights (cross-memory connections)
+- `atlas_pattern` — Detect or record patterns
+- `atlas_log` — Log timeline events
+- `atlas_stats` — Memory statistics
+
+### Memory Tiers:
+- **L1** (critical): Always relevant — key findings, conventions, preferences
+- **L2** (important): Load on demand — research progress, decisions, measurements
+- **L3** (archive): Historical — session logs, old checkpoints, raw data
