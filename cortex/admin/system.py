@@ -57,6 +57,46 @@ class TurnRecoveryRequest(BaseModel):
     retry_uncertain: bool = False
 
 
+@router.get("/system/turns/user")
+async def get_user_turn_status(
+    request: Request, user_id: str = Query(min_length=1), limit: int = Query(1, ge=1),
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    try:
+        turns = _turn_store(request).user_turns(user_id, limit=limit)
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"turns": [
+        {"turn_id": turn.identity.turn_id, "revision": turn.identity.revision,
+         "sequence": turn.sequence, "state": turn.state, "delivery_state": turn.delivery_state,
+         "action_outcome": turn.action_outcome, "error_code": turn.error_code,
+         "can_retry": isinstance(turn.context.get("generation_options"), dict)}
+        for turn in turns
+    ]}
+
+
+@router.post("/system/turns/{turn_id}/cancel")
+async def cancel_user_turn(
+    turn_id: str, body: TurnRecoveryRequest, request: Request,
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    coordinator = getattr(request.app.state, "conversation_coordinator", None)
+    try:
+        if coordinator is None:
+            _turn_store(request).cancel(turn_id, body.user_id, body.revision)
+        else:
+            coordinator.cancel(turn_id, body.user_id, body.revision)
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True}
+
+
 @router.post("/system/turns/{turn_id}/recover")
 async def confirm_turn_recovery(
     turn_id: str, body: TurnRecoveryRequest, request: Request,
@@ -64,7 +104,14 @@ async def confirm_turn_recovery(
 ):
     from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
     try:
-        _turn_store(request).confirm_recovery(
+        store = _turn_store(request)
+        turn = store.get(turn_id, body.user_id)
+        if not isinstance(turn.context.get("generation_options"), dict):
+            raise HTTPException(
+                status_code=409,
+                detail="This action requires manual verification before reissuing it; automatic retry is unavailable",
+            )
+        store.confirm_recovery(
             turn_id, body.user_id, body.revision, retry_uncertain=body.retry_uncertain,
         )
     except TurnConflictError as exc:

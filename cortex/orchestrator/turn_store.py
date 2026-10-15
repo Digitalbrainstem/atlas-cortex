@@ -490,6 +490,22 @@ class TurnStore:
             _fail("Recovery listing requires user scope")
         return self._ids(("recovery_pending", "uncertain"), user_id, limit, include_stale_delivery=True)
 
+    def user_turns(self, user_id: str, *, limit: int = 1) -> list[StoredTurn]:
+        if not isinstance(user_id, str) or not user_id.strip():
+            _fail("Turn listing requires user scope", TurnConflictError)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= self.policy.prefetch:
+            _fail("Turn page limit must be within the configured prefetch", TurnConflictError)
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    "SELECT turn_id FROM pending_turns WHERE user_id=? ORDER BY created_at DESC,turn_id DESC LIMIT ?",
+                    (user_id, limit),
+                ).fetchall()
+            except sqlite3.Error as exc:
+                logger.exception("User turn listing failed")
+                raise TurnStoreError("User turn listing failed") from exc
+            return [self.get(row[0], user_id) for row in rows]
+
     def _ids(
         self, states: tuple[str, str], user_id: str | None, limit: int | None, *,
         include_stale_delivery: bool = False,

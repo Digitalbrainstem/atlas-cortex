@@ -41,6 +41,27 @@ Navigate to **`http://localhost:5100/admin/`** in your browser.
 
 ## Dashboard
 
+### Durable conversation operations
+
+The System page shows admission availability, coordinator readiness, active and
+waiting counts, retained-state counts and effective resource settings. Settings
+are read-only here: change the documented environment configuration and restart.
+Enter a user ID to load a bounded page of that user's turn IDs, revisions,
+execution and delivery states. Transcript bodies are never returned by this view.
+
+Pending work can be cancelled at its current revision. Recovery requires an
+explicit confirmation; uncertain external actions warn that retry can duplicate
+an operation. Old audio requires confirmation on its original device, not
+automatic playback from the admin panel. A conflict means refresh before acting.
+External actions without a registered replay worker require manual verification
+and a new request; the panel does not claim to retry those actions.
+Unavailable storage is an error, not an empty successful queue.
+
+Public chat displays submission, connection and scoped durable status. Requests
+carry stable turn/conversation IDs across reconnects. Disconnection does not
+automatically retry household actions or imply that accepted work was cancelled.
+Browser microphones require HTTPS or localhost and explicit microphone permission.
+
 After logging in, you land on the **Dashboard** — your at-a-glance overview of the entire system.
 
 ![Dashboard](images/admin-dashboard.png)

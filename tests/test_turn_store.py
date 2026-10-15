@@ -473,7 +473,8 @@ async def test_admin_recovery_is_scoped_bounded_and_revision_checked(store, monk
     from cortex.server import app
     from cortex.admin.helpers import require_admin
 
-    accept(store)
+    store.accept(TurnIdentity("1", "chat", "alice"), "Synthetic question", input_validated=True,
+                 context={"generation_options": {"model_fast": "test", "model_thinking": "test"}})
     store.recover(startup=True)
     monkeypatch.setattr(app.state, "turn_store", store, raising=False)
     monkeypatch.setitem(app.dependency_overrides, require_admin, lambda: {"sub": "1", "username": "admin"})
@@ -495,6 +496,72 @@ async def test_admin_recovery_is_scoped_bounded_and_revision_checked(store, monk
             "user_id": "alice", "revision": 2,
         })).status_code == 200
     assert store.get("1", "alice").state == "accepted"
+
+
+async def test_admin_does_not_claim_an_unowned_action_will_be_retried(store, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+    from cortex.server import app
+    from cortex.admin.helpers import require_admin
+
+    accept(store)
+    store.recover(startup=True)
+    monkeypatch.setattr(app.state, "turn_store", store, raising=False)
+    monkeypatch.setitem(app.dependency_overrides, require_admin, lambda: {"sub": "1"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/admin/system/turns/1/recover", json={
+            "user_id": "alice", "revision": 2, "retry_uncertain": True,
+        })
+    assert response.status_code == 409
+    assert "manual verification" in response.json()["detail"]
+    assert store.get("1", "alice").state == "recovery_pending"
+
+async def test_admin_status_and_cancel_are_scoped_bounded_and_revision_checked(store, monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+    from cortex.server import app
+    from cortex.admin.helpers import require_admin
+
+    accept(store)
+    accept(store, 2, user="bob")
+    monkeypatch.setattr(app.state, "turn_store", store, raising=False)
+    monkeypatch.setattr(app.state, "conversation_coordinator", None, raising=False)
+    monkeypatch.setitem(app.dependency_overrides, require_admin, lambda: {"sub": "1"})
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/admin/system/turns/user?user_id=alice")
+        assert [turn["turn_id"] for turn in response.json()["turns"]] == ["1"]
+        assert "Question" not in response.text
+        assert "transcript" not in response.text
+        assert (await client.get("/admin/system/turns/user?user_id=alice&limit=999")).status_code == 400
+        assert (await client.post("/admin/system/turns/1/cancel", json={
+            "user_id": "bob", "revision": 1,
+        })).status_code == 409
+        assert (await client.post("/admin/system/turns/1/cancel", json={
+            "user_id": "alice", "revision": 2,
+        })).status_code == 409
+        assert (await client.post("/admin/system/turns/1/cancel", json={
+            "user_id": "alice", "revision": 1,
+        })).status_code == 200
+    assert store.get("1", "alice").state == "cancelled"
+    assert store.get("2", "bob").state == "accepted"
+
+
+def test_browser_turn_status_cannot_cross_user_or_conversation(store, monkeypatch):
+    from fastapi.testclient import TestClient
+    from cortex.server import app
+
+    store.accept(TurnIdentity("browser-id", "private", "alice", source="browser"),
+                 "Synthetic private question", input_validated=True)
+    monkeypatch.setattr(app.state, "turn_store", store, raising=False)
+    with TestClient(app).websocket_connect("/ws/chat") as socket:
+        for user, conversation, expected in [
+            ("bob", "private", "not_available"),
+            ("alice", "different", "not_available"),
+            ("alice", "private", "accepted"),
+        ]:
+            socket.send_json({"type": "turn_status", "turn_id": "browser-id",
+                              "user_id": user, "conversation_id": conversation})
+            response = socket.receive_json()
+            assert response["state"] == expected
+            assert "question" not in str(response).lower()
 
 
 @pytest.mark.parametrize("endpoint", ["/admin/system/turns", "/admin/system/turns/recovery?user_id=alice"])

@@ -348,6 +348,27 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
             data = await websocket.receive_json()
             msg_type = data.get("type", "chat")
 
+            if msg_type == "turn_status":
+                from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+                state = "not_available"
+                delivery = None
+                store = getattr(app.state, "turn_store", None)
+                if store is not None:
+                    try:
+                        turn = store.get(data.get("turn_id", ""), data.get("user_id", "web_user"))
+                        if (turn.identity.source == "browser"
+                                and turn.identity.conversation_id == data.get("conversation_id")):
+                            state, delivery = turn.state, turn.delivery_state
+                    except TurnConflictError:
+                        logger.info("Browser requested unavailable scoped turn status")
+                    except TurnStoreError:
+                        logger.exception("Browser turn status is unavailable")
+                        state = "storage_unavailable"
+                async with send_lock:
+                    await websocket.send_json({"type": "turn_status", "turn_id": data.get("turn_id"),
+                                               "state": state, "delivery_state": delivery})
+                continue
+
             # ── Voice input: STT ─────────────────────────────────
             if msg_type == "audio_start":
                 audio_buffer.clear()
