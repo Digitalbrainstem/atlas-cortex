@@ -46,6 +46,7 @@ class TurnStorePolicy:
     max_active: int = 1
     prefetch: int = 8
     max_input_bytes: int = 65536
+    max_output_bytes: int = 262144
     max_store_bytes: int = 64 * 1024 * 1024
     min_free_disk_bytes: int = 16 * 1024 * 1024
     retention_seconds: int = 7 * 86400
@@ -192,6 +193,8 @@ class TurnStore:
         *,
         input_validated: bool,
         context: dict[str, Any] | None = None,
+        replaces: tuple[str, int] | None = None,
+        clarifies: tuple[str, int] | None = None,
     ) -> StoredTurn:
         """Commit a finalized, input-validated turn before acknowledging acceptance."""
         if input_validated is not True:
@@ -234,6 +237,24 @@ class TurnStore:
                     _fail("Idempotency key or turn ID was reused for different work", TurnConflictError)
                 return self._stored(row)
             self._check_capacity(size)
+            related = replaces or clarifies
+            if replaces is not None and clarifies is not None:
+                _fail("A turn cannot both replace and clarify another turn", TurnConflictError)
+            if related is not None:
+                old = self._at_revision(related[0], identity.user_id, related[1])
+                if (old["conversation_id"] != identity.conversation_id
+                        or old["source"] != identity.source or old["device_id"] != identity.device_id
+                        or old["room"] != identity.room
+                        or self._stored(old).context.get("speaker_id") != (context or {}).get("speaker_id")
+                        or old["action_outcome"] != "none"
+                        or replaces is not None and old["state"] not in ("llm_pending", "llm_running")):
+                    _fail("Replacement target is not a pending question in this scope", TurnConflictError)
+            if replaces is not None:
+                self.conn.execute(
+                    "UPDATE pending_turns SET state='superseded', revision=revision+1, "
+                    "lease_owner=NULL, lease_until=NULL, delivery_state='interrupted', updated_at=? "
+                    "WHERE turn_id=?", (now, replaces[0]),
+                )
             sequence = self.conn.execute(
                 """INSERT INTO pending_turn_sequences (user_id, conversation_id, sequence)
                    VALUES (?, ?, 1) ON CONFLICT(user_id, conversation_id)
@@ -251,7 +272,92 @@ class TurnStore:
                  transcript, context_json, size, now, now),
             )
             result = self._stored(self._row(identity.turn_id, identity.user_id))
+            if related is not None:
+                self.conn.execute(
+                    "UPDATE pending_turns SET relation=?, related_turn_id=? WHERE turn_id=?",
+                    ("replacement" if replaces else "clarification", related[0], identity.turn_id),
+                )
+                result = self._stored(self._row(identity.turn_id, identity.user_id))
         return result
+
+    def find_existing(self, identity: TurnIdentity) -> StoredTurn | None:
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    "SELECT turn_id, user_id FROM pending_turns WHERE turn_id=? OR "
+                    "(user_id=? AND conversation_id=? AND idempotency_key=?)",
+                    (identity.turn_id, identity.user_id, identity.conversation_id, identity.idempotency_key),
+                ).fetchall()
+                if not rows:
+                    return None
+                if len(rows) != 1 or rows[0]["user_id"] != identity.user_id:
+                    _fail("Turn identity conflicts with existing work", TurnConflictError)
+                return self.get(rows[0]["turn_id"], identity.user_id)
+            except sqlite3.Error as exc:
+                logger.exception("Durable turn lookup failed")
+                raise TurnStoreError("Durable turn lookup failed") from exc
+
+    def llm_dispatch_ids(self) -> list[tuple[str, str, int]]:
+        """One conversation head per page, least-recently dispatched first."""
+        with self._lock:
+            try:
+                return [tuple(row) for row in self.conn.execute(
+                    """SELECT p.turn_id, p.user_id, p.revision FROM pending_turns p
+                       JOIN pending_turn_sequences s USING(user_id, conversation_id)
+                       WHERE p.state IN ('accepted','llm_pending')
+                       AND json_type(p.context_json, '$.generation_options')='object'
+                       AND NOT EXISTS (
+                         SELECT 1 FROM pending_turns earlier
+                         WHERE earlier.user_id=p.user_id AND earlier.conversation_id=p.conversation_id
+                         AND json_type(earlier.context_json, '$.generation_options')='object'
+                         AND (earlier.state='llm_running' OR
+                           (earlier.state IN ('accepted','llm_pending') AND earlier.sequence < p.sequence)))
+                       ORDER BY s.last_llm_dispatch, p.created_at, p.sequence LIMIT ?""",
+                    (self.policy.prefetch,),
+                ).fetchall()]
+            except sqlite3.Error as exc:
+                logger.exception("Durable LLM dispatch listing failed")
+                raise TurnStoreError("Durable LLM dispatch listing failed") from exc
+
+    def scoped_questions(self, identity: TurnIdentity, speaker_id: str | None) -> list[StoredTurn]:
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    """SELECT turn_id FROM pending_turns WHERE user_id=? AND conversation_id=?
+                       AND source=? AND device_id IS ? AND room IS ?
+                       AND COALESCE(json_extract(context_json, '$.speaker_id'), '')=?
+                       AND state IN ('llm_pending','llm_running') ORDER BY sequence DESC LIMIT 2""",
+                    (identity.user_id, identity.conversation_id, identity.source, identity.device_id,
+                     identity.room, speaker_id or ""),
+                ).fetchall()
+                return [self.get(row[0], identity.user_id) for row in rows]
+            except sqlite3.Error as exc:
+                logger.exception("Durable question relation lookup failed")
+                raise TurnStoreError("Durable question relation lookup failed") from exc
+
+    def completed_history(self, turn: StoredTurn) -> list[dict[str, str]]:
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    """SELECT transcript, result FROM pending_turns
+                       WHERE user_id=? AND conversation_id=? AND sequence < ?
+                       AND source=? AND device_id IS ? AND room IS ?
+                       AND COALESCE(json_extract(context_json, '$.speaker_id'), '')=?
+                       AND state='completed' AND output_validated=1
+                       ORDER BY sequence DESC LIMIT ?""",
+                    (turn.identity.user_id, turn.identity.conversation_id, turn.sequence,
+                     turn.identity.source, turn.identity.device_id, turn.identity.room,
+                     turn.context.get("speaker_id") or "", self.policy.prefetch),
+                ).fetchall()
+                return [
+                    message for row in reversed(rows) for message in (
+                        {"role": "user", "content": row["transcript"]},
+                        {"role": "assistant", "content": row["result"]},
+                    )
+                ]
+            except sqlite3.Error as exc:
+                logger.exception("Durable conversation history lookup failed")
+                raise TurnStoreError("Durable conversation history lookup failed") from exc
 
     def get(self, turn_id: str, user_id: str) -> StoredTurn:
         with self._lock:
@@ -314,6 +420,12 @@ class TurnStore:
                 "attempts = attempts + 1, updated_at = ? WHERE turn_id = ?",
                 (target, owner, now + self.policy.lease_seconds, now, turn_id),
             )
+            if stage == "llm":
+                self.conn.execute(
+                    "UPDATE pending_turn_sequences SET last_llm_dispatch=? "
+                    "WHERE user_id=? AND conversation_id=?",
+                    (now, user_id, row["conversation_id"]),
+                )
             return self._stored(self._row(turn_id, user_id))
 
     def _at_revision(self, turn_id: str, user_id: str, revision: int) -> sqlite3.Row:
@@ -375,6 +487,8 @@ class TurnStore:
             if row["action_outcome"] == "pending" and result.action_outcome == ActionOutcome.NONE:
                 _fail("External action outcome must be resolved explicitly", TurnConflictError)
             additional = len(result.response.encode("utf-8"))
+            if additional > self.policy.max_output_bytes:
+                _fail("Turn result exceeds the configured output byte limit", TurnCapacityError)
             self._check_capacity(additional)
             state = "failed" if result.status == RouteStatus.FAILED else "completed"
             if result.action_outcome == ActionOutcome.UNCERTAIN:

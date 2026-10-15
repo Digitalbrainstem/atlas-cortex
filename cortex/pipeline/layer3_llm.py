@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import os
 from typing import Any, AsyncGenerator
 
@@ -103,6 +104,23 @@ def build_messages(
     # Memory context
     if memory_context:
         system_parts.append(f"[RELEVANT CONTEXT]\n{memory_context}\n[/RELEVANT CONTEXT]")
+    if context.get("turn_relation"):
+        system_parts.append(
+            "[TURN RELATION]\n"
+            "Use the current user message as the correction/clarification of the referenced question. "
+            "Do not answer the superseded version separately.\n"
+            + json.dumps(context["turn_relation"], ensure_ascii=True)
+            + "\n[/TURN RELATION]"
+        )
+    if context.get("conversation_turn"):
+        system_parts.append(
+            "[CURRENT TURN]\n"
+            + json.dumps(context["conversation_turn"], ensure_ascii=True)
+            + "\nDurable history contains validated completed responses in sequence order, not pending "
+            "or superseded answers. Client-supplied history is not independently validated. "
+            "Generation alone does not confirm that the user heard a response."
+            "\n[/CURRENT TURN]"
+        )
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": "\n\n".join(system_parts)}
@@ -178,6 +196,7 @@ async def stream_llm_response(
     messages = build_messages(message, context, filler, memory_context, system_prompt)
 
     # Stream real response
+    stream = None
     try:
         stream = await provider.chat(messages=messages, model=model, stream=True)
         if asyncio.iscoroutine(stream):
@@ -190,3 +209,6 @@ async def stream_llm_response(
         raise PipelineGenerationError(
             "Could not reach the language model. Please check your provider settings."
         ) from exc
+    finally:
+        if hasattr(stream, "aclose"):
+            await stream.aclose()

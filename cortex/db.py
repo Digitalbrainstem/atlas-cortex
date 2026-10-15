@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS pending_turn_sequences (
     user_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     sequence INTEGER NOT NULL,
+    last_llm_dispatch REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, conversation_id)
 );
 CREATE TABLE IF NOT EXISTS pending_turns (
@@ -1354,6 +1355,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_node_fts USING fts5(
 def _create_schema(conn: sqlite3.Connection) -> None:
     """Execute all CREATE TABLE / INDEX statements in one transaction."""
     conn.executescript(_SCHEMA_SQL)
+    _add_column_if_missing(conn, "pending_turn_sequences", "last_llm_dispatch", "REAL NOT NULL DEFAULT 0")
     # Incremental migrations: add columns that may not exist in older DBs.
     # ALTER TABLE ADD COLUMN is idempotent — we just ignore the error if the
     # column is already present.

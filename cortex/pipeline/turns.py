@@ -2,17 +2,68 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+import weakref
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, AsyncGenerator, Protocol
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineGenerationError(RuntimeError):
     """Generation failed; callers must report an error, not a completed answer."""
+
+
+class TurnSupersededError(PipelineGenerationError):
+    """The current turn was cancelled or replaced before publication."""
+
+
+class ConversationConflictError(PipelineGenerationError):
+    """The requested conversation relation or identity is obsolete or invalid."""
+
+
+class ConversationStorageError(PipelineGenerationError):
+    """Durable admission or processing failed; acceptance must not be inferred."""
+
+
+@dataclass(frozen=True)
+class GenerationOptions:
+    model_fast: str
+    model_thinking: str
+    system_prompt: str = ""
+    memory_context: str = ""
+
+
+class ConversationRuntime(Protocol):
+    def stream(
+        self, prepared: PreparedTurn, options: GenerationOptions,
+    ) -> AsyncGenerator[str, None]: ...
+
+    def queue_status(self) -> dict[str, Any]: ...
+
+
+_conversation_runtimes: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, ConversationRuntime] = weakref.WeakKeyDictionary()
+
+
+def get_conversation_coordinator() -> ConversationRuntime | None:
+    return _conversation_runtimes.get(asyncio.get_running_loop())
+
+
+def register_conversation_coordinator(runtime: ConversationRuntime) -> None:
+    loop = asyncio.get_running_loop()
+    existing = _conversation_runtimes.get(loop)
+    if existing is not None and existing is not runtime:
+        raise RuntimeError("An inference coordinator already owns this event loop")
+    _conversation_runtimes[loop] = runtime
+
+
+def unregister_conversation_coordinator(runtime: ConversationRuntime) -> None:
+    loop = asyncio.get_running_loop()
+    if _conversation_runtimes.get(loop) is runtime:
+        del _conversation_runtimes[loop]
 
 
 class RouteStatus(str, Enum):

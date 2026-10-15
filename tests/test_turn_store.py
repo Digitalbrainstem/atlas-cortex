@@ -410,6 +410,49 @@ def test_corrupt_persisted_context_fails_explicitly(store):
         store.get("1", "alice")
 
 
+def test_p05_sequence_migration_preserves_existing_order(store):
+    accept(store)
+    store.conn.execute("ALTER TABLE pending_turn_sequences DROP COLUMN last_llm_dispatch")
+    store.conn.commit()
+    _create_schema(store.conn)
+    _create_schema(store.conn)
+    store.conn.commit()
+    row = store.conn.execute("SELECT * FROM pending_turn_sequences").fetchone()
+    assert row["sequence"] == 1
+    assert row["last_llm_dispatch"] == 0
+    assert accept(store, 2).sequence == 2
+
+
+def test_p05_replacement_insert_failure_rolls_back_supersession(store):
+    llm_pending(store, 1)
+    store.conn.execute(
+        "CREATE TRIGGER deny_replacement BEFORE INSERT ON pending_turns "
+        "WHEN NEW.turn_id='2' BEGIN SELECT RAISE(ABORT, 'injected insert failure'); END",
+    )
+    store.conn.commit()
+    with pytest.raises(TurnStoreError):
+        store.accept(TurnIdentity("2", "chat", "alice"), "replacement",
+                     input_validated=True, replaces=("1", 1))
+    old = store.get("1", "alice")
+    assert (old.state, old.identity.revision) == ("llm_pending", 1)
+    assert store.status()["counts"] == {"llm_pending": 1}
+
+
+def test_p05_output_limit_measures_utf8_bytes_at_exact_boundary(store):
+    store.policy = replace(store.policy, max_output_bytes=4)
+    for number, response in ((1, "\u00e9\u00e9"), (2, "\u00e9\u00e9a")):
+        llm_pending(store, number)
+        store.claim(str(number), "alice", "worker", stage="llm")
+        result = DispatchResult(RouteStatus.HANDLED, response)
+        if number == 1:
+            assert store.complete(str(number), "alice", "worker", 1, result,
+                                  output_validated=True).result == response
+        else:
+            with pytest.raises(TurnCapacityError, match="output byte limit"):
+                store.complete(str(number), "alice", "worker", 1, result, output_validated=True)
+            assert store.get(str(number), "alice").result is None
+
+
 async def test_admin_user_deletion_includes_turn_ledger(store, monkeypatch):
     from cortex.admin.users import delete_user
 

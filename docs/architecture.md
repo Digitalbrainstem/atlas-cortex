@@ -28,10 +28,35 @@ effects. Already executed actions are reported truthfully, not implicitly undone
 Plugins take precedence over learned informational templates, and unresolved
 device/list/timer targets ask for clarification rather than inventing success.
 
-This is still not a durable queue on every production ingress. LLM-only
-contextual coordination (the proposed conceptual "Layer 4" before generation)
-and early finalized voice admission remain P05-P06 work. The existing satellite
-raw-audio queue is not replaced merely by introducing the durable store.
+P05 adds `ConversationCoordinator` for true LLM fallthrough only. Server lifespan
+registers one coordinator per event loop; standalone Pipe calls share a persistent
+worker loop. Both text/event pipeline renderers use it, including satellite
+generation on the server loop. Low-level library use without a coordinator retains
+direct generation. Fast answers and plugin effects do not acquire inference slots.
+
+Validated questions and generation options are accepted into SQLite before model
+dispatch. Only a bounded page of conversation-head IDs is fetched; active jobs use
+the existing `RequestQueue` and provider abstractions. Independent questions remain
+ordered within each user/conversation, while least-recently-dispatched conversation
+heads allow other rooms to proceed. Context is rebuilt from bounded, validated
+completed turns in the same user/conversation/source/device/room/speaker scope.
+Structured current-turn and relation context distinguishes replacements from history.
+
+An unambiguous pending-question correction atomically supersedes its predecessor;
+ambiguous corrections ask which question instead. Explicit relation metadata can
+identify the target and revision. Active obsolete work is cancelled and cannot commit
+or publish old output. Transport disconnect does not cancel accepted work. Restarted
+questions require recovery confirmation and input-policy revalidation before dispatch.
+
+**Streaming behavior change:** LLM output, including filler, is buffered within the
+configured output-byte limit, checked by output guardrails, and committed at the
+current revision before becoming visible. SSE/WebSocket frame formats remain
+compatible, but generated text is not exposed token-by-token before validation.
+Browser reception remains available while replies wait; response frames include
+`turn_id`. Generated/delivery-ready output is not proof the user heard it.
+
+This is not yet durable admission on every ingress: early finalized voice handling
+remains P06 work. The existing satellite raw-audio queue is not replaced by P05.
 
 ## Processing Pipeline
 

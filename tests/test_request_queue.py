@@ -86,6 +86,67 @@ class SlowProvider(FakeProvider):
 # Priority ordering
 # ---------------------------------------------------------------------------
 
+async def test_cancel_before_processing_starts_releases_reserved_slot():
+    queue = RequestQueue(FakeProvider(), max_concurrent=1)
+    original = queue._process_request
+
+    async def cancel_before_start(state):
+        await original(state)
+
+    def schedule_cancel(state):
+        asyncio.get_running_loop().call_soon(queue.cancel_request, state.request.id)
+        return cancel_before_start(state)
+
+    queue._process_request = schedule_cancel
+    queue.submit(_req(rid="cancel-before-start"))
+    await queue.start()
+    try:
+        result = await queue.wait("cancel-before-start", timeout=2)
+        assert result.cancelled
+        await queue.release("cancel-before-start")
+        assert queue.active_count == 0
+        assert queue._states == {}
+    finally:
+        await queue.stop()
+
+
+async def test_bounded_stream_error_is_raised_after_partial_tokens_and_released():
+    class FailingProvider(FakeProvider):
+        async def chat(self, **kwargs):
+            async def tokens():
+                yield "partial"
+                raise ConnectionError("offline")
+            return tokens()
+
+    queue = RequestQueue(FailingProvider())
+    await queue.start()
+    stream = queue.submit_and_stream(_req(rid="error"), buffer_size=1)
+    try:
+        assert await anext(stream) == "partial"
+        with pytest.raises(ConnectionError, match="offline"):
+            await anext(stream)
+        await queue.release("error")
+        assert queue._states == {}
+        assert queue.active_count == 0
+    finally:
+        await stream.aclose()
+        await queue.stop()
+
+
+async def test_wait_timeout_does_not_cancel_shared_completion():
+    queue = RequestQueue(SlowProvider(token_count=2, delay=0.02))
+    queue.submit(_req(rid="timeout"))
+    await queue.start()
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await queue.wait("timeout", timeout=0.001)
+        result = await queue.wait("timeout", timeout=2)
+        assert result.content == "t0t1"
+        await queue.release("timeout")
+        assert queue.active_count == 0
+    finally:
+        await queue.stop()
+
 class TestPriorityOrdering:
     @pytest.mark.asyncio
     async def test_voice_before_chat_before_cli(self):

@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import logging
 import os
+import asyncio
+import atexit
+import threading
 from typing import Any, Generator
 
 logger = logging.getLogger(__name__)
@@ -24,6 +27,90 @@ logger = logging.getLogger(__name__)
 _pipeline_ready = False
 _provider = None
 _db_conn = None
+_worker_lock = threading.Lock()
+_worker_loop: asyncio.AbstractEventLoop | None = None
+_worker_thread: threading.Thread | None = None
+_worker_coordinator = None
+_worker_ready: threading.Event | None = None
+
+
+def _get_worker_loop() -> asyncio.AbstractEventLoop:
+    global _worker_loop, _worker_thread, _worker_coordinator, _worker_ready
+    with _worker_lock:
+        if _worker_thread is not None and _worker_thread.is_alive() and (
+            _worker_ready is None or not _worker_ready.is_set()
+        ):
+            raise RuntimeError("Pipe conversation worker startup is still pending")
+        if (_worker_loop is not None and not _worker_loop.is_closed()
+                and _worker_thread is not None and _worker_thread.is_alive()):
+            return _worker_loop
+        ready = threading.Event()
+        _worker_ready = ready
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            global _worker_loop, _worker_coordinator
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            _worker_loop = loop
+            try:
+                from cortex.orchestrator.conversation import ConversationCoordinator
+                from cortex.orchestrator.turn_store import TurnStore
+                from cortex.safety.middleware import PipelineSafetyMiddleware
+                store = TurnStore(_db_conn)
+                store.recover(startup=True)
+                _worker_coordinator = ConversationCoordinator(
+                    store, _provider, PipelineSafetyMiddleware(db_conn=_db_conn),
+                )
+                loop.run_until_complete(_worker_coordinator.start())
+            except Exception as exc:
+                logger.exception("Pipe conversation worker could not start")
+                errors.append(exc)
+                _worker_loop = None
+                ready.set()
+                loop.close()
+                return
+            ready.set()
+            loop.run_forever()
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(loop.shutdown_default_executor())
+            loop.close()
+
+        _worker_thread = threading.Thread(target=run, name="atlas-pipe", daemon=True)
+        _worker_thread.start()
+        if not ready.wait(30):
+            raise RuntimeError("Pipe conversation worker did not start in time")
+        if errors:
+            raise RuntimeError("Pipe conversation worker failed to start") from errors[0]
+        if _worker_loop is None:
+            raise RuntimeError("Pipe conversation worker has no event loop")
+        return _worker_loop
+
+
+def _stop_worker() -> None:
+    global _worker_loop, _worker_thread, _worker_coordinator, _worker_ready
+    with _worker_lock:
+        loop = _worker_loop
+        if loop is not None and not loop.is_closed():
+            try:
+                if _worker_coordinator is not None:
+                    asyncio.run_coroutine_threadsafe(_worker_coordinator.stop(), loop).result(timeout=10)
+                loop.call_soon_threadsafe(loop.stop)
+                if _worker_thread is not None:
+                    _worker_thread.join(timeout=10)
+            except Exception:
+                logger.exception("Pipe conversation worker shutdown failed")
+                return
+            if _worker_thread is not None and _worker_thread.is_alive():
+                logger.error("Pipe conversation worker did not stop")
+                return
+        _worker_loop = None
+        _worker_thread = None
+        _worker_coordinator = None
+        _worker_ready = None
+
+
+atexit.register(_stop_worker)
 
 
 def _ensure_ready() -> None:
@@ -64,7 +151,8 @@ class Pipe:
         os.environ.setdefault("LLM_URL", self.valves.LLM_URL)
         os.environ.setdefault("CORTEX_DATA_DIR", self.valves.CORTEX_DATA_DIR)
 
-        _ensure_ready()
+        with _worker_lock:
+            _ensure_ready()
 
         import asyncio
         from cortex.pipeline import run_pipeline
@@ -115,7 +203,10 @@ class Pipe:
                 loop = asyncio.get_event_loop()
             except RuntimeError:
                 loop = None
-            if loop is not None and loop.is_running():
+            if _db_conn is not None:
+                future = asyncio.run_coroutine_threadsafe(_collect(), _get_worker_loop())
+                tokens = future.result(timeout=120)
+            elif loop is not None and loop.is_running():
                 # Inside an async context — run in a thread
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:

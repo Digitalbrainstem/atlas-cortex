@@ -38,7 +38,9 @@ from cortex.admin_api import router as admin_router
 from cortex.auth_user import get_user_auth
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
-from cortex.pipeline.turns import PipelineGenerationError
+from cortex.pipeline.turns import (
+    ConversationConflictError, ConversationStorageError, PipelineGenerationError, TurnSupersededError,
+)
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
 from cortex.satellite.websocket import satellite_ws_handler, on_barge_in
@@ -129,6 +131,10 @@ async def lifespan(app: FastAPI):
     _turn_service = TurnStoreService(_turn_store)
     app.state.turn_store = _turn_store
     register_service("durable-turns", _turn_service.start, _turn_service.stop)
+    from cortex.orchestrator.conversation import ConversationCoordinator
+    _conversation = ConversationCoordinator(_turn_store, _get_provider(), _safety_middleware)
+    app.state.conversation_coordinator = _conversation
+    register_service("conversation", _conversation.start, _conversation.stop)
 
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
@@ -223,8 +229,11 @@ async def lifespan(app: FastAPI):
     app.state.snapshotter = _snapshotter
     app.state.recovery_result = _recovery_result
 
-    await start_all()
     try:
+        await start_all()
+        from cortex.pipeline.turns import get_conversation_coordinator
+        if get_conversation_coordinator() is not _conversation:
+            raise RuntimeError("Conversation coordination failed to start")
         yield
     finally:
         await stop_all()
@@ -264,6 +273,50 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     await websocket.accept()
     audio_buffer = bytearray()
     conversation_id = uuid.uuid4().hex
+    responses: set[asyncio.Task[None]] = set()
+    send_lock = asyncio.Lock()
+
+    async def respond(payload: dict[str, Any]) -> None:
+        message = payload["message"]
+        metadata = dict(payload.get("metadata") or {})
+        metadata.setdefault("conversation_id", conversation_id)
+        metadata.setdefault("turn_id", uuid.uuid4().hex)
+        metadata["source"] = "browser"
+        turn_id = metadata["turn_id"]
+        pipeline = run_pipeline(
+            message=message, provider=_get_provider(),
+            user_id=payload.get("user_id", "web_user"),
+            conversation_history=payload.get("history", []),
+            metadata=metadata, db_conn=_get_db(),
+        )
+        try:
+            # Admission must not hold the output lock while waiting for inference.
+            first = await anext(pipeline, None)
+            async with send_lock:
+                await websocket.send_json({"type": "start", "turn_id": turn_id})
+                parts = []
+                if first is not None:
+                    parts.append(first)
+                    await websocket.send_json({"type": "token", "text": first, "turn_id": turn_id})
+                async for chunk in pipeline:
+                    parts.append(chunk)
+                    await websocket.send_json({"type": "token", "text": chunk, "turn_id": turn_id})
+                await websocket.send_json({
+                    "type": "end", "full_text": "".join(parts), "turn_id": turn_id,
+                })
+        except (PipelineGenerationError, ValueError) as exc:
+            logger.warning("Chat turn failed: %s", exc)
+            async with send_lock:
+                await websocket.send_json({"type": "error", "text": str(exc), "turn_id": turn_id})
+        finally:
+            await pipeline.aclose()
+
+    def response_done(task: asyncio.Task[None]) -> None:
+        responses.discard(task)
+        if not task.cancelled():
+            error = task.exception()
+            if error is not None:
+                logger.error("Chat response delivery failed", exc_info=(type(error), error, error.__traceback__))
 
     try:
         while True:
@@ -341,39 +394,19 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "text": "Empty message"})
                 continue
 
-            provider = _get_provider()
-            db_conn = _get_db()
-
-            await websocket.send_json({"type": "start"})
-
-            metadata = dict(data.get("metadata") or {})
-            metadata.setdefault("conversation_id", conversation_id)
-            metadata["source"] = "browser"
-            full_response = ""
-            try:
-                async for chunk in run_pipeline(
-                    message=message,
-                    provider=provider,
-                    user_id=user_id,
-                    conversation_history=history,
-                    metadata=metadata,
-                    db_conn=db_conn,
-                ):
-                    full_response += chunk
-                    await websocket.send_json({"type": "token", "text": chunk})
-            except (PipelineGenerationError, ValueError) as exc:
-                logger.warning("Chat turn failed: %s", exc)
-                await websocket.send_json({"type": "error", "text": str(exc)})
-                continue
-
-            await websocket.send_json({
-                "type": "end",
-                "full_text": full_response,
-            })
+            task = asyncio.create_task(respond(dict(data)), name="browser-chat-turn")
+            responses.add(task)
+            task.add_done_callback(response_done)
     except WebSocketDisconnect:
         logger.info("Chat WebSocket client disconnected")
     except Exception:
         logger.exception("Chat WebSocket error")
+    finally:
+        tasks = list(responses)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app.add_api_websocket_route("/ws/chat", chat_ws_handler)
@@ -550,6 +583,10 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     else:
         try:
             full = "".join([chunk async for chunk in pipeline])
+        except (ConversationConflictError, TurnSupersededError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ConversationStorageError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except PipelineGenerationError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         except ValueError as exc:
@@ -596,6 +633,8 @@ async def _sse_stream(
         yield f"data: {json.dumps({'error': {'message': str(exc), 'type': type(exc).__name__}})}\n\n"
         yield "data: [DONE]\n\n"
         return
+    finally:
+        await gen.aclose()
 
     # Final chunk
     final = {

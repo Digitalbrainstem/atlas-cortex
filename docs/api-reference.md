@@ -103,12 +103,45 @@ These endpoints require the existing admin bearer token:
 | `GET` | `/admin/system/turns` | Aggregate processing counts, payload/free-disk state and effective resource limits; no transcripts |
 | `GET` | `/admin/system/turns/recovery?user_id=...&limit=1` | Bounded IDs, revisions, processing/action/delivery states needing confirmation; limit must not exceed configured prefetch |
 | `POST` | `/admin/system/turns/{turn_id}/recover` | Confirm pending-work recovery using `user_id` and current `revision`; uncertain action retries additionally require `retry_uncertain: true` |
+| `GET` | `/admin/pipeline/queue` | Durable LLM-pending depth, actual active inference slots, bounded in-memory queue depth and coordinator running state |
 
 Recovery approval returns work to the accepted state; it does not itself execute
 an action or resume spoken playback. Workers must recheck permissions at
 execution. Stale result playback requires separate delivery confirmation in the
 voice/output controller. Missing startup store returns 503, obsolete or
 unconfirmed uncertain recovery returns 409.
+
+### LLM question identity and relations
+
+On true LLM fallthrough, HTTP chat, browser chat and standalone Pipe use durable
+conversation coordination. Supply a stable `metadata.conversation_id` and
+`metadata.turn_id` (or `metadata.idempotency_key`) to retry the same logical question
+without generating it twice. Reusing an identity for different work is a conflict.
+Browser sockets get a conversation ID by default; Pipe uses `chat_id` when supplied.
+Use explicit conversation IDs for continuity across reconnects.
+
+Optional metadata:
+
+| Field | Meaning |
+|-------|---------|
+| `relation` | `independent`, `correction`, `replacement` or `clarification`; explicit `independent` disables lexical correction inference |
+| `related_turn_id` | Question to replace or clarify; must match user/conversation/source/device/room/speaker scope |
+| `related_revision` | Current integer revision of that target; required with an explicit target |
+
+Corrections replace only pending/generating questions, atomically recording lineage
+and suppressing obsolete output. Clarification is a subsequent related question;
+it does not cancel or replay its target. Without an explicit target, deterministic
+correction inference requires exactly one scoped pending question; ambiguity asks
+the user to restate the question. No extra model classification call is made.
+
+Non-streaming HTTP returns 409 for conflicts/supersession, 503 for storage failures
+and 502 for model-generation failures. SSE reports errors as an `error` frame
+followed by `[DONE]`, without a successful stop frame. LLM text is buffered,
+output-validated and persisted before publication; existing SSE response shapes
+remain, but first text waits for validation. Browser `start/token/end/error` frames
+include `turn_id`; input reception continues while previous questions wait.
+Disconnecting only detaches delivery, not accepted generation. Recovery remains
+confirmation-gated; neither generated text nor a socket send confirms spoken playback.
 
 User-facing endpoints for the chat SPA. No admin authentication required.
 

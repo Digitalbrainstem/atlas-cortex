@@ -6,7 +6,7 @@ state, request queue depth, and crash handler circuit breaker status.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
@@ -89,18 +89,15 @@ async def get_thinking_stats(_: dict = Depends(require_admin)):
 @router.get("/pipeline/queue")
 async def get_request_queue_state(_: dict = Depends(require_admin)):
     """Return request queue depth and processing stats."""
+    from cortex.orchestrator.conversation import get_conversation_coordinator
+    from cortex.orchestrator.turn_store import TurnStoreError
+    coordinator = get_conversation_coordinator()
+    if coordinator is None:
+        return {"depth": 0, "active": 0, "running": False}
     try:
-        from cortex.pipeline.request_queue import get_request_queue
-        rq = get_request_queue()
-        if rq is None:
-            return {"depth": 0, "active": 0}
-        return {
-            "depth": rq.depth() if hasattr(rq, "depth") else 0,
-            "active": rq.active_count() if hasattr(rq, "active_count") else 0,
-            "stats": rq.stats() if hasattr(rq, "stats") else {},
-        }
-    except Exception as e:
-        return {"depth": 0, "active": 0, "error": str(e)}
+        return coordinator.queue_status()
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 # ── Crash handler ─────────────────────────────────────────────────

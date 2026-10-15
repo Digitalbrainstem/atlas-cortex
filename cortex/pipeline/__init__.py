@@ -288,15 +288,19 @@ async def run_prepared_pipeline_events(
     _micro_ack_clock = time.monotonic()
 
     _sentence_buf = ""
-    async for chunk in stream_llm_response(
-        message=message,
-        context=context,
-        provider=provider,
-        model_fast=model_fast,
-        model_thinking=model_thinking,
-        memory_context=memory_context,
-        system_prompt=system_prompt,
-    ):
+    from cortex.pipeline.turns import GenerationOptions, get_conversation_coordinator
+    coordinator = get_conversation_coordinator()
+    if coordinator is not None:
+        chunks = coordinator.stream(
+            prepared, GenerationOptions(model_fast, model_thinking, system_prompt, memory_context),
+        )
+    else:
+        chunks = stream_llm_response(
+            message=message, context=context, provider=provider,
+            model_fast=model_fast, model_thinking=model_thinking,
+            memory_context=memory_context, system_prompt=system_prompt,
+        )
+    async for chunk in chunks:
         if not first_token_ms:
             first_token_ms = (time.monotonic() - t3) * 1000
             # The very first chunk from stream_llm_response is the filler
@@ -349,6 +353,7 @@ async def run_prepared_pipeline_events(
     )
     yield LayerResult(
         layer="llm",
+        status=context.get("perspective_status", RouteStatus.HANDLED),
         confidence=0.0,
         response_time_ms=total_ms,
         layer_times={"L0": layer0_ms, "L1": layer1_ms, "L2": layer2_ms, "L3": layer3_ms},

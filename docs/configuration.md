@@ -44,6 +44,7 @@ invalid values fail initialization. Changes require a restart.
 | `CORTEX_TURN_MAX_ACTIVE` | `1` | Maximum simultaneously claimed LLM turns; fast-path claims do not acquire these slots |
 | `CORTEX_TURN_PREFETCH` | `8` | Maximum IDs per dispatch/recovery page and rows per terminal cleanup batch |
 | `CORTEX_TURN_MAX_INPUT_BYTES` | `65536` | Combined UTF-8 transcript, serialized identity and JSON context admission limit |
+| `CORTEX_TURN_MAX_OUTPUT_BYTES` | `262144` | Maximum UTF-8 bytes per validated result (256 KiB); generation exceeding this limit fails explicitly without publishing partial text |
 | `CORTEX_TURN_MAX_STORE_BYTES` | `67108864` | Aggregate retained turn payload budget (64 MiB); not a fixed question-count cap or total database-file size limit |
 | `CORTEX_TURN_MIN_FREE_DISK_BYTES` | `16777216` | Minimum remaining filesystem space (16 MiB), plus the proposed write size |
 | `CORTEX_TURN_RETENTION_SECONDS` | `604800` | Minimum terminal-record retention (7 days); accepted/recovering/uncertain work and unheard results are not evicted |
@@ -69,13 +70,14 @@ delivery also requires confirmation instead of unexpectedly replaying after a
 restart. User deletion removes ledger rows and sequence state; older backups may
 still contain them and must follow the deployment's backup deletion policy.
 
-**Implementation boundary:** P00-P03 provides the store, staged routing,
-maintenance, aggregate admin status and recovery primitives. Existing HTTP,
-browser, Pipe and satellite calls do not yet submit every turn to this ledger
-or dispatch its backlog. P04 adds a separate structured HA action journal,
-deterministic corrections and truthful backend outcomes; it does not turn those
-clients into durable queue consumers. LLM/voice coordination and finalized-turn
-ingress are P05-P06 work; do not claim durable replay/idempotency for clients yet.
+**Implementation boundary:** P00-P03 provides staged routing, the store,
+maintenance and recovery controls. P04 adds a separate HA action journal and
+deterministic corrections. P05 durably admits true LLM fallthrough on the server
+and standalone Pipe worker; only bounded conversation heads enter inference.
+Use stable conversation/turn IDs or idempotency keys for LLM request retries.
+This does not yet provide durable acceptance/idempotency for fast effects or
+early microphone/STT ingress; complete finalized voice admission remains P06.
+LLM responses are buffered and validated before publication, not streamed raw.
 HA correction context uses a fixed conservative 120-second window; action
 journal retention and its distinction from this payload budget are described in
 the [data model](data-model.md#ha-structured-command-context).
