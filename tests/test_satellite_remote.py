@@ -276,6 +276,7 @@ class TestAgentConfigUpdate:
         # Mock websocket
         agent.ws = MagicMock()
         agent.ws.send_cmd_ack = AsyncMock()
+        agent.ws.send_heartbeat = AsyncMock()
 
         await agent._on_remote_config_update({
             "cmd_id": 1,
@@ -304,6 +305,7 @@ class TestAgentConfigUpdate:
 
         agent.ws = MagicMock()
         agent.ws.send_cmd_ack = AsyncMock()
+        agent.ws.send_heartbeat = AsyncMock()
 
         await agent._on_remote_config_update({
             "cmd_id": 2,

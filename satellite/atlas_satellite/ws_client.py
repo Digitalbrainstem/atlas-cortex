@@ -134,7 +134,8 @@ class SatelliteWSClient:
         })
 
     async def send_heartbeat(
-        self, uptime: float = 0, cpu_temp: float = 0, wifi_rssi: int = 0
+        self, uptime: float = 0, cpu_temp: float = 0, wifi_rssi: int = 0,
+        readiness: dict | None = None,
     ) -> None:
         await self._send({
             "type": "HEARTBEAT",
@@ -142,6 +143,7 @@ class SatelliteWSClient:
             "uptime": uptime,
             "cpu_temp": cpu_temp,
             "wifi_rssi": wifi_rssi,
+            **({"readiness": readiness} if readiness is not None else {}),
         })
 
     async def send_status(self, status: str) -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import enum
+from dataclasses import replace
 import json
 import logging
 import os
@@ -92,6 +93,9 @@ class SatelliteAgent:
         self._tts_metadata: dict = {}
         self._capture_bytes = 0
         self._rejected_playbacks: deque[str] = deque(maxlen=32)
+        self._config_error = ""
+        self._restart_required: list[str] = []
+        self._wake_task: asyncio.Task[None] | None = None
 
         # Barge-in detection: higher energy ratio during SPEAKING to reject
         # speaker echo picked up by the mic.  We require several consecutive
@@ -141,11 +145,16 @@ class SatelliteAgent:
             if not connected:
                 logger.error("Initial connection failed — will retry in background")
 
-        self.led.set_pattern("idle")
+        self.led.set_pattern("error" if self.state == State.ERROR or (
+            self.wake_word is not None and not self.wake_word.available
+        ) else "idle")
 
         # Start button handler (needs running event loop)
         if self.button:
             self.button.start(asyncio.get_event_loop())
+        self._schedule_wake_initialization()
+        if self.ws.connected:
+            await self.ws.send_heartbeat(readiness=self.readiness())
 
         # Run concurrent loops
         try:
@@ -164,6 +173,8 @@ class SatelliteAgent:
         """Gracefully shut down all components."""
         logger.info("Shutting down satellite agent...")
         self._running = False
+        if self._wake_task is not None:
+            await asyncio.gather(self._wake_task, return_exceptions=False)
 
         if self.audio_in:
             self.audio_in.stop()
@@ -219,10 +230,8 @@ class SatelliteAgent:
                 wake_word=cfg.wake_word,
                 threshold=cfg.wake_word_threshold,
                 model_path=cfg.wake_word_model,
+                initialize=False,
             )
-            if not self.wake_word.available:
-                logger.warning("Wake word requested but not available — using VAD-only")
-                self.wake_word = None
 
         # LED
         self.led = create_led(cfg.led_type, cfg.led_count, cfg.led_patterns)
@@ -267,7 +276,7 @@ class SatelliteAgent:
     def _detect_capabilities(self) -> list[str]:
         """Detect what this satellite can do."""
         caps = ["audio_capture", "audio_playback", "playback_ack"]
-        if self.config.wake_word_enabled:
+        if self.wake_word is not None and self.wake_word.available:
             caps.append("wake_word")
         if self.config.led_type != "none":
             caps.append("led")
@@ -290,9 +299,10 @@ class SatelliteAgent:
         self.ws.on("TTS_END", self._on_tts_end)
         self.ws.on("PLAY_FILLER", self._on_play_filler)
         self.ws.on("COMMAND", self._on_command)
-        self.ws.on("CONFIG", self._on_config)
+        self.ws.on("CONFIG", self._on_server_config)
         self.ws.on("SYNC_FILLERS", self._on_sync_fillers)
         self.ws.on("PIPELINE_ERROR", self._on_pipeline_error)
+        self.ws.on("PIPELINE_STATUS", self._on_pipeline_status)
         # Remote management commands
         self.ws.on("CONFIG_UPDATE", self._on_remote_config_update)
         self.ws.on("EXEC_SCRIPT", self._on_remote_exec_script)
@@ -379,7 +389,7 @@ class SatelliteAgent:
                 logger.info("Wake word detected (confidence: %.2f)", confidence)
                 self.wake_word.reset()  # Clear buffers to prevent re-trigger
                 await self._transition_to_listening(confidence)
-        elif self.config.vad_enabled:
+        elif not self.config.wake_word_enabled and self.config.vad_enabled:
             # VAD-only mode: speech_start triggers listening
             result = self.vad.process(audio)
             if result == "speech_start":
@@ -516,6 +526,10 @@ class SatelliteAgent:
             await asyncio.gather(self._playback_task, return_exceptions=True)
 
     async def _transition_to_listening(self, confidence: float) -> None:
+        if not self.ws.connected or (self.audio_in is not None and self.audio_in.available is False):
+            logger.warning("Cannot listen: server or microphone unavailable")
+            self.led.set_pattern("error" if self.ws.connected else "offline")
+            return
         self.state = State.LISTENING
         self._capture_done.clear()
         self._capture_bytes = 0
@@ -665,9 +679,17 @@ class SatelliteAgent:
         """Server pipeline failed — return to idle."""
         detail = msg.get("detail", "unknown")
         logger.warning("Pipeline error from server: %s", detail)
+        await self._stop_playback()
+        if self.state == State.LISTENING and self.ws.connected:
+            await self.ws.send_audio_end(reason="cancelled")
+        self._capture_done.set()
         self.state = State.IDLE
         self.led.set_pattern("idle")
         self.vad.reset()
+
+    async def _on_pipeline_status(self, msg: dict) -> None:
+        if type(msg.get("processing")) is bool:
+            self.led.set_activity("processing" if msg["processing"] else None)
 
     # ── Button callbacks ──────────────────────────────────────────
 
@@ -699,6 +721,10 @@ class SatelliteAgent:
             self.led.set_pattern("idle")
             logger.info("Button: wake word enabled")
         else:
+            await self._stop_playback()
+            if self.state == State.LISTENING and self.ws.connected:
+                await self.ws.send_audio_end(reason="cancelled")
+            self._capture_done.set()
             self.state = State.MUTED
             self.led.set_pattern("muted")
             logger.info("Button: wake word disabled (muted)")
@@ -723,8 +749,7 @@ class SatelliteAgent:
         elif action == "led":
             self.led.set_pattern(params.get("pattern", "idle"))
         elif action == "mute":
-            self.state = State.MUTED
-            self.led.set_pattern("muted")
+            await self._on_button_toggle(False)
         elif action == "unmute":
             self.state = State.IDLE
             self.led.set_pattern("idle")
@@ -760,29 +785,61 @@ class SatelliteAgent:
 
     async def _on_config(self, msg: dict) -> None:
         """Apply pushed configuration from server."""
-        if "wake_word" in msg:
-            self.config.wake_word = msg["wake_word"]
-        if "volume" in msg:
-            self.config.volume = msg["volume"]
-            self.audio_out.volume = msg["volume"]
-        if "led_patterns" in msg:
-            patterns = msg["led_patterns"]
+        values = {key: value for key, value in msg.items() if key in self.config.__dataclass_fields__}
+        path = self._base_dir / "config.json"
+        if path.exists():
+            with path.open() as stream:
+                persisted = json.load(stream)
+            values = {**{key: value for key, value in persisted.items()
+                         if key in self.config.__dataclass_fields__}, **values}
+        candidate = replace(self.config, **values)
+        await asyncio.to_thread(candidate.save, self._base_dir / "config.json")
+        previous = replace(self.config)
+        live_fields = {
+            "room", "wake_word", "wake_word_enabled", "wake_word_threshold", "wake_word_model",
+            "volume", "mic_gain", "vad_sensitivity", "vad_enabled", "filler_enabled",
+            "led_brightness", "led_patterns", "features", "button_mode", "audio_device_out",
+        }
+        self._restart_required = sorted(set(self._restart_required) | {
+            key for key in values if key not in live_fields and getattr(previous, key) != getattr(candidate, key)
+        })
+        for key, value in vars(candidate).items():
+            setattr(self.config, key, value)
+        if self.audio_out:
+            self.audio_out.volume = candidate.volume
+            self.audio_out.device = candidate.audio_device_out or "default"
+        if self.audio_in:
+            self.audio_in.mic_gain = candidate.mic_gain
+        if self.vad and previous.vad_sensitivity != candidate.vad_sensitivity:
+            self.vad.set_aggressiveness(candidate.vad_sensitivity)
+        if self.button:
+            self.button.mode = candidate.button_mode
+        if self.led:
+            self.led.set_master_brightness(candidate.led_brightness)
             if hasattr(self.led, "update_patterns"):
-                self.led.update_patterns(patterns)
-            self.config.led_patterns.update(patterns)
-        if "vad_sensitivity" in msg:
-            self.config.vad_sensitivity = msg["vad_sensitivity"]
-        if "vad_enabled" in msg:
-            self.config.vad_enabled = bool(msg["vad_enabled"])
-            logger.info("VAD %s", "enabled" if self.config.vad_enabled else "disabled")
-        if "led_brightness" in msg:
-            self.config.led_brightness = float(msg["led_brightness"])
-            if hasattr(self.led, "set_master_brightness"):
-                self.led.set_master_brightness(self.config.led_brightness)
-            logger.info("LED brightness set to %.0f%%", self.config.led_brightness * 100)
-        if "features" in msg:
-            self.config.features = msg["features"]
-        logger.info("Config updated from server")
+                self.led.update_patterns(candidate.led_patterns)
+        wake_fields = ("wake_word", "wake_word_enabled", "wake_word_threshold", "wake_word_model")
+        if any(getattr(previous, key) != getattr(candidate, key) for key in wake_fields):
+            self.wake_word = WakeWordDetector(
+                candidate.wake_word, candidate.wake_word_threshold, candidate.wake_word_model,
+                initialize=False,
+            ) if candidate.wake_word_enabled else None
+            self._schedule_wake_initialization()
+        if self.ws:
+            self.ws.room = candidate.room
+            self.ws.capabilities = self._detect_capabilities()
+            self._config_error = ""
+            await self.ws.send_heartbeat(readiness=self.readiness())
+        logger.info("Config persisted and applied: %s", sorted(values))
+
+    async def _on_server_config(self, msg: dict) -> None:
+        try:
+            await self._on_config(msg)
+            self._config_error = ""
+        except Exception as exc:
+            self._config_error = str(exc)
+            logger.exception("Server configuration could not be applied")
+            await self.ws.send_heartbeat(readiness=self.readiness())
 
     # ── Remote management commands ────────────────────────────────
 
@@ -791,20 +848,10 @@ class SatelliteAgent:
         cmd_id = msg.get("cmd_id")
         payload = msg.get("payload", {})
         try:
-            config_path = self._base_dir / "config.json"
-            current = {}
-            if config_path.exists():
-                with open(config_path) as f:
-                    current = json.load(f)
-            current.update(payload)
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(config_path, "w") as f:
-                json.dump(current, f, indent=2)
-            # Apply to live config
-            known = {k for k in self.config.__dataclass_fields__}
-            for k, v in payload.items():
-                if k in known:
-                    setattr(self.config, k, v)
+            unknown = set(payload) - self.config.__dataclass_fields__.keys()
+            if unknown:
+                raise ValueError(f"Unknown configuration fields: {sorted(unknown)}")
+            await self._on_config(payload)
             logger.info("Config updated via remote command: %s", list(payload.keys()))
             await self.ws.send_cmd_ack(cmd_id, "ok")
         except Exception as e:
@@ -977,6 +1024,37 @@ class SatelliteAgent:
 
     # ── Background loops ──────────────────────────────────────────
 
+    def _schedule_wake_initialization(self) -> None:
+        if self.wake_word is not None and (self._wake_task is None or self._wake_task.done()):
+            self._wake_task = asyncio.create_task(self._initialize_wake(), name="satellite-wake-loader")
+
+    async def _initialize_wake(self) -> None:
+        while self.wake_word is not None and self.wake_word.status == "loading":
+            detector = self.wake_word
+            await asyncio.to_thread(detector.initialize)
+        if self.ws and self.ws.connected:
+            self.ws.capabilities = self._detect_capabilities()
+            try:
+                await self.ws.send_heartbeat(readiness=self.readiness())
+            except Exception:
+                logger.warning("Wake readiness update could not reach the server", exc_info=True)
+
+    def readiness(self) -> dict:
+        return {
+            "wake": self.wake_word.status if self.wake_word else (
+                "unavailable" if self.config.wake_word_enabled else "disabled"
+            ),
+            "wake_error": self.wake_word.error if self.wake_word else "",
+            "microphone": bool(self.audio_in and self.audio_in.available),
+            "button": bool(self.button and self.button.available),
+            "button_mode": self.button.mode if self.button else self.config.button_mode,
+            "room": self.config.room,
+            "led_count": self.config.led_count if self.config.led_type != "none" else 0,
+            "state": self.state.value,
+            "config_error": self._config_error,
+            "restart_required": self._restart_required,
+        }
+
     async def _server_listener(self) -> None:
         """Listen for messages from the server."""
         while self._running:
@@ -994,6 +1072,7 @@ class SatelliteAgent:
                         uptime=time.time() - self._start_time,
                         cpu_temp=_read_cpu_temp(),
                         wifi_rssi=_read_wifi_rssi(),
+                        readiness=self.readiness(),
                     )
                 except Exception:
                     logger.debug("Heartbeat send failed")
@@ -1003,11 +1082,16 @@ class SatelliteAgent:
         while self._running:
             await asyncio.sleep(5)
             if not self.ws.connected:
+                await self._stop_playback()
+                self._capture_done.set()
+                if self.state != State.MUTED:
+                    self.state = State.IDLE
                 logger.info("Connection lost — attempting reconnect...")
-                self.led.set_color(255, 165, 0, 0.2)
+                self.led.set_pattern("offline")
                 success = await self.ws.connect()
                 if success:
-                    self.led.set_pattern("idle")
+                    self.led.set_pattern("muted" if self.state == State.MUTED else "idle")
+                    await self.ws.send_heartbeat(readiness=self.readiness())
                     logger.info("Reconnected to server")
 
 

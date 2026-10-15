@@ -65,6 +65,15 @@ sources[2].onended();
 assert.equal(receipts.length, 1, 'drain must also wait for TTS_END');
 context.handleTtsEnd(newer);
 assert.equal(receipts.length, 2);
+for (let cycle = 0; cycle < 100; cycle++) {
+  const interrupted = { ...tags, playback_id: `cancel-${cycle}`, revision: cycle + 3 };
+  context.handleTtsStart(interrupted);
+  context.handleTtsChunk({ ...chunk, ...interrupted });
+  vm.runInContext('_stopAllScheduledAudio()', context);
+  context.handleTtsChunk({ ...chunk, ...interrupted });
+  context.handleTtsEnd(interrupted);
+}
+assert.equal(receipts.length, 2, '100 cancellation cycles must not revive stale audio');
 """
     result = subprocess.run(
         ["node", "-", str(display)], input=script, text=True,

@@ -144,9 +144,11 @@
   function connectSatellite() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/satellite`;
-    ws = new WebSocket(url);
+    const socket = new WebSocket(url);
+    ws = socket;
 
     ws.onopen = () => {
+      if (ws !== socket) return;
       // Send ANNOUNCE
       ws.send(JSON.stringify({
         type: 'ANNOUNCE',
@@ -158,6 +160,7 @@
     };
 
     ws.onmessage = (evt) => {
+      if (ws !== socket) return;
       try {
         const msg = JSON.parse(evt.data);
         handleServerMessage(msg);
@@ -167,6 +170,9 @@
     };
 
     ws.onclose = () => {
+      if (ws !== socket) return;
+      stopLocalPlayback();
+      if (isListening) stopListening('cancelled');
       isConnected = false;
       updateStatus('disconnected');
       // Reconnect after 3s
@@ -208,14 +214,14 @@
         break;
 
       case 'TTS_CHUNK':
-        if (msg.playback_id && (!currentPlayback || msg.playback_id !== currentPlayback.playback_id)) break;
+        if (msg.playback_id && (!currentPlayback || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== currentPlayback[key]))) break;
         if (typeof window.handleTtsChunk === 'function') {
           window.handleTtsChunk(msg);
         }
         break;
 
       case 'TTS_END':
-        if (msg.playback_id && (!currentPlayback || msg.playback_id !== currentPlayback.playback_id)) break;
+        if (msg.playback_id && (!currentPlayback || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== currentPlayback[key]))) break;
         // Don't clear isSpeaking yet — audio may still be playing through
         // the Web Audio queue. Wait for actual playback to finish.
         micBtn.classList.remove('speaking');

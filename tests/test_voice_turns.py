@@ -73,13 +73,13 @@ async def voice_env(tmp_path, monkeypatch):
                         AsyncMock(return_value=(b"\x00\x00" * 1600, 16000, "fake")))
     monkeypatch.setattr("cortex.pipeline.layer3_llm.select_filler", lambda **kwargs: "")
 
-    async def prepare(text, **kwargs):
+    async def prepare(text, *, user_id, metadata, satellite_id):
         identity = TurnIdentity.from_metadata(
-            kwargs["user_id"], kwargs["metadata"], satellite_id=kwargs["satellite_id"],
+            user_id, metadata, satellite_id=satellite_id,
         )
         assert store.get(identity.turn_id, identity.user_id).transcript == text
         return PreparedTurn(
-            identity, text, {"turn_identity": identity, "metadata": kwargs["metadata"],
+            identity, text, {"turn_identity": identity, "metadata": metadata,
                              "user_id": identity.user_id, "speaker_id": None, "conversation_history": []},
             DispatchResult(RouteStatus.NOT_MATCHED), 0, {"L0": 0, "L1": 0, "L2": 0},
         )
@@ -114,6 +114,19 @@ async def test_three_questions_are_durable_while_first_playback_waits(voice_env)
         assert not session.played.is_set()
         session.acknowledge(end)
     await until(lambda: env.store.voice_delivery_head("pi-one") is None)
+
+
+async def test_voice_admission_uses_real_preparation_contract(voice_env, monkeypatch):
+    from cortex.pipeline import prepare_turn
+    env = voice_env
+    monkeypatch.setattr("cortex.orchestrator.voice_turns.prepare_turn", prepare_turn)
+    monkeypatch.setattr("cortex.pipeline.assemble_context", AsyncMock(return_value={
+        "user_id": "anonymous", "conversation_history": [], "metadata": {},
+    }))
+    await submit(env, "2 + 2", 1)
+    turn = env.store.get("voice:pi-one:1:0", "anonymous")
+    assert turn.state == "completed" and turn.result == "4"
+    assert env.coordinator.queue.active_count == 0
 
 
 async def test_acoustic_pauses_keep_audio_and_final_end_is_not_duplicated(voice_env):
@@ -309,6 +322,45 @@ async def test_acknowledgement_is_durable_before_pause_can_run(voice_env):
     assert position > 0
     await session.pause(receipt)
     assert env.store.get(receipt["turn_id"], "anonymous").playback_position == position
+
+
+async def test_room_change_stops_old_delivery_without_replaying_old_room_backlog(voice_env, monkeypatch):
+    from cortex.satellite import websocket as protocol
+    env = voice_env
+    await submit(env, "first", 1)
+    await next_audio(env, 1)
+    await submit(env, "second", 2)
+    await until(lambda: env.store.get("voice:pi-one:2:0", "anonymous").state == "completed")
+    monkeypatch.setattr(protocol, "_connected_satellites", {"pi-one": env.device})
+    await protocol.send_config("pi-one", {"room": "study"})
+    await submit(env, "new room question", 3)
+    end = await next_audio(env, 2)
+    assert end["turn_id"] == "voice:pi-one:3:0"
+    assert env.store.get("voice:pi-one:2:0", "anonymous").delivery_state == "ready"
+    assert env.store.get("voice:pi-one:3:0", "anonymous").identity.room == "study"
+
+
+async def test_two_rooms_accept_independent_work_while_other_room_playback_waits(voice_env):
+    env = voice_env
+    await submit(env, "kitchen question", 1)
+    first = await next_audio(env, 1)
+    frames = []
+
+    async def send(message):
+        frames.append(message)
+
+    second = SatelliteConnection(SimpleNamespace(send_json=send), "pi-two")
+    second.room, second.capabilities = "bedroom", ["playback_ack"]
+    env.transcripts.put_nowait("bedroom question")
+    await env.service.session(second).submit(Capture(b"\x01\x00", "one", True, "vad_silence"))
+    await until(lambda: any(frame["type"] == "TTS_END" for frame in frames))
+    receipt = next(frame for frame in frames if frame["type"] == "TTS_END")
+    second.voice_session.acknowledge(receipt)
+    await until(lambda: env.store.get(receipt["turn_id"], "anonymous").delivery_state == "delivered")
+    assert env.store.get(first["turn_id"], "anonymous").delivery_state == "delivering"
+    assert env.store.get(receipt["turn_id"], "anonymous").identity.room == "bedroom"
+    await second.voice_session.pause(first)
+    assert env.store.get(first["turn_id"], "anonymous").delivery_state == "delivering"
 
 
 @pytest.mark.parametrize("capture_id", ["", "x" * 129, 42, None, " trailing ", "\n"])

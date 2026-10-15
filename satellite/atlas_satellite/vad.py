@@ -99,6 +99,13 @@ class VoiceActivityDetector:
         self._use_energy_mode = False
         self._frame_count = 0
 
+    def set_aggressiveness(self, value: int) -> None:
+        if type(value) is not int or not 0 <= value <= 3:
+            raise ValueError("VAD aggressiveness must be an integer from 0 to 3")
+        if self._vad is not None:
+            self._vad.set_mode(value)
+        self.reset()
+
     def _calibrate(self, rms: float) -> None:
         """Collect initial frames to establish ambient baseline."""
         self._calibration_frames.append(rms)

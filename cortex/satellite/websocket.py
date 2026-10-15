@@ -70,6 +70,7 @@ class SatelliteConnection:
         self.activated = False
         self.voice_session = None
         self.delivery_metadata: dict[str, Any] = {}
+        self.readiness: dict[str, Any] = {}
 
         # CE-4: Pause buffer for conversational pause & pivot
         self.paused_response: str | None = None  # Full text that was being spoken
@@ -181,19 +182,27 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
         conn.session_id = session_id
 
         # Register connection
+        previous = _connected_satellites.get(satellite_id)
         _connected_satellites[satellite_id] = conn
+        if previous is not None and previous is not conn:
+            if previous.voice_session is not None:
+                await previous.voice_session.close()
+            await previous.websocket.close(code=1000, reason="Replaced by a new device connection")
+        if _connected_satellites.get(satellite_id) is not conn:
+            return
 
         # Extract client IP and metadata from ANNOUNCE
         client_ip = websocket.client.host if websocket.client else None
         capabilities = raw.get("capabilities") or []
         conn.capabilities = capabilities
-        conn.room = raw.get("room") or None
+        saved_config = _saved_config(satellite_id)
+        conn.room = saved_config.get("room", raw.get("room")) or None
         conn.has_wake_word = "wake_word" in capabilities
         _update_satellite_status(
             satellite_id, "online",
             ip_address=client_ip,
             hostname=raw.get("hostname"),
-            room=raw.get("room"),
+            room=conn.room,
             capabilities=capabilities,
             hardware_info=raw.get("hw_info"),
         )
@@ -206,9 +215,13 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
         })
 
         logger.info("Satellite connected: %s (session %s)", satellite_id, session_id)
+        if saved_config:
+            await send_config(satellite_id, saved_config)
 
         # Message loop
         async for raw_msg in websocket.iter_json():
+            if _connected_satellites.get(satellite_id) is not conn:
+                break
             msg_type = raw_msg.get("type", "")
 
             if msg_type == "HEARTBEAT":
@@ -256,10 +269,9 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
     except Exception:
         logger.exception("Error in satellite WebSocket for %s", satellite_id)
     finally:
-        # CE-2: Stop the queue worker on disconnect
         if conn.voice_session is not None:
             await conn.voice_session.close()
-        if satellite_id:
+        if satellite_id and _connected_satellites.get(satellite_id) is conn:
             _connected_satellites.pop(satellite_id, None)
             _update_satellite_status(satellite_id, "offline")
 
@@ -270,6 +282,8 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
 async def _handle_heartbeat(conn: SatelliteConnection, msg: dict) -> None:
     """Update satellite status from heartbeat."""
     conn.last_heartbeat = time.time()
+    if isinstance(msg.get("readiness"), dict):
+        conn.readiness = msg["readiness"]
     try:
         db = get_db()
         db.execute(
@@ -371,7 +385,7 @@ async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
     audio = bytes(conn.audio_buffer)
     conn.audio_buffer.clear()
     reason = msg.get("reason", "vad_silence")
-    if reason == "auto_listen_timeout" or not audio:
+    if reason in ("auto_listen_timeout", "cancelled") or not audio:
         conn.activated = False
         return
     service = get_voice_service()
@@ -481,11 +495,41 @@ async def send_command(satellite_id: str, action: str, params: dict | None = Non
     return False
 
 
+def _saved_config(satellite_id: str) -> dict:
+    cursor = get_db().execute("SELECT * FROM satellites WHERE id=?", (satellite_id,))
+    row = cursor.fetchone()
+    if row is None:
+        return {}
+    stored = dict(zip((column[0] for column in cursor.description), row))
+    fields = ("room", "wake_word", "volume", "mic_gain", "vad_sensitivity", "filler_enabled",
+              "vad_enabled", "led_brightness", "button_mode", "audio_device_out")
+    config = {key: stored[key] for key in fields if stored.get(key) is not None}
+    if stored.get("features") is not None:
+        config["features"] = json.loads(stored["features"])
+    return config
+
+
 async def send_config(satellite_id: str, config: dict) -> bool:
     """Push configuration to a connected satellite."""
     conn = _connected_satellites.get(satellite_id)
     if conn:
-        await conn.send({"type": "CONFIG", **config})
+        payload = dict(config)
+        if "vad_sensitivity" in payload:
+            payload["vad_sensitivity"] = round(float(payload["vad_sensitivity"]) * 3)
+        for key in ("filler_enabled", "vad_enabled"):
+            if key in payload:
+                payload[key] = bool(payload[key])
+        if "room" in payload and (payload["room"] or None) != conn.room:
+            playback = dict(conn.delivery_metadata)
+            if conn.voice_session is not None:
+                await conn.voice_session.close()
+                conn.voice_session = None
+            conn.capture_active = False
+            conn.audio_buffer.clear()
+            conn.activated = False
+            await conn.send({"type": "COMMAND", "action": "stop", "params": playback})
+            conn.room = payload["room"] or None
+        await conn.send({"type": "CONFIG", **payload})
         return True
     return False
 

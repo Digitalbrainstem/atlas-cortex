@@ -94,6 +94,10 @@ class AudioCapture:
             self._pcm = None
         logger.info("Audio capture stopped")
 
+    @property
+    def available(self) -> bool:
+        return self._running
+
     def read(self) -> Optional[bytes]:
         """Read one period of audio. Returns raw mono PCM bytes or None."""
         if not self._pcm or not self._running:

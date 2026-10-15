@@ -606,6 +606,8 @@ def test_browser_admits_correction_while_previous_reply_waits(tmp_path, monkeypa
 
     @asynccontextmanager
     async def lifespan(app):
+        provider.entered = asyncio.Queue()
+        provider.release = asyncio.Event()
         coordinator = ConversationCoordinator(store, provider, Safety())
         coordinators.append(coordinator)
         await coordinator.start()

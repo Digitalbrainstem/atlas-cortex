@@ -316,17 +316,17 @@ class TurnStore:
                 "lease_until=NULL,updated_at=? WHERE turn_id=?", (time.time(), identity.turn_id),
             )
 
-    def voice_delivery_head(self, device_id: str, exclude: str = "") -> StoredTurn | None:
+    def voice_delivery_head(self, device_id: str, exclude: str = "", *, room: str | None = None) -> StoredTurn | None:
         with self._lock:
             try:
                 row = self.conn.execute(
-                    """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=? AND turn_id!=?
+                    """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=? AND turn_id!=? AND room IS ?
                        AND state NOT IN ('superseded','cancelled')
                        AND (state IN ('accepted','routing','fastpath_running','llm_pending','llm_running')
                          OR delivery_state IN ('ready','delivering','paused'))
                        ORDER BY CASE WHEN json_extract(context_json,'$.voice_control')=1
                          AND delivery_state='ready' THEN 0 ELSE 1 END,created_at,sequence LIMIT 1""",
-                    (device_id, exclude),
+                    (device_id, exclude, room),
                 ).fetchone()
                 return self._stored(row) if row else None
             except sqlite3.Error as exc:
@@ -365,20 +365,34 @@ class TurnStore:
                 (time.time(), turn_id),
             )
 
-    def voice_pending_targets(self, device_id: str, user_id: str, exclude: str) -> list[StoredTurn]:
+    def voice_pending_targets(
+        self, device_id: str, user_id: str, exclude: str, *, room: str | None = None,
+    ) -> list[StoredTurn]:
         with self._lock:
             try:
                 rows = self.conn.execute(
-                    """SELECT * FROM pending_turns WHERE device_id=? AND user_id=? AND turn_id!=?
+                    """SELECT * FROM pending_turns WHERE device_id=? AND user_id=? AND turn_id!=? AND room IS ?
                        AND source='satellite' AND state NOT IN ('cancelled','superseded','uncertain','failed')
                        AND COALESCE(json_extract(context_json,'$.voice_control'),0)!=1
                        AND (state!='completed' OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation'))
-                       ORDER BY created_at,sequence LIMIT 2""", (device_id, user_id, exclude),
+                       ORDER BY created_at,sequence LIMIT 2""", (device_id, user_id, exclude, room),
                 ).fetchall()
                 return [self._stored(row) for row in rows]
             except sqlite3.Error as exc:
                 logger.exception("Voice target lookup failed")
                 raise TurnStoreError("Voice target lookup failed") from exc
+
+    def voice_processing(self, device_id: str, room: str | None) -> bool:
+        with self._lock:
+            try:
+                return self.conn.execute(
+                    """SELECT 1 FROM pending_turns WHERE source='satellite' AND device_id=? AND room IS ?
+                       AND state IN ('accepted','routing','fastpath_running','llm_pending','llm_running') LIMIT 1""",
+                    (device_id, room),
+                ).fetchone() is not None
+            except sqlite3.Error as exc:
+                logger.exception("Voice activity lookup failed")
+                raise TurnStoreError("Voice activity lookup failed") from exc
 
     def find_existing(self, identity: TurnIdentity) -> StoredTurn | None:
         with self._lock:

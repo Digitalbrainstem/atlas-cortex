@@ -193,12 +193,20 @@ class SatelliteManager:
             "display_name", "room", "wake_word", "volume", "mic_gain",
             "vad_sensitivity", "features", "filler_enabled", "filler_threshold_ms",
             "tts_voice", "vad_enabled", "led_brightness",
+            "button_mode", "audio_device_out",
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             raise ValueError("No valid fields to update")
+        if self._get_satellite(satellite_id) is None:
+            raise ValueError("Satellite not found")
+        if "button_mode" in updates and updates["button_mode"] not in ("toggle", "press", "hold"):
+            raise ValueError("Invalid button mode")
 
-        self._update(satellite_id, **updates)
+        stored = dict(updates)
+        if isinstance(stored.get("features"), dict):
+            stored["features"] = json.dumps(stored["features"])
+        self._update(satellite_id, **stored)
 
         # Push config to connected satellite
         await send_config(satellite_id, updates)
@@ -258,6 +266,7 @@ class SatelliteManager:
         connected = get_connected_satellites()
         for row in rows:
             row["is_connected"] = row["id"] in connected
+            row["readiness"] = connected[row["id"]].readiness if row["is_connected"] else {"connection": "offline"}
 
         return rows
 
@@ -267,6 +276,7 @@ class SatelliteManager:
         if sat:
             connected = get_connected_satellites()
             sat["is_connected"] = satellite_id in connected
+            sat["readiness"] = connected[satellite_id].readiness if sat["is_connected"] else {"connection": "offline"}
         return sat
 
     # ── Internal ───────────────────────────────────────────────────

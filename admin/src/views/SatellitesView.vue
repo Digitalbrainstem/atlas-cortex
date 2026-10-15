@@ -161,6 +161,8 @@ async function removeSatellite(id) {
           <div class="card-detail"><span class="label">Platform:</span> {{ sat.platform || 'Unknown' }}</div>
           <div class="card-detail"><span class="label">IP:</span> {{ sat.ip_address }}</div>
           <div class="card-detail"><span class="label">Status:</span> {{ sat.status }}</div>
+          <div class="card-detail"><span class="label">Voice link:</span> {{ sat.is_connected ? 'connected' : 'offline' }}</div>
+          <div class="card-detail"><span class="label">Wake:</span> {{ sat.readiness?.wake || 'unknown' }}</div>
         </div>
         <div class="card-actions" @click.stop>
           <button class="btn-sm" @click="identifySatellite(sat.id)" title="Blink LEDs">💡</button>

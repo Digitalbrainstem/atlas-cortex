@@ -800,6 +800,8 @@ CREATE TABLE IF NOT EXISTS satellites (
     tts_voice       TEXT DEFAULT '',
     vad_enabled     BOOLEAN DEFAULT TRUE,
     led_brightness  REAL DEFAULT 1.0,
+    button_mode     TEXT NOT NULL DEFAULT 'toggle',
+    audio_device_out TEXT DEFAULT 'default',
     is_active       BOOLEAN DEFAULT TRUE,
     last_seen       TIMESTAMP,
     last_audio      TIMESTAMP,
@@ -1364,6 +1366,8 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "satellites", "tts_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "satellites", "vad_enabled", "BOOLEAN DEFAULT 1")
     _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
+    _add_column_if_missing(conn, "satellites", "button_mode", "TEXT NOT NULL DEFAULT 'toggle'")
+    _add_column_if_missing(conn, "satellites", "audio_device_out", "TEXT DEFAULT 'default'")
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "jailbreak_patterns", "active", "BOOLEAN DEFAULT TRUE")
     _add_column_if_missing(conn, "satellites", "ssh_password", "TEXT")

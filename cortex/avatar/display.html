@@ -879,7 +879,7 @@
 
     // ── TTS_CHUNK: queue audio, schedule visemes on first chunk ──
     function handleTtsChunk(msg) {
-      if (msg.playback_id && (!_playbackReceipt || msg.playback_id !== _playbackReceipt.metadata.playback_id)) return;
+      if (msg.playback_id && (!_playbackReceipt || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== _playbackReceipt.metadata[key]))) return;
       if (_playbackReceipt) _playbackReceipt.hasAudio = true;
       _hasReceivedAudio = true;
       const ctx = ensureAudioContext();
@@ -927,7 +927,7 @@
 
     // ── TTS_END: refine visemes with real duration, schedule reset ──
     function handleTtsEnd(msg) {
-      if (msg.playback_id && (!_playbackReceipt || msg.playback_id !== _playbackReceipt.metadata.playback_id)) return;
+      if (msg.playback_id && (!_playbackReceipt || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== _playbackReceipt.metadata[key]))) return;
       if (_playbackReceipt) {
         _playbackReceipt.ended = true;
         _notifyPlaybackComplete();

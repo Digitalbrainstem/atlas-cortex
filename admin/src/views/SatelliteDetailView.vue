@@ -26,7 +26,7 @@ const form = ref({
   tts_voice: '',
   led_brightness: 1.0,
   audio_device_out: '',
-  button_mode: 'press',
+  button_mode: 'toggle',
 })
 
 // Provision form
@@ -230,7 +230,7 @@ async function fetchSatellite() {
       tts_voice: data.tts_voice || '',
       led_brightness: data.led_brightness ?? 1.0,
       audio_device_out: data.audio_device_out || '',
-      button_mode: data.button_mode || 'press',
+      button_mode: data.button_mode || 'toggle',
     }
   } catch (e) {
     error.value = e.message
@@ -473,6 +473,12 @@ async function loadCommandHistory() {
           <span class="label">Status:</span>
           <span class="status-badge" :class="satellite.status">{{ satellite.status }}</span>
         </div>
+        <div class="info-row"><span class="label">Wake readiness:</span> {{ satellite.readiness?.wake || 'unknown (awaiting device report)' }}</div>
+        <div class="info-row"><span class="label">Microphone:</span> {{ satellite.readiness?.microphone === true ? 'available' : satellite.readiness?.microphone === false ? 'unavailable' : 'unknown' }}</div>
+        <div class="info-row"><span class="label">Physical button:</span> {{ satellite.readiness?.button === true ? `available (${satellite.readiness.button_mode})` : satellite.readiness?.button === false ? 'unavailable' : 'unknown' }}</div>
+        <p v-if="satellite.readiness?.wake_error" class="hint">{{ satellite.readiness.wake_error }}. Use an available physical button; wake hardware qualification is still required.</p>
+        <p v-if="satellite.readiness?.config_error" class="hint">Configuration not applied: {{ satellite.readiness.config_error }}</p>
+        <p v-if="satellite.readiness?.restart_required?.length" class="hint">Restart required for: {{ satellite.readiness.restart_required.join(', ') }}</p>
       </section>
 
       <!-- Hardware -->
@@ -519,7 +525,7 @@ async function loadCommandHistory() {
           <label>Button Mode</label>
           <select v-model="form.button_mode">
             <option value="press">Press (tap to start, auto-stop on silence)</option>
-            <option value="toggle">Toggle (tap to start, tap to stop)</option>
+            <option value="toggle">Toggle wake listening / mute</option>
             <option value="hold">Hold (hold to talk, release to stop)</option>
           </select>
         </div>

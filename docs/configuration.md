@@ -84,6 +84,12 @@ Use stable conversation/turn IDs or idempotency keys for LLM request retries.
 This does not yet provide durable acceptance/idempotency for fast effects or
 early microphone audio itself. P06 adds durable finalized Pi transcripts and
 independent STT admission; raw audio is bounded and transient, not restart-persistent.
+P07 adds scoped cancellation and receipt-based sentence-boundary resume. P08
+software persists/applies button modes and reports actual wake/microphone/button
+readiness; two-Pi/ReSpeaker acoustic qualification remains pending. Missing wake
+models do not silently enable VAD-only activation. Explicitly set
+`wake_word_enabled=false` to opt into VAD-only mode, or use an available physical
+press/hold button. See [satellite qualification](satellite-system.md#p08-software-readiness-and-pending-hardware-qualification).
 LLM responses are buffered and validated before publication, not streamed raw.
 HA correction context uses a fixed conservative 120-second window; action
 journal retention and its distinction from this payload budget are described in

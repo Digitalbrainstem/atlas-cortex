@@ -84,6 +84,7 @@ class VoiceSession:
         self.paused_turn: tuple[str, str, int] | None = None
         self.paused_at = 0.0
         self.ack_position: int | None = None
+        self.processing: bool | None = None
 
     async def submit(self, capture: Capture) -> None:
         if self.closed or self.ingestion.done() or self.delivery.done():
@@ -175,7 +176,6 @@ class VoiceSession:
             if capture.reason != "capture_limit" and control is None:
                 prepared = await prepare_turn(
                     transcript, user_id=user, satellite_id=self.conn.satellite_id, metadata=metadata,
-                    db_conn=store.conn,
                 )
             store.finish_voice_preparation(identity, owner)
             if prepared is not None and prepared.dispatch.status == RouteStatus.NOT_MATCHED:
@@ -204,6 +204,7 @@ class VoiceSession:
             raise
         await self.conn.send({"type": "TURN_ACCEPTED", "turn_id": identity.turn_id,
                               "revision": 1, "sequence": turn.sequence})
+        await self._publish_processing()
 
     async def pause(self, msg: dict[str, Any]) -> None:
         target = self.current_turn
@@ -229,7 +230,9 @@ class VoiceSession:
     async def _control(self, text: str, identity: TurnIdentity) -> DispatchResult | None:
         intent = classify_interrupt(text)
         store = self.service.store
-        targets = store.voice_pending_targets(self.conn.satellite_id, identity.user_id, identity.turn_id)
+        targets = store.voice_pending_targets(
+            self.conn.satellite_id, identity.user_id, identity.turn_id, room=identity.room,
+        )
         if intent == "stop":
             if re.fullmatch(r"(?:never\s*mind|forget it|cancel)[.!?,]*", text.strip(), re.IGNORECASE) and len(targets) > 1:
                 return DispatchResult(RouteStatus.CLARIFICATION, "Which question should I cancel? Please name it.")
@@ -279,7 +282,8 @@ class VoiceSession:
         from cortex.orchestrator import voice
         store = self.service.store
         while True:
-            turn = store.voice_delivery_head(self.conn.satellite_id)
+            await self._publish_processing()
+            turn = store.voice_delivery_head(self.conn.satellite_id, room=self.conn.room)
             if turn is None or turn.delivery_state != "ready" or not turn.output_validated:
                 await asyncio.sleep(0.05)
                 continue
@@ -330,6 +334,12 @@ class VoiceSession:
                 self.playback_id = None
                 self.ack_position = None
                 self.conn.delivery_metadata = {}
+
+    async def _publish_processing(self) -> None:
+        processing = self.service.store.voice_processing(self.conn.satellite_id, self.conn.room)
+        if processing != self.processing:
+            self.processing = processing
+            await self.conn.send({"type": "PIPELINE_STATUS", "processing": processing})
 
     def acknowledge(self, msg: dict[str, Any]) -> None:
         if (self.current_turn and msg.get("playback_id") == self.playback_id
