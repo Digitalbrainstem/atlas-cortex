@@ -195,6 +195,7 @@ class TurnStore:
         context: dict[str, Any] | None = None,
         replaces: tuple[str, int] | None = None,
         clarifies: tuple[str, int] | None = None,
+        promote_accepted: bool = False,
     ) -> StoredTurn:
         """Commit a finalized, input-validated turn before acknowledging acceptance."""
         if input_validated is not True:
@@ -227,7 +228,17 @@ class TurnStore:
             ).fetchall()
             if existing:
                 row = existing[0]
-                if len(existing) != 1 or (
+                promoting = (
+                    promote_accepted and len(existing) == 1 and row["state"] == "accepted"
+                    and self._stored(row).context.get("voice_ingress") is True
+                    and (row["turn_id"], row["user_id"], row["conversation_id"], row["transcript"],
+                         row["source"], row["device_id"], row["room"], row["revision"]) ==
+                        (identity.turn_id, identity.user_id, identity.conversation_id, transcript,
+                         identity.source, identity.device_id, identity.room, identity.revision)
+                )
+                if promoting:
+                    self._check_capacity(size - row["stored_bytes"])
+                elif len(existing) != 1 or (
                     row["user_id"], row["conversation_id"], row["transcript"], row["context_json"],
                     row["source"], row["device_id"], row["room"], row["idempotency_key"],
                 ) != (
@@ -235,8 +246,11 @@ class TurnStore:
                     identity.source, identity.device_id, identity.room, identity.idempotency_key,
                 ):
                     _fail("Idempotency key or turn ID was reused for different work", TurnConflictError)
-                return self._stored(row)
-            self._check_capacity(size)
+                elif not promoting:
+                    return self._stored(row)
+            else:
+                promoting = False
+                self._check_capacity(size)
             related = replaces or clarifies
             if replaces is not None and clarifies is not None:
                 _fail("A turn cannot both replace and clarify another turn", TurnConflictError)
@@ -255,22 +269,13 @@ class TurnStore:
                     "lease_owner=NULL, lease_until=NULL, delivery_state='interrupted', updated_at=? "
                     "WHERE turn_id=?", (now, replaces[0]),
                 )
-            sequence = self.conn.execute(
-                """INSERT INTO pending_turn_sequences (user_id, conversation_id, sequence)
-                   VALUES (?, ?, 1) ON CONFLICT(user_id, conversation_id)
-                   DO UPDATE SET sequence = sequence + 1 RETURNING sequence""",
-                (identity.user_id, identity.conversation_id),
-            ).fetchone()[0]
-            self.conn.execute(
-                """INSERT INTO pending_turns
-                   (turn_id, conversation_id, user_id, source, device_id, room, sequence,
-                    idempotency_key, transcript, context_json, input_validated,
-                    stored_bytes, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
-                (identity.turn_id, identity.conversation_id, identity.user_id, identity.source,
-                 identity.device_id, identity.room, sequence, identity.idempotency_key,
-                 transcript, context_json, size, now, now),
-            )
+            if promoting:
+                self.conn.execute(
+                    "UPDATE pending_turns SET context_json=?,stored_bytes=?,updated_at=? WHERE turn_id=?",
+                    (context_json, size, now, identity.turn_id),
+                )
+            else:
+                self._insert_accepted(identity, transcript, context_json, size, now)
             result = self._stored(self._row(identity.turn_id, identity.user_id))
             if related is not None:
                 self.conn.execute(
@@ -279,6 +284,52 @@ class TurnStore:
                 )
                 result = self._stored(self._row(identity.turn_id, identity.user_id))
         return result
+
+    def _insert_accepted(
+        self, identity: TurnIdentity, transcript: str, context_json: str, size: int, now: float,
+    ) -> None:
+        sequence = self.conn.execute(
+                """INSERT INTO pending_turn_sequences (user_id, conversation_id, sequence)
+                   VALUES (?, ?, 1) ON CONFLICT(user_id, conversation_id)
+                   DO UPDATE SET sequence = sequence + 1 RETURNING sequence""",
+                (identity.user_id, identity.conversation_id),
+        ).fetchone()[0]
+        self.conn.execute(
+                """INSERT INTO pending_turns
+                   (turn_id, conversation_id, user_id, source, device_id, room, sequence,
+                    idempotency_key, transcript, context_json, input_validated,
+                    stored_bytes, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (identity.turn_id, identity.conversation_id, identity.user_id, identity.source,
+                 identity.device_id, identity.room, sequence, identity.idempotency_key,
+                 transcript, context_json, size, now, now),
+        )
+
+    def finish_voice_preparation(self, identity: TurnIdentity, owner: str) -> None:
+        """Only a returned typed dispatch resolves the pessimistic preparation claim."""
+        with self._transaction():
+            row = self._owned(identity.turn_id, identity.user_id, owner, identity.revision)
+            if not self._stored(row).context.get("voice_ingress"):
+                _fail("Not a voice preparation claim", TurnConflictError)
+            self.conn.execute(
+                "UPDATE pending_turns SET state='accepted',action_outcome='none',lease_owner=NULL,"
+                "lease_until=NULL,updated_at=? WHERE turn_id=?", (time.time(), identity.turn_id),
+            )
+
+    def voice_delivery_head(self, device_id: str) -> StoredTurn | None:
+        with self._lock:
+            try:
+                row = self.conn.execute(
+                    """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=?
+                       AND state NOT IN ('superseded','cancelled')
+                       AND (state IN ('accepted','routing','fastpath_running','llm_pending','llm_running')
+                         OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation'))
+                       ORDER BY created_at,sequence LIMIT 1""", (device_id,),
+                ).fetchone()
+                return self._stored(row) if row else None
+            except sqlite3.Error as exc:
+                logger.exception("Voice delivery listing failed")
+                raise TurnStoreError("Voice delivery listing failed") from exc
 
     def find_existing(self, identity: TurnIdentity) -> StoredTurn | None:
         with self._lock:

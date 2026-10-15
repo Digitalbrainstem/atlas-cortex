@@ -28,6 +28,34 @@ The satellite system enables Atlas to be present in every room through distribut
 
 ## Design Principles
 
+### MVP voice admission (P06)
+
+Pi captures are mono PCM16 at 16 kHz, at most 480,000 bytes (15 seconds).
+Malformed frames, oversized chunks/captures and exhausted transient STT capacity
+return explicit errors; nothing is trimmed to its last bytes or evicted to make
+room. A capture-limit end asks the speaker to split the request and cannot execute
+an incomplete command. Short valid commands are not rejected by a duration floor.
+
+`AUDIO_PHRASE_END` is an acoustic pause, not a completed question. Audio remains in
+the bounded capture until `AUDIO_END`; duplicate ends do not submit a second tail.
+After STT, explicit question punctuation may separate questions. Local activation
+(wake/button/follow-up) permits continuations without demanding another spoken
+wake word. The extended VAD window cannot end an utterance before its long-pause
+threshold merely because a sliding window contains silence.
+
+The server runs bounded STT independently of LLM and delivery slots. Each finalized,
+input-validated transcript is committed before preparation/dispatch, with a
+pessimistic action claim during preparation so interrupted effects remain uncertain.
+`TURN_ACCEPTED` is sent only after durable routing. Pending transcript work stays
+in SQLite, while raw audio is released. Capture IDs support retry without repeating
+an already-admitted command.
+
+Delivery is separate from admission: later speech can be accepted while earlier
+audio awaits playback. Updated Pi agents advertise `playback_ack`; tagged
+`TTS_START/CHUNK/END` frames carry turn ID, revision and playback ID. Only a matching
+`PLAYBACK_ACK` marks playback complete. Sending bytes is not proof of hearing.
+Legacy devices without receipts remain delivery-unconfirmed, not falsely delivered.
+
 1. **Hardware-agnostic** — works on Raspberry Pi, ESP32-S3, x86 mini-PCs, Orange Pi, BeagleBone, FutureProofHomes Satellite1, or any Linux device with audio I/O
 2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → satellite announces itself, admin provisions from the panel
 3. **Self-announcing** — satellites broadcast their presence via mDNS on boot; Atlas passively listens — no network scanning

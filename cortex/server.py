@@ -135,6 +135,10 @@ async def lifespan(app: FastAPI):
     _conversation = ConversationCoordinator(_turn_store, _get_provider(), _safety_middleware)
     app.state.conversation_coordinator = _conversation
     register_service("conversation", _conversation.start, _conversation.stop)
+    from cortex.orchestrator.voice_turns import VoiceService
+    _voice_service = VoiceService(_turn_store, _conversation)
+    app.state.voice_service = _voice_service
+    register_service("voice-ingress", _voice_service.start, _voice_service.stop)
 
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:

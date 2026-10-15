@@ -13,6 +13,7 @@ import json
 import logging
 import socket
 import time
+import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 import websockets
@@ -107,6 +108,7 @@ class SatelliteWSClient:
             "type": "AUDIO_START",
             "satellite_id": self.satellite_id,
             "format": "pcm_16k_16bit_mono",
+            "capture_id": uuid.uuid4().hex,
         })
 
     async def send_audio_chunk(self, audio_data: bytes) -> None:
@@ -155,6 +157,9 @@ class SatelliteWSClient:
             "type": "BARGE_IN",
             "satellite_id": self.satellite_id,
         })
+
+    async def send_playback_ack(self, metadata: dict) -> None:
+        await self._send({**metadata, "type": "PLAYBACK_ACK"})
 
     async def send_cmd_ack(self, cmd_id: int | str, result: str) -> None:
         """Send acknowledgment for a remote management command."""

@@ -85,6 +85,11 @@ class SatelliteAgent:
         self._server_url_discovered = asyncio.Event()
         self._echo_suppress_until = 0.0  # timestamp: ignore VAD until this time
         self._auto_listen_deadline = 0.0  # auto-listen timeout
+        self._capture_done = asyncio.Event()
+        self._capture_done.set()
+        self._playback_task: asyncio.Task | None = None
+        self._tts_metadata: dict = {}
+        self._capture_bytes = 0
 
         # Barge-in detection: higher energy ratio during SPEAKING to reject
         # speaker echo picked up by the mic.  We require several consecutive
@@ -170,6 +175,9 @@ class SatelliteAgent:
             self.led.close()
         if self.ws:
             await self.ws.disconnect()
+        if self._playback_task is not None:
+            self._playback_task.cancel()
+            await asyncio.gather(self._playback_task, return_exceptions=True)
 
     def _init_components(self) -> None:
         """Create and configure all subsystems."""
@@ -256,7 +264,7 @@ class SatelliteAgent:
 
     def _detect_capabilities(self) -> list[str]:
         """Detect what this satellite can do."""
-        caps = ["audio_capture", "audio_playback"]
+        caps = ["audio_capture", "audio_playback", "playback_ack"]
         if self.config.wake_word_enabled:
             caps.append("wake_word")
         if self.config.led_type != "none":
@@ -313,6 +321,7 @@ class SatelliteAgent:
                 elif time.monotonic() - self._processing_start > 60:
                     logger.warning("Processing timeout — returning to IDLE")
                     self.state = State.IDLE
+                    self._capture_done.set()
                     self.led.set_pattern("idle")
                     self.vad.reset()
                     del self._processing_start
@@ -331,6 +340,8 @@ class SatelliteAgent:
                 await self._process_listening(audio)
             elif self.state == State.SPEAKING:
                 await self._process_speaking(audio)
+            elif self.state == State.PROCESSING:
+                await self._process_idle(audio)
             # PROCESSING is driven by server messages
 
     async def _process_idle(self, audio: bytes) -> None:
@@ -388,7 +399,14 @@ class SatelliteAgent:
                     await self.ws.send_status("idle")
                 return
 
-        # Total listening timeout — prevent infinite listening
+        if self._capture_bytes + len(audio) > 480000:
+            await self._transition_to_processing("capture_limit")
+            return
+        if self.ws.connected:
+            await self.ws.send_audio_chunk(audio)
+            self._capture_bytes += len(audio)
+
+        # Total listening timeout — report an incomplete capture, never trim its tail.
         listen_start = getattr(self, '_listening_start', 0)
         if listen_start and time.monotonic() - listen_start > self.config.max_listening_seconds:
             logger.info(
@@ -396,11 +414,8 @@ class SatelliteAgent:
                 self.config.max_listening_seconds,
             )
             self._auto_listen_deadline = 0
-            await self._transition_to_processing()
+            await self._transition_to_processing("capture_limit")
             return
-
-        if self.ws.connected:
-            await self.ws.send_audio_chunk(audio)
 
         result = self.vad.process(audio)
         if result == "speech_start" and deadline:
@@ -485,6 +500,8 @@ class SatelliteAgent:
 
     async def _transition_to_listening(self, confidence: float) -> None:
         self.state = State.LISTENING
+        self._capture_done.clear()
+        self._capture_bytes = 0
         self.led.set_pattern("listening")
         self.vad.reset()
         self._listening_start = time.monotonic()
@@ -494,12 +511,13 @@ class SatelliteAgent:
             await self.ws.send_audio_start()
             await self.ws.send_status("listening")
 
-    async def _transition_to_processing(self) -> None:
+    async def _transition_to_processing(self, reason: str = "vad_silence") -> None:
         self.state = State.PROCESSING
+        self._capture_done.set()
         self.led.set_pattern("thinking")
 
         if self.ws.connected:
-            await self.ws.send_audio_end("vad_silence")
+            await self.ws.send_audio_end(reason)
 
     # ── Server message handlers ───────────────────────────────────
 
@@ -507,6 +525,7 @@ class SatelliteAgent:
         """Server is about to send TTS audio."""
         logger.info("TTS_START received (rate=%s)", msg.get("sample_rate", "?"))
         self._tts_buffer.clear()
+        self._tts_metadata = {key: msg[key] for key in ("turn_id", "revision", "playback_id") if key in msg}
         # Check explicit sample_rate first, then parse from format string
         if "sample_rate" in msg:
             self._tts_sample_rate = int(msg["sample_rate"])
@@ -523,24 +542,45 @@ class SatelliteAgent:
         """Received a chunk of TTS audio."""
         audio_b64 = msg.get("audio", "")
         if audio_b64:
+            if len(self._tts_buffer) + len(audio_b64) * 3 // 4 > 4 * 1024 * 1024:
+                raise ValueError("TTS audio allocation exceeded")
             self._tts_buffer.extend(base64.b64decode(audio_b64))
 
     async def _on_tts_end(self, msg: dict) -> None:
         """TTS stream complete — play the buffered audio."""
+        audio = bytes(self._tts_buffer)
+        self._tts_buffer.clear()
+        metadata = dict(self._tts_metadata)
+        if metadata.get("playback_id"):
+            if self._playback_task is not None and not self._playback_task.done():
+                raise RuntimeError("Previous playback has not completed")
+            self._playback_task = asyncio.create_task(
+                self._play_received_audio(msg, audio, metadata), name="satellite-playback",
+            )
+            self._playback_task.add_done_callback(self._playback_finished)
+        else:
+            await self._play_received_audio(msg, audio, metadata)
+
+    def _playback_finished(self, task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Satellite playback failed", exc_info=task.exception())
+
+    async def _play_received_audio(self, msg: dict, audio: bytes, metadata: dict) -> None:
+        await self._capture_done.wait()
         is_filler = msg.get("is_filler", False)
         auto_listen = msg.get("auto_listen", False)
         more_pending = msg.get("more_pending", False)
         logger.info("TTS_END received (%d bytes buffered, rate=%d, filler=%s, more=%s)",
-                     len(self._tts_buffer), self._tts_sample_rate, is_filler, more_pending)
+                     len(audio), self._tts_sample_rate, is_filler, more_pending)
         self.state = State.SPEAKING
         self.led.set_pattern("speaking")
         self._bargein_speech_frames = 0  # reset for this playback
 
-        if self._tts_buffer:
-            await self.audio_out.play_pcm(
-                bytes(self._tts_buffer), self._tts_sample_rate
-            )
-            self._tts_buffer.clear()
+        completed = False
+        if audio:
+            completed = await self.audio_out.play_pcm(audio, self._tts_sample_rate)
+        if completed is True and metadata and self.state == State.SPEAKING:
+            await self.ws.send_playback_ack(metadata)
 
         # If barge-in occurred during playback the state is already LISTENING
         if self.state != State.SPEAKING:

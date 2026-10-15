@@ -40,6 +40,7 @@ async def _stream_audio_to_satellite(
 ) -> None:
     """Stream PCM audio to a satellite as TTS_START/CHUNK/END."""
     await conn.send({
+        **getattr(conn, "delivery_metadata", {}),
         "type": "TTS_START",
         "session_id": conn.session_id,
         "format": f"pcm_{rate // 1000}k_16bit_mono",
@@ -51,11 +52,13 @@ async def _stream_audio_to_satellite(
     for offset in range(0, len(audio), chunk_size):
         chunk = audio[offset:offset + chunk_size]
         await conn.send({
+            **getattr(conn, "delivery_metadata", {}),
             "type": "TTS_CHUNK",
             "session_id": conn.session_id,
             "audio": base64.b64encode(chunk).decode("ascii"),
         })
     msg: dict[str, Any] = {
+        **getattr(conn, "delivery_metadata", {}),
         "type": "TTS_END",
         "session_id": conn.session_id,
         "is_filler": is_filler,
@@ -245,7 +248,7 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
     t_start = time.monotonic()
 
     # Reject very short audio clips — likely echo/noise
-    min_audio_bytes = 48000  # ~1.5s at 16kHz 16-bit mono
+    min_audio_bytes = 2  # A PCM sample, not a semantic command-length test.
     if len(audio_data) < min_audio_bytes:
         audio_sec = len(audio_data) / 32000
         logger.info("Audio too short from %s (%.1fs, %d bytes) — dropping",

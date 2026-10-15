@@ -51,6 +51,12 @@ invalid values fail initialization. Changes require a restart.
 | `CORTEX_TURN_LEASE_SECONDS` | `120` | Active claim lease; workers must heartbeat before expiry |
 | `CORTEX_TURN_MAINTENANCE_SECONDS` | `30` | Expired-claim recovery and bounded terminal cleanup interval |
 
+Voice ingress additionally uses `CORTEX_STT_MAX_ACTIVE=2` and
+`CORTEX_STT_AUDIO_BUDGET_BYTES=4194304`. Active STT is independent of LLM slots.
+The shared raw-audio budget must fit at least one 480,000-byte capture; each
+connection also has a two-capture transient queue and a bounded current capture.
+Capacity errors reject new, unaccepted audio explicitly, never older accepted turns.
+
 The default profile uses one LLM claim and eight prefetched IDs for small systems.
 An operator may raise `MAX_ACTIVE` to actual provider capacity (for example four
 slots), without moving the disk backlog into memory. The isolated 10,000-turn
@@ -76,7 +82,8 @@ deterministic corrections. P05 durably admits true LLM fallthrough on the server
 and standalone Pipe worker; only bounded conversation heads enter inference.
 Use stable conversation/turn IDs or idempotency keys for LLM request retries.
 This does not yet provide durable acceptance/idempotency for fast effects or
-early microphone/STT ingress; complete finalized voice admission remains P06.
+early microphone audio itself. P06 adds durable finalized Pi transcripts and
+independent STT admission; raw audio is bounded and transient, not restart-persistent.
 LLM responses are buffered and validated before publication, not streamed raw.
 HA correction context uses a fixed conservative 120-second window; action
 journal retention and its distinction from this payload budget are described in

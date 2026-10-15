@@ -55,8 +55,12 @@ compatible, but generated text is not exposed token-by-token before validation.
 Browser reception remains available while replies wait; response frames include
 `turn_id`. Generated/delivery-ready output is not proof the user heard it.
 
-This is not yet durable admission on every ingress: early finalized voice handling
-remains P06 work. The existing satellite raw-audio queue is not replaced by P05.
+P06 adds a lifecycle-owned `VoiceService` with bounded STT admission independent
+of inference and playback. Complete Pi captures become validated durable turns;
+short acoustic pauses retain fragments rather than dispatching incomplete commands.
+Per-device delivery scans bounded durable heads, not an in-memory question backlog.
+Actual playback receipts are distinct from generated or sent text. Raw audio remains
+transient; legacy ESP32 ingress and browser STT retain their protocol paths.
 
 ## Processing Pipeline
 

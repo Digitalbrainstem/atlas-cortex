@@ -156,9 +156,15 @@ class ConversationCoordinator:
         }, sort_keys=True, allow_nan=False).encode()).hexdigest()
         existing = self.store.find_existing(identity)
         if existing is not None:
-            if existing.context.get("request_fingerprint") != fingerprint:
+            ingress = (
+                existing.context.get("voice_ingress") is True and existing.state == "accepted"
+                and existing.transcript == prepared.message and existing.identity == identity
+                and "request_fingerprint" not in existing.context
+            )
+            if not ingress and existing.context.get("request_fingerprint") != fingerprint:
                 raise TurnConflictError("Turn identity was reused for different work")
-            return existing
+            if not ingress:
+                return existing
 
         relation = metadata.get("relation", "independent")
         if relation not in ("independent", "correction", "replacement", "clarification"):
@@ -217,6 +223,7 @@ class ConversationCoordinator:
             if requested_correction and target is not None else None,
             clarifies=(target.identity.turn_id, target.identity.revision)
             if relation == "clarification" and target is not None else None,
+            promote_accepted=existing is not None,
         )
         owner = f"route:{identity.turn_id}"
         self.store.claim(identity.turn_id, identity.user_id, owner)
@@ -234,6 +241,10 @@ class ConversationCoordinator:
                 task.cancel()
         self._signal()
         return self.store.get(identity.turn_id, identity.user_id)
+
+    def admit_prepared(self, prepared: PreparedTurn, options: GenerationOptions) -> StoredTurn:
+        self._check_available()
+        return self._admit(prepared, options)
 
     async def stream(
         self, prepared: PreparedTurn, options: GenerationOptions,

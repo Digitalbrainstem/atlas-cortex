@@ -186,6 +186,10 @@ class VoiceActivityDetector:
                         "Max speech duration reached (%d frames), forcing end",
                         self._speech_frame_total,
                     )
+                    if self.utterance_silence_threshold > 0:
+                        self._speech_frame_total = 0
+                        self._phrase_fired = True
+                        return "phrase_end"
                     self._reset_state()
                     return "speech_end"
                 return "speech"
@@ -223,7 +227,7 @@ class VoiceActivityDetector:
                     return "phrase_end"
 
                 # Sliding window (uses long threshold for speech_end)
-                if len(self._window) >= self.window_size:
+                if not use_phrase and len(self._window) >= self.window_size:
                     n_silence = sum(1 for v in self._window if not v)
                     ratio = n_silence / len(self._window)
                     if ratio >= self.silence_ratio:
