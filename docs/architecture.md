@@ -2,7 +2,36 @@
 
 ## Overview
 
-Atlas Cortex is an Open WebUI **Pipe function** that intercepts all user messages and processes them through a multi-layer pipeline. Each layer is progressively more expensive — simple queries are answered instantly without touching the LLM, while complex queries get routed to the appropriate model with perceived-zero-latency filler streaming.
+Atlas Cortex exposes a standalone server and an Open WebUI **Pipe function** that
+share a multi-layer pipeline. Each layer is progressively more expensive:
+simple queries are answered without touching the LLM, while complex queries
+fall through to a configured model.
+
+### Staged turn processing
+
+`prepare_turn()` assembles L0 context and runs L1/L2 once, returning a typed
+`PreparedTurn`. Its route distinguishes handled requests, clarification, failure
+and true fallthrough. `run_prepared_pipeline_events()` renders that result or
+invokes L3 only for fallthrough; the public text/event generator wrappers retain
+their existing contracts. Typed events carry turn/conversation identity and
+revision for later orchestration and stale-result checks.
+
+The P03 operational `TurnStore` in `cortex/orchestrator/turn_store.py` owns durable
+finalized work and restart recovery, separately from the in-memory inference
+`RequestQueue` and playback. The store is initialized at server startup with
+bounded maintenance and authenticated administrative status/recovery controls.
+Input/output validation precedes acceptance/result publication through its API.
+
+P04 adds deterministic HA target corrections and explicit inverses, an indexed
+structured action journal, pre-effect intent commits and serialized conflicting
+effects. Already executed actions are reported truthfully, not implicitly undone.
+Plugins take precedence over learned informational templates, and unresolved
+device/list/timer targets ask for clarification rather than inventing success.
+
+This is still not a durable queue on every production ingress. LLM-only
+contextual coordination (the proposed conceptual "Layer 4" before generation)
+and early finalized voice admission remain P05-P06 work. The existing satellite
+raw-audio queue is not replaced merely by introducing the durable store.
 
 ## Processing Pipeline
 

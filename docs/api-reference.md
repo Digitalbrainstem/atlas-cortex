@@ -20,6 +20,22 @@ No authentication required. These endpoints are compatible with any OpenAI clien
 | `GET` | `/v1/audio/voices` | List available TTS voices across all providers |
 | `POST` | `/v1/audio/speech` | Text-to-speech synthesis — returns WAV audio |
 
+Speech defaults to the configured provider when `model` is omitted. An explicit
+provider name uses that provider; an unknown name logs a warning and falls back
+to the configured provider. Supported `response_format` values are `wav` and
+`pcm`. The endpoint collects provider chunks to produce a correctly sized WAV
+header (or raw PCM); sentence-level voice streaming uses the separate voice path.
+Provider failure returns an explicit 502 rather than a successful empty audio file.
+
+Chat metadata may carry `turn_id`, `conversation_id`, `revision`, `room` and
+`idempotency_key` for shared turn correlation. HTTP `Idempotency-Key` is forwarded
+as turn metadata. The P03 store foundation does **not yet** make existing chat
+entrypoints durably replayable; production queue/idempotency wiring is subsequent
+orchestration work. Do not rely on the header to suppress device effects yet.
+
+Generation failure is explicit: non-streaming chat returns 502; SSE returns an
+`error` event followed by `[DONE]`, without a successful `finish_reason: stop`.
+
 ### Examples
 
 #### Health Check
@@ -77,6 +93,22 @@ curl http://localhost:5100/v1/audio/speech \
 ---
 
 ## Chat API
+
+### Durable-store administration
+
+These endpoints require the existing admin bearer token:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/admin/system/turns` | Aggregate processing counts, payload/free-disk state and effective resource limits; no transcripts |
+| `GET` | `/admin/system/turns/recovery?user_id=...&limit=1` | Bounded IDs, revisions, processing/action/delivery states needing confirmation; limit must not exceed configured prefetch |
+| `POST` | `/admin/system/turns/{turn_id}/recover` | Confirm pending-work recovery using `user_id` and current `revision`; uncertain action retries additionally require `retry_uncertain: true` |
+
+Recovery approval returns work to the accepted state; it does not itself execute
+an action or resume spoken playback. Workers must recheck permissions at
+execution. Stale result playback requires separate delivery confirmation in the
+voice/output controller. Missing startup store returns 503, obsolete or
+unconfirmed uncertain recovery returns 409.
 
 User-facing endpoints for the chat SPA. No admin authentication required.
 

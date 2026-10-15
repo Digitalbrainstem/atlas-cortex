@@ -423,10 +423,14 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
         if personality_context:
             extra_context = f"{personality_context}\n{extra_context}" if extra_context else personality_context
 
-        pipeline_gen = await run_pipeline(
+        pipeline_gen = run_pipeline(
             message=transcript,
             provider=provider,
             satellite_id=satellite_id,
+            metadata={
+                "source": "satellite",
+                "conversation_id": conn.session_id or satellite_id,
+            },
             model_fast="qwen2.5:7b",
             memory_context=extra_context,
         )

@@ -20,6 +20,7 @@ from typing import Any, AsyncGenerator
 
 from cortex.filler import select_filler
 from cortex.providers.base import LLMProvider
+from .turns import PipelineGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -186,4 +187,6 @@ async def stream_llm_response(
                 yield chunk
     except Exception as exc:
         logger.error("LLM stream error: %s", exc)
-        yield "\n\n(Error: could not reach the language model. Please check your provider settings.)"
+        raise PipelineGenerationError(
+            "Could not reach the language model. Please check your provider settings."
+        ) from exc

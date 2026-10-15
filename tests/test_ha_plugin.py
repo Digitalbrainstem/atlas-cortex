@@ -87,10 +87,11 @@ class TestHAPlugin:
         result = await plugin.health()
         assert result is False
 
-    async def test_match_no_patterns(self, db_conn):
+    async def test_device_syntax_recognized_without_patterns(self, db_conn):
         plugin = HAPlugin(conn=db_conn)
         result = await plugin.match("turn on the lights", {})
-        assert result.matched is False
+        assert result.matched is True
+        assert result.intent == "toggle"
 
     async def test_match_with_loaded_patterns(self, db_conn):
         db_conn.execute(

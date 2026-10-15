@@ -14,14 +14,20 @@ python -m mocks.run
 
 # In another terminal, start Atlas Cortex server:
 LLM_URL=http://localhost:11434 \
+LLM_PROVIDER=openai_compatible \
 STT_HOST=localhost STT_PORT=10300 \
-TTS_PROVIDER=kokoro KOKORO_URL=http://localhost:8880 \
+TTS_PROVIDER=kokoro KOKORO_HOST=localhost KOKORO_PORT=8880 \
 MODEL_FAST=qwen2.5:7b MODEL_THINKING=qwen2.5:7b \
 python -m cortex.server
 ```
 
-The mock runner prints all environment variables you need. Copy/paste or
-use `python -m mocks.run` which sets them automatically.
+The mock runner prints the environment variables to export in the separate
+Cortex server terminal. Its own process environment cannot configure that other
+process. Use the actual selected ports for STT and Kokoro too.
+
+The LLM mock supports `/v1/models` and `/v1/chat/completions` (JSON and SSE),
+as well as legacy Ollama `/api/tags` and `/api/chat`. Both protocols reuse the
+same recorded responses and timing.
 
 ## What Gets Mocked
 

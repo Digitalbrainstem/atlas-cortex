@@ -71,7 +71,10 @@ class Pipe:
 
         messages: list[dict[str, str]] = body.get("messages", [])
         user_id: str = body.get("user", {}).get("id", "default") if isinstance(body.get("user"), dict) else "default"
-        metadata: dict[str, Any] = body.get("metadata", {})
+        metadata: dict[str, Any] = dict(body.get("metadata") or {})
+        metadata["source"] = "pipe"
+        if body.get("chat_id"):
+            metadata.setdefault("conversation_id", body["chat_id"])
 
         if not messages:
             yield "No message provided."
@@ -93,7 +96,7 @@ class Pipe:
 
         async def _collect() -> list[str]:
             tokens: list[str] = []
-            pipeline = await run_pipeline(
+            pipeline = run_pipeline(
                 message=user_message,
                 provider=_provider,
                 user_id=user_id,
@@ -108,15 +111,20 @@ class Pipe:
             return tokens
 
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and loop.is_running():
                 # Inside an async context — run in a thread
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(asyncio.run, _collect())
                     tokens = future.result(timeout=120)
-            else:
+            elif loop is not None:
                 tokens = loop.run_until_complete(_collect())
+            else:
+                tokens = asyncio.run(_collect())
         except Exception as exc:
             logger.exception("Pipe error: %s", exc)
             yield f"Error: {exc}"

@@ -176,7 +176,7 @@ class ResourceMonitor:
         vram_pct = (vram_used / vram_total) if vram_total > 0 else 0.0
         return ResourceLevels(
             ram_pct=mem.percent / 100.0,
-            disk_pct=disk.percent / 100.0,
+            disk_pct=disk.used / disk.total,
             vram_pct=vram_pct,
             ram_total_gb=mem.total / (1024 ** 3),
             ram_used_gb=mem.used / (1024 ** 3),

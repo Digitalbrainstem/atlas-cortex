@@ -52,6 +52,7 @@ class _MockServerRunner:
                 return
             except (ConnectionRefusedError, OSError):
                 await asyncio.sleep(0.1)
+        raise RuntimeError(f"Mock server did not become ready on port {self.port}")
 
     async def stop(self) -> None:
         self._server.should_exit = True
@@ -85,11 +86,13 @@ async def mock_servers():
     env_backup = {}
     env_vars = {
         "LLM_URL": f"http://127.0.0.1:{llm_port}",
-        "LLM_PROVIDER": "ollama",
+        "LLM_PROVIDER": "openai_compatible",
         "STT_HOST": "127.0.0.1",
         "STT_PORT": str(stt_port),
         "TTS_PROVIDER": "kokoro",
         "KOKORO_URL": f"http://127.0.0.1:{tts_port}",
+        "KOKORO_HOST": "127.0.0.1",
+        "KOKORO_PORT": str(tts_port),
         "MODEL_FAST": "qwen2.5:7b",
         "MODEL_THINKING": "qwen2.5:7b",
     }
@@ -97,26 +100,24 @@ async def mock_servers():
         env_backup[key] = os.environ.get(key)
         os.environ[key] = val
 
-    # Start all servers
-    for r in runners:
-        await r.start()
-
-    yield {
-        "llm_url": f"http://127.0.0.1:{llm_port}",
-        "stt_host": "127.0.0.1",
-        "stt_port": stt_port,
-        "tts_url": f"http://127.0.0.1:{tts_port}",
-    }
-
-    # Cleanup
-    for r in runners:
-        await r.stop()
-
-    for key, val in env_backup.items():
-        if val is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = val
+    try:
+        for r in runners:
+            await r.start()
+        yield {
+            "llm_url": f"http://127.0.0.1:{llm_port}",
+            "stt_host": "127.0.0.1",
+            "stt_port": stt_port,
+            "tts_url": f"http://127.0.0.1:{tts_port}",
+        }
+    finally:
+        for r in reversed(runners):
+            if r._task is not None:
+                await r.stop()
+        for key, val in env_backup.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
 
 
 @pytest.fixture

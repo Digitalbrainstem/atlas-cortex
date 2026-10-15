@@ -16,25 +16,29 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
 import time
 import uuid
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Literal
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from aiohttp import ClientError
 
 from cortex.admin_api import router as admin_router
 from cortex.auth_user import get_user_auth
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
+from cortex.pipeline.turns import PipelineGenerationError
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
 from cortex.satellite.websocket import satellite_ws_handler, on_barge_in
@@ -118,6 +122,13 @@ async def lifespan(app: FastAPI):
     _memory = MemorySystem(conn=get_db())
     set_memory_system(_memory)
     register_service("memory", _memory.start, _memory.stop)
+
+    from cortex.orchestrator.turn_store import TurnStore, TurnStoreService
+    _turn_store = TurnStore(get_db())
+    _turn_store.recover(startup=True)
+    _turn_service = TurnStoreService(_turn_store)
+    app.state.turn_store = _turn_store
+    register_service("durable-turns", _turn_service.start, _turn_service.stop)
 
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
@@ -213,8 +224,10 @@ async def lifespan(app: FastAPI):
     app.state.recovery_result = _recovery_result
 
     await start_all()
-    yield
-    await stop_all()
+    try:
+        yield
+    finally:
+        await stop_all()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -250,6 +263,7 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     """Browser chat WebSocket — streams pipeline responses and voice I/O."""
     await websocket.accept()
     audio_buffer = bytearray()
+    conversation_id = uuid.uuid4().hex
 
     try:
         while True:
@@ -332,16 +346,25 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
 
             await websocket.send_json({"type": "start"})
 
+            metadata = dict(data.get("metadata") or {})
+            metadata.setdefault("conversation_id", conversation_id)
+            metadata["source"] = "browser"
             full_response = ""
-            async for chunk in run_pipeline(
-                message=message,
-                provider=provider,
-                user_id=user_id,
-                conversation_history=history,
-                db_conn=db_conn,
-            ):
-                full_response += chunk
-                await websocket.send_json({"type": "token", "text": chunk})
+            try:
+                async for chunk in run_pipeline(
+                    message=message,
+                    provider=provider,
+                    user_id=user_id,
+                    conversation_history=history,
+                    metadata=metadata,
+                    db_conn=db_conn,
+                ):
+                    full_response += chunk
+                    await websocket.send_json({"type": "token", "text": chunk})
+            except (PipelineGenerationError, ValueError) as exc:
+                logger.warning("Chat turn failed: %s", exc)
+                await websocket.send_json({"type": "error", "text": str(exc)})
+                continue
 
             await websocket.send_json({
                 "type": "end",
@@ -481,7 +504,10 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     db_conn = _get_db()
 
     user_id = request.user or request.metadata.get("user_id", "default")
-    metadata = request.metadata
+    metadata = dict(request.metadata)
+    metadata["source"] = "http"
+    if raw.headers.get("Idempotency-Key"):
+        metadata["idempotency_key"] = raw.headers["Idempotency-Key"]
 
     # ── Input guardrails (Principle II, IV — safety before pipeline) ──
     from cortex.safety import Severity
@@ -522,7 +548,12 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
             media_type="text/event-stream",
         )
     else:
-        full = "".join([chunk async for chunk in pipeline])
+        try:
+            full = "".join([chunk async for chunk in pipeline])
+        except PipelineGenerationError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         # ── Output guardrails (Principle II, IV — safety after LLM) ──
         if _safety_middleware is not None:
             output_result = _safety_middleware.check_output(
@@ -544,21 +575,27 @@ async def _sse_stream(
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
 
-    async for chunk in gen:
-        data = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {"role": "assistant", "content": chunk},
-                    "finish_reason": None,
-                }
-            ],
-        }
-        yield f"data: {json.dumps(data)}\n\n"
+    try:
+        async for chunk in gen:
+            data = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": chunk},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+    except (PipelineGenerationError, ValueError) as exc:
+        logger.warning("Streaming chat failed: %s", exc)
+        yield f"data: {json.dumps({'error': {'message': str(exc), 'type': type(exc).__name__}})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
 
     # Final chunk
     final = {
@@ -595,11 +632,11 @@ def _json_response(content: str, model: str) -> JSONResponse:
 # ──────────────────────────────────────────────────────────────────
 
 class SpeechRequest(BaseModel):
-    model: str = "orpheus"
+    model: str | None = None
     input: str
     voice: str | None = None
     speed: float = 1.0
-    response_format: str = "wav"
+    response_format: Literal["wav", "pcm"] = "wav"
     emotion: str | None = None
 
 
@@ -615,8 +652,9 @@ async def list_voices():
 @app.post("/v1/audio/speech")
 async def create_speech(req: SpeechRequest):
     try:
-        provider = get_tts_provider(req.model)
+        provider = get_tts_provider({"TTS_PROVIDER": req.model}) if req.model else get_tts_provider()
     except (ValueError, KeyError):
+        logger.warning("Unknown speech model %s; using the configured provider", req.model)
         provider = get_tts_provider()
 
     # Prepend emotion tag for tag-based providers
@@ -624,7 +662,8 @@ async def create_speech(req: SpeechRequest):
     if req.emotion and provider.get_emotion_format() == "tags":
         text = f"{req.emotion}: {text}"
 
-    async def _stream():
+    try:
+        chunks: list[bytes] = []
         async for chunk in provider.synthesize(
             text=text,
             voice=req.voice,
@@ -632,13 +671,29 @@ async def create_speech(req: SpeechRequest):
             speed=req.speed,
             stream=True,
         ):
-            yield chunk
-
-    return StreamingResponse(
-        _stream(),
-        media_type="audio/wav",
-        headers={"Transfer-Encoding": "chunked"},
-    )
+            chunks.append(chunk)
+        audio = b"".join(chunks)
+        if not audio:
+            raise ValueError("Speech provider returned no audio")
+        from cortex.speech.tts import extract_pcm
+        rate = getattr(provider, "sample_rate", 24000)
+        if isinstance(rate, bool) or not isinstance(rate, int) or rate <= 0:
+            raise ValueError("Speech provider sample rate must be a positive integer")
+        pcm, rate = extract_pcm(audio, default_rate=rate)
+        if req.response_format == "pcm":
+            return Response(pcm, media_type="audio/pcm")
+        if audio.startswith(b"RIFF"):
+            return Response(audio, media_type="audio/wav")
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(rate)
+            output.writeframes(pcm)
+        return Response(buffer.getvalue(), media_type="audio/wav")
+    except (ClientError, OSError, ValueError, RuntimeError, wave.Error) as exc:
+        logger.exception("Speech synthesis failed")
+        raise HTTPException(status_code=502, detail="Speech synthesis failed") from exc
 
 
 # ──────────────────────────────────────────────────────────────────

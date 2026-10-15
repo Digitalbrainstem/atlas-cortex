@@ -32,6 +32,54 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 | `MODEL_THINKING` | `qwen3.5:27b` | Model for complex reasoning (OpenAI-compatible provider) |
 | `MODEL_EMBEDDING` | — | Embedding model (legacy, Docker only) |
 
+## Durable Finalized Turns (MVP foundation)
+
+The operational turn ledger uses the existing SQLite database, not Redis or a
+second server. Pending work is disk-backed; only bounded pages of IDs and active
+work need memory. These are positive integer environment settings, read at startup;
+invalid values fail initialization. Changes require a restart.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_TURN_MAX_ACTIVE` | `1` | Maximum simultaneously claimed LLM turns; fast-path claims do not acquire these slots |
+| `CORTEX_TURN_PREFETCH` | `8` | Maximum IDs per dispatch/recovery page and rows per terminal cleanup batch |
+| `CORTEX_TURN_MAX_INPUT_BYTES` | `65536` | Combined UTF-8 transcript, serialized identity and JSON context admission limit |
+| `CORTEX_TURN_MAX_STORE_BYTES` | `67108864` | Aggregate retained turn payload budget (64 MiB); not a fixed question-count cap or total database-file size limit |
+| `CORTEX_TURN_MIN_FREE_DISK_BYTES` | `16777216` | Minimum remaining filesystem space (16 MiB), plus the proposed write size |
+| `CORTEX_TURN_RETENTION_SECONDS` | `604800` | Minimum terminal-record retention (7 days); accepted/recovering/uncertain work and unheard results are not evicted |
+| `CORTEX_TURN_LEASE_SECONDS` | `120` | Active claim lease; workers must heartbeat before expiry |
+| `CORTEX_TURN_MAINTENANCE_SECONDS` | `30` | Expired-claim recovery and bounded terminal cleanup interval |
+
+The default profile uses one LLM claim and eight prefetched IDs for small systems.
+An operator may raise `MAX_ACTIVE` to actual provider capacity (for example four
+slots), without moving the disk backlog into memory. The isolated 10,000-turn
+fixture occupied approximately 6.8 MiB of payload and increased process RSS by
+approximately 1.1 MiB between 100 and 10,000 pending turns. This is foundation
+storage evidence, not a production model-memory or hardware latency benchmark.
+
+At a real payload/free-disk boundary, new acceptance fails explicitly; already
+accepted questions are preserved. Raw microphone audio is not retained in this
+ledger. Finalized operational transcripts and necessary command operands are
+retained verbatim after caller input validation, unlike redacted diagnostic logs;
+protect the data directory and its backups accordingly.
+
+On startup, pending/interrupted work requires confirmation. An interrupted
+external action is `uncertain`, not automatically retried. Completed audio awaiting
+delivery also requires confirmation instead of unexpectedly replaying after a
+restart. User deletion removes ledger rows and sequence state; older backups may
+still contain them and must follow the deployment's backup deletion policy.
+
+**Implementation boundary:** P00-P03 provides the store, staged routing,
+maintenance, aggregate admin status and recovery primitives. Existing HTTP,
+browser, Pipe and satellite calls do not yet submit every turn to this ledger
+or dispatch its backlog. P04 adds a separate structured HA action journal,
+deterministic corrections and truthful backend outcomes; it does not turn those
+clients into durable queue consumers. LLM/voice coordination and finalized-turn
+ingress are P05-P06 work; do not claim durable replay/idempotency for clients yet.
+HA correction context uses a fixed conservative 120-second window; action
+journal retention and its distinction from this payload budget are described in
+the [data model](data-model.md#ha-structured-command-context).
+
 ## TTS (Text-to-Speech)
 
 | Variable | Default | Description |

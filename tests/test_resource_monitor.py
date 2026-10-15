@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import namedtuple
 
 import pytest
 
@@ -13,6 +14,14 @@ from cortex.system.resource_monitor import (
     ResourceMonitor,
     Thresholds,
 )
+
+
+def test_resource_reading_uses_shutil_disk_usage_fields(monkeypatch):
+    usage = namedtuple("usage", "total used free")(1000, 250, 750)
+    monkeypatch.setattr("cortex.system.resource_monitor._disk_usage", lambda: usage)
+    monkeypatch.setattr("cortex.system.resource_monitor._gpu_vram", lambda: (0, 0))
+    levels = ResourceMonitor()._read_resources()
+    assert levels.disk_pct == 0.25
 
 
 # ──────────────────────────────────────────────────────────────────

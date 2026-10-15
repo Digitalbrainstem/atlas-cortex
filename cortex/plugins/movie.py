@@ -173,6 +173,7 @@ class MoviePlugin(CortexPlugin):
                 success=False,
                 response="",
                 metadata={"no_api_key": True},
+                handled=False,
             )
 
         if not title:

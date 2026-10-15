@@ -136,10 +136,13 @@ async def set_user_age(user_id: str, req: SetAgeRequest, _: dict = Depends(requi
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, _: dict = Depends(require_admin)):
     conn = _h._db()
-    conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
-    conn.execute("DELETE FROM emotional_profiles WHERE user_id = ?", (user_id,))
-    conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
-    conn.commit()
+    with conn:
+        conn.execute("DELETE FROM pending_turns WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM pending_turn_sequences WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM ha_command_context WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM emotional_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
     return {"ok": True}
 
 

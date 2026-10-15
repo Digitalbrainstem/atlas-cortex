@@ -26,11 +26,13 @@ from .events import (
     VisemeEvent,
     TTSEvent,
     LayerResult,
+    TurnEvent,
 )
 from .layer0_context import assemble_context
 from .layer1_instant import try_instant_answer
-from .layer2_plugins import try_plugin_dispatch
+from .layer2_plugins import dispatch_plugins
 from .layer3_llm import stream_llm_response
+from .turns import DispatchResult, PreparedTurn, RouteStatus, TurnIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +132,29 @@ async def _pipeline_event_generator(
     memory_context: str,
     db_conn: Any,
 ) -> AsyncGenerator[PipelineEvent, None]:
-    start_ms = int(time.monotonic() * 1000)
+    prepared = await prepare_turn(
+        message, user_id=user_id, speaker_id=speaker_id, satellite_id=satellite_id,
+        conversation_history=conversation_history, metadata=metadata,
+    )
+    async for event in run_prepared_pipeline_events(
+        prepared, provider, model_fast=model_fast, model_thinking=model_thinking,
+        system_prompt=system_prompt, memory_context=memory_context, db_conn=db_conn,
+    ):
+        yield event
 
-    # ── Layer 0: Context Assembly ─────────────────────────────
+
+async def prepare_turn(
+    message: str,
+    *,
+    user_id: str = "default",
+    speaker_id: str | None = None,
+    satellite_id: str | None = None,
+    conversation_history: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> PreparedTurn:
+    """Assemble context and execute fast paths without acquiring an LLM slot."""
+    identity = TurnIdentity.from_metadata(user_id, metadata, satellite_id)
+    start_ms = int(time.monotonic() * 1000)
     t0 = time.monotonic()
     context = await assemble_context(
         message=message,
@@ -143,11 +165,49 @@ async def _pipeline_event_generator(
         metadata=metadata,
     )
     layer0_ms = (time.monotonic() - t0) * 1000
-    logger.debug("Layer 0 (context): %.1fms", layer0_ms)
+    context["turn_identity"] = identity
+    context["room"] = identity.room or context.get("room")
+    times = {"L0": layer0_ms}
 
-    room = context.get("room") or "default"
+    t1 = time.monotonic()
+    response, confidence = await try_instant_answer(message, context)
+    times["L1"] = (time.monotonic() - t1) * 1000
+    if response is not None:
+        result = DispatchResult(RouteStatus.HANDLED, response, confidence, layer="instant")
+    else:
+        t2 = time.monotonic()
+        result = await dispatch_plugins(message, context)
+        times["L2"] = (time.monotonic() - t2) * 1000
+    return PreparedTurn(identity, message, context, result, start_ms, times)
+
+
+async def run_prepared_pipeline_events(
+    prepared: PreparedTurn,
+    provider: LLMProvider,
+    *,
+    model_fast: str = os.environ.get("MODEL_FAST", "qwen2.5:14b"),
+    model_thinking: str = os.environ.get("MODEL_THINKING", "qwen3:30b-a3b"),
+    system_prompt: str = "",
+    memory_context: str = "",
+    db_conn: Any = None,
+) -> AsyncGenerator[PipelineEvent, None]:
+    """Consume fast-path results or generate only for a genuine fallthrough."""
+    if prepared.consumed:
+        logger.error("Prepared turn already consumed: %s", prepared.identity.turn_id)
+        raise ValueError("Prepared turn has already been consumed")
+    prepared.consumed = True
+    message = prepared.message
+    context = prepared.context
+    identity = prepared.identity
+    user_id = identity.user_id
+    start_ms = prepared.start_ms
     sentiment = context.get("sentiment", "neutral")
     sentiment_score = context.get("sentiment_score", 0.5)
+    layer0_ms = prepared.layer_times["L0"]
+    layer1_ms = prepared.layer_times["L1"]
+    layer2_ms = prepared.layer_times.get("L2", 0.0)
+
+    yield TurnEvent(identity)
 
     # Initial expression from sentiment
     yield ExpressionEvent(
@@ -156,23 +216,23 @@ async def _pipeline_event_generator(
         sentiment=sentiment,
     )
 
-    # ── Layer 1: Instant Answers ─────────────────────────────
-    t1 = time.monotonic()
-    instant_response, instant_confidence = await try_instant_answer(message, context)
-    layer1_ms = (time.monotonic() - t1) * 1000
-    if instant_response is not None:
+    result = prepared.dispatch
+    if result.status != RouteStatus.NOT_MATCHED:
+        response = result.response
+        if response is None:
+            raise ValueError("Handled turn must contain a response")
         total_ms = int(time.monotonic() * 1000) - start_ms
-        logger.info("Layer 1 hit (%.1fms): %r [total %dms]", layer1_ms, instant_response[:80], total_ms)
+        logger.info("Fast path %s: %s [total %dms]", result.layer, result.status.value, total_ms)
 
         yield SpeakingEvent(speaking=True)
-        yield VisemeEvent(text=instant_response)
+        yield VisemeEvent(text=response)
 
         # Handle jokes: setup + punchline as separate TTS events
-        _is_joke = "\n" in instant_response and any(
+        _is_joke = result.layer == "instant" and "\n" in response and any(
             w in message.lower() for w in ("joke", "funny", "laugh", "giggle")
         )
         if _is_joke:
-            parts = instant_response.split("\n", 1)
+            parts = response.split("\n", 1)
             _joke_punchline_tts = context.get("_joke_punchline_tts")
             for i, part in enumerate(parts):
                 part = part.strip()
@@ -183,56 +243,31 @@ async def _pipeline_event_generator(
                 expression="laughing",
                 intensity=0.8,
                 sentiment=sentiment,
-                text=f"{message} {instant_response}",
+                text=f"{message} {response}",
             )
         else:
-            yield TTSEvent(text=instant_response)
+            yield TTSEvent(text=response)
 
-        yield TextToken(text=instant_response)
+        yield TextToken(text=response)
         yield SpeakingEvent(speaking=False)
         yield LayerResult(
-            layer="instant",
-            confidence=instant_confidence,
+            layer=result.layer,
+            confidence=result.confidence,
             response_time_ms=total_ms,
-            layer_times={"L0": layer0_ms, "L1": layer1_ms},
+            layer_times=prepared.layer_times,
+            status=result.status,
+            action_outcome=result.action_outcome,
+            turn_id=identity.turn_id,
+            revision=identity.revision,
         )
         _log_interaction(
-            db_conn, context, message, instant_response,
-            matched_layer="instant",
-            confidence=instant_confidence,
+            db_conn, context, message, response,
+            matched_layer=result.layer,
+            confidence=result.confidence,
+            entities_used=result.entities,
             response_time_ms=total_ms,
         )
         return
-    logger.debug("Layer 1 (instant): %.1fms — no match", layer1_ms)
-
-    # ── Layer 2: Plugin Dispatch ──────────────────────────────
-    t2 = time.monotonic()
-    plugin_response, plugin_confidence, entities = await try_plugin_dispatch(message, context)
-    layer2_ms = (time.monotonic() - t2) * 1000
-    if plugin_response is not None:
-        total_ms = int(time.monotonic() * 1000) - start_ms
-        logger.info("Layer 2 hit (%.1fms): %r [total %dms]", layer2_ms, plugin_response[:80], total_ms)
-
-        yield SpeakingEvent(speaking=True)
-        yield VisemeEvent(text=plugin_response)
-        yield TTSEvent(text=plugin_response)
-        yield TextToken(text=plugin_response)
-        yield SpeakingEvent(speaking=False)
-        yield LayerResult(
-            layer="tool",
-            confidence=plugin_confidence,
-            response_time_ms=total_ms,
-            layer_times={"L0": layer0_ms, "L1": layer1_ms, "L2": layer2_ms},
-        )
-        _log_interaction(
-            db_conn, context, message, plugin_response,
-            matched_layer="tool",
-            confidence=plugin_confidence,
-            entities_used=entities,
-            response_time_ms=total_ms,
-        )
-        return
-    logger.debug("Layer 2 (plugins): %.1fms — no match", layer2_ms)
 
     # ── Layer 3: Filler + LLM ────────────────────────────────
     t3 = time.monotonic()
@@ -317,6 +352,8 @@ async def _pipeline_event_generator(
         confidence=0.0,
         response_time_ms=total_ms,
         layer_times={"L0": layer0_ms, "L1": layer1_ms, "L2": layer2_ms, "L3": layer3_ms},
+        turn_id=identity.turn_id,
+        revision=identity.revision,
     )
     _log_interaction(
         db_conn, context, message, full_response,

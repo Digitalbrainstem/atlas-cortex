@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Start all mock servers for GPU-free Atlas Cortex development.
 
-Launches mock LLM (Ollama), STT (Whisper), and TTS (Kokoro) servers
+Launches mock LLM (OpenAI-compatible), STT (Whisper), and TTS (Kokoro) servers
 on localhost with realistic timing from benchmark data.
 
 Usage:
@@ -76,7 +76,7 @@ async def run_all(args: argparse.Namespace) -> None:
     enabled = set(args.only.split(",")) if args.only else {"llm", "stt", "tts"}
 
     if "llm" in enabled:
-        servers.append(MockServer("Mock LLM (Ollama)", "mocks.mock_llm_server:app", args.llm_port))
+        servers.append(MockServer("Mock LLM (OpenAI-compatible)", "mocks.mock_llm_server:app", args.llm_port))
     if "stt" in enabled:
         servers.append(MockServer("Mock STT (Whisper)", "mocks.mock_stt_server:app", args.stt_port))
     if "tts" in enabled:
@@ -88,11 +88,13 @@ async def run_all(args: argparse.Namespace) -> None:
 
     # Set environment variables for Atlas Cortex
     os.environ["LLM_URL"] = f"http://localhost:{args.llm_port}"
-    os.environ["LLM_PROVIDER"] = "ollama"
+    os.environ["LLM_PROVIDER"] = "openai_compatible"
     os.environ["STT_HOST"] = "localhost"
     os.environ["STT_PORT"] = str(args.stt_port)
     os.environ["TTS_PROVIDER"] = "kokoro"
     os.environ["KOKORO_URL"] = f"http://localhost:{args.tts_port}"
+    os.environ["KOKORO_HOST"] = "localhost"
+    os.environ["KOKORO_PORT"] = str(args.tts_port)
     os.environ["MODEL_FAST"] = "qwen2.5:7b"
     os.environ["MODEL_THINKING"] = "qwen2.5:7b"
 
@@ -103,10 +105,12 @@ async def run_all(args: argparse.Namespace) -> None:
     for s in servers:
         print(f"  {s.name:30s}  http://localhost:{s.port}")
     print()
-    print("Environment variables set:")
+    print("Export these variables in the separate Cortex server terminal:")
+    print("  LLM_PROVIDER=openai_compatible")
     print(f"  LLM_URL=http://localhost:{args.llm_port}")
     print(f"  STT_HOST=localhost  STT_PORT={args.stt_port}")
     print(f"  KOKORO_URL=http://localhost:{args.tts_port}")
+    print(f"  TTS_PROVIDER=kokoro KOKORO_HOST=localhost KOKORO_PORT={args.tts_port}")
     print(f"  MODEL_FAST=qwen2.5:7b  MODEL_THINKING=qwen2.5:7b")
     print()
     print("Press Ctrl-C to stop all servers.")

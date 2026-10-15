@@ -3,12 +3,75 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from cortex.db import get_db
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
 
 router = APIRouter()
+
+
+def _turn_store(request: Request):
+    store = getattr(request.app.state, "turn_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Durable turn store is not initialized")
+    return store
+
+
+@router.get("/system/turns")
+async def get_turn_store_status(request: Request, _: dict = Depends(require_admin)):
+    """Effective limits and aggregate state; no household transcript bodies."""
+    from cortex.orchestrator.turn_store import TurnStoreError
+    try:
+        return _turn_store(request).status()
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/system/turns/recovery")
+async def get_recoverable_turns(
+    request: Request, user_id: str = Query(min_length=1),
+    limit: int = Query(1, ge=1), _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    store = _turn_store(request)
+    try:
+        ids = store.recovery_ids(user_id, limit=limit)
+        turns = [store.get(turn_id, user_id) for turn_id in ids]
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"turns": [
+        {"turn_id": turn.identity.turn_id, "revision": turn.identity.revision,
+         "state": turn.state, "action_outcome": turn.action_outcome,
+         "delivery_state": turn.delivery_state}
+        for turn in turns
+    ]}
+
+
+class TurnRecoveryRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    revision: int = Field(ge=1, strict=True)
+    retry_uncertain: bool = False
+
+
+@router.post("/system/turns/{turn_id}/recover")
+async def confirm_turn_recovery(
+    turn_id: str, body: TurnRecoveryRequest, request: Request,
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    try:
+        _turn_store(request).confirm_recovery(
+            turn_id, body.user_id, body.revision, retry_uncertain=body.retry_uncertain,
+        )
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 # ── Evolution ─────────────────────────────────────────────────────

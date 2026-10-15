@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from typing import Any
 
 from cortex.plugins.base import CommandMatch, CommandResult, ConfigField, CortexPlugin
+from cortex.plugins.intent import correction_fragment
 from .client import HAClient, HAClientError, HAConnectionError
+from .commands import CommandContext, HACommand
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,7 @@ class HAPlugin(CortexPlugin):
         self._conn: Any = conn
         self._patterns: list[tuple[re.Pattern, dict]] | None = None
         self._configured: bool = client is not None
+        self._commands = CommandContext(conn)
 
     @property
     def health_message(self) -> str:
@@ -90,9 +94,94 @@ class HAPlugin(CortexPlugin):
             return False
 
     async def match(self, message: str, context: dict[str, Any]) -> CommandMatch:
+        try:
+            return await self._match(message, context)
+        except (sqlite3.Error, ValueError, TypeError):
+            logger.exception("Could not read HA command context or patterns")
+            return CommandMatch(True, metadata={
+                "failure": "I couldn't read the device command state. No device action was started.",
+            })
+
+    async def _match(self, message: str, context: dict[str, Any]) -> CommandMatch:
         """Match message against cached command_patterns from DB."""
         if self._conn is None:
             return CommandMatch(matched=False)
+
+        previous_outcome: str | None = None
+        fragment = correction_fragment(message)
+        followup = fragment is not None
+        text = fragment if fragment is not None else message
+        pronoun = re.fullmatch(
+            r"\s*(?:turn|switch)\s+(?:(on|off)\s+(it|them|that)|"
+            r"(it|them|that)\s+(on|off))\s*[.!]?\s*",
+            text, re.IGNORECASE,
+        )
+        if (followup or pronoun) and (
+            context.get("recent_plugin_id") != self.plugin_id or context.get("recent_command_failed")
+        ):
+            if pronoun:
+                return CommandMatch(True, metadata={
+                    "clarification": "Which device do you mean? Please restate the full command.",
+                })
+            if re.match(
+                r"^(?:turn|switch|set|dim|brighten|lock|unlock|open|close|"
+                r"activate|run|trigger|play|pause|stop)\b", text, re.IGNORECASE,
+            ):
+                return await self._match(text, context)
+            if context.get("recent_plugin_id") is not None:
+                return CommandMatch(False)
+        if followup or pronoun:
+            recent = (
+                self._commands.recent(context)
+                if context.get("recent_plugin_id") == self.plugin_id and not context.get("recent_command_failed")
+                else None
+            )
+            if recent is None:
+                if followup and re.match(
+                    r"^(?:turn|switch|set|dim|brighten|lock|unlock|open|close|"
+                    r"activate|run|trigger|play|pause|stop)\b", text, re.IGNORECASE,
+                ) and not pronoun:
+                    return await self._match(text, context)
+                if not pronoun and not self._resolve_entity(
+                    re.sub(r"^the\s+", "", text, flags=re.IGNORECASE), "",
+                    context.get("room"),
+                )[0]:
+                    return CommandMatch(False)
+                return CommandMatch(True, metadata={
+                    "clarification": "Which device and action do you mean? Please name them explicitly.",
+                })
+            previous, outcome = recent
+            previous_outcome = outcome
+            if outcome in ("uncertain", "ambiguous"):
+                return CommandMatch(True, metadata={
+                    "clarification": "The earlier device command has an uncertain or ambiguous outcome. "
+                    "Please check it and specify the device and action explicitly.",
+                })
+            if pronoun:
+                if previous.domain not in ("light", "switch", "fan", "input_boolean"):
+                    return CommandMatch(True, metadata={
+                        "clarification": "Please name the device and action explicitly.",
+                    })
+                state = pronoun.group(1) or pronoun.group(4)
+                command = HACommand(
+                    previous.domain, f"turn_{state.lower()}", previous.target,
+                )
+                return CommandMatch(True, "toggle", metadata={
+                    "command": command, "correction": True, "previous_outcome": outcome,
+                })
+            # A full explicit command after "no"/"actually" is independent parsing,
+            # not a target fragment that could accidentally become a device name.
+            if not re.match(
+                r"^(?:turn|switch|set|dim|brighten|lock|unlock|open|close|"
+                r"activate|run|trigger|play|pause|stop)\b", text, re.IGNORECASE,
+            ):
+                target = re.sub(r"^(?:the\s+)", "", text, flags=re.IGNORECASE)
+                target = re.sub(r"\s+instead$", "", target, flags=re.IGNORECASE)
+                return CommandMatch(True, "correction", metadata={
+                    "command": HACommand(previous.domain, previous.service, target, previous.data),
+                    "correction": True, "previous_outcome": outcome, "target_correction": True,
+                })
+            message = text
 
         if self._patterns is None:
             self._load_patterns()
@@ -128,12 +217,32 @@ class HAPlugin(CortexPlugin):
                 metadata={
                     "pattern_id": row["id"],
                     "entity_domain": row["entity_domain"],
-                    "value_match_group": row["value_match_group"],
+                    "value_match_group": row["value_match_group"] or (
+                        1 if m.lastindex and row["intent"] in (
+                            "toggle", "set_brightness", "set_temperature", "lock", "cover", "media_control",
+                        ) else None
+                    ),
                     "response_template": row["response_template"],
                     "regex_match": m,
+                    "correction": bool(followup),
+                    "previous_outcome": previous_outcome,
                 },
             )
 
+        # Generic syntax also recognizes unknown/ambiguous targets. Device-specific
+        # discovered patterns alone cannot ask a clarification for a missing name.
+        toggle = re.fullmatch(
+            r"\s*(?:turn|switch)\s+(on|off)\s+(?:the\s+)?(.+?)\s*[.!]?\s*",
+            message, re.IGNORECASE,
+        )
+        if toggle:
+            target = toggle.group(2)
+            domain = "light" if re.search(r"\blights?\b", target, re.IGNORECASE) else ""
+            return CommandMatch(True, "toggle", metadata={
+                "command": HACommand(domain, f"turn_{toggle.group(1).lower()}", target),
+                "correction": bool(followup),
+                "previous_outcome": previous_outcome,
+            })
         return CommandMatch(matched=False)
 
     async def handle(
@@ -143,6 +252,13 @@ class HAPlugin(CortexPlugin):
         context: dict[str, Any],
     ) -> CommandResult:
         """Execute the HA command and return a natural-language response."""
+        if match.metadata.get("failure"):
+            return CommandResult(False, match.metadata["failure"],
+                                 metadata={"action_outcome": "none"})
+        if match.metadata.get("clarification"):
+            return CommandResult(
+                False, match.metadata["clarification"], clarification_required=True,
+            )
         if self._client is None:
             return CommandResult(
                 success=False,
@@ -156,26 +272,117 @@ class HAPlugin(CortexPlugin):
         regex_match = metadata.get("regex_match")
         pattern_id: int | None = metadata.get("pattern_id")
 
-        # Resolve the entity_id from the matched name fragment
+        command = metadata.get("command")
         entity_fragment = match.entities[0] if match.entities else ""
-        entity_id, friendly_name = self._resolve_entity(entity_fragment, domain)
+        if command is not None:
+            domain, entity_fragment = command.domain, command.target
+        elif not entity_fragment and pattern_id:
+            # Discovered patterns contain literal device names, not entity groups.
+            candidates = await self.discover_entities()
+            names = [d for d in candidates if d["domain"] == domain
+                     and d["friendly_name"].casefold() in message.casefold()]
+            if len(names) == 1:
+                entity_fragment = names[0]["entity_id"]
+        entity_id, friendly_name = self._resolve_entity(entity_fragment, domain, context.get("room"))
+        if not entity_id:
+            if command is None and entity_fragment:
+                service_domain, service_name, service_data = self._build_service_call(
+                    intent, "", regex_match, metadata,
+                )
+                if service_name:
+                    command = HACommand(service_domain, service_name, entity_fragment, service_data)
+            if command is not None:
+                try:
+                    self._commands.remember_clarification(command, context)
+                except (sqlite3.Error, RuntimeError, ValueError):
+                    logger.exception("Could not save device clarification context")
+                    return CommandResult(
+                        False, "I couldn't save the device clarification state. No action was started.",
+                        metadata={"action_outcome": "none"},
+                    )
+            return CommandResult(
+                False, "Which device do you mean? Please use its full name or room.",
+                clarification_required=True,
+            )
+        domain = entity_id.split(".", 1)[0]
+        if intent == "toggle" and domain not in (
+            "light", "switch", "fan", "input_boolean", "media_player",
+        ):
+            return CommandResult(
+                False, "That device does not support an on/off command.",
+                metadata={"action_outcome": "none"},
+            )
+        if command is None:
+            service_domain, service_name, service_data = self._build_service_call(
+                intent, entity_id, regex_match, {**metadata, "entity_domain": domain},
+            )
+            if not service_domain or not service_name:
+                if intent == "get_state":
+                    row = self._conn.execute(
+                        "SELECT state FROM ha_devices WHERE entity_id=?", (entity_id,),
+                    ).fetchone()
+                    return CommandResult(True, f"{friendly_name} is {row['state']}.",
+                                         metadata={"action_outcome": "none"})
+                return CommandResult(False, "That device action is not supported.",
+                                     metadata={"action_outcome": "none"})
+            command = HACommand(service_domain, service_name, entity_id, {
+                key: value for key, value in service_data.items() if key != "entity_id"
+            })
+        else:
+            command = HACommand(domain, command.service, entity_id, command.data)
+        try:
+            request = self._commands.enqueue(
+                command, context, correction=metadata.get("correction", False),
+            )
+        except (sqlite3.Error, RuntimeError, ValueError):
+            logger.exception("Could not commit HA command intent; no action started")
+            return CommandResult(
+                False, "I couldn't save the device command state. No device action was started.",
+                metadata={"action_outcome": "none"},
+            )
 
-        # Determine service + data from intent
-        service_domain, service_name, service_data = self._build_service_call(
-            intent, entity_id, regex_match, metadata
-        )
+        async def execute() -> CommandResult:
+            try:
+                await self._client.call_service(command.domain, command.service, {
+                    **command.data, "entity_id": entity_id,
+                })
+            except HAConnectionError:
+                logger.warning("HA service outcome is uncertain after a connection failure")
+                return CommandResult(
+                    False, "Home Assistant is not reachable right now. The command outcome is "
+                    "uncertain; please check the device before retrying.",
+                    metadata={"action_outcome": "uncertain"},
+                )
+            except HAClientError as exc:
+                logger.error("HAPlugin.handle service call failed: %s", exc)
+                return CommandResult(False, f"Could not complete that: {exc}")
+            return CommandResult(
+                True, f"{friendly_name}: {command.service.replace('_', ' ')}.",
+                entities_used=[entity_id], metadata={"action_outcome": "succeeded"},
+            )
 
         try:
-            if service_domain and service_name and entity_id:
-                await self._client.call_service(service_domain, service_name, service_data)
-        except HAConnectionError:
+            result = await self._commands.execute(request, execute)
+        except (sqlite3.Error, RuntimeError, ValueError):
+            logger.exception("Could not persist HA command execution state")
             return CommandResult(
-                success=False,
-                response="Home Assistant is not reachable right now.",
+                False, "I couldn't save the device command outcome. "
+                + ("Please check the device before retrying." if request.started
+                   else "No device action was started."),
+                metadata={"action_outcome": "uncertain" if request.started else "none"},
             )
-        except HAClientError as exc:
-            logger.error("HAPlugin.handle service call failed: %s", exc)
-            return CommandResult(success=False, response=f"Could not complete that: {exc}")
+        if metadata.get("correction"):
+            previous_outcome = (
+                request.previous.outcome if request.previous is not None
+                else metadata.get("previous_outcome")
+            )
+            if previous_outcome == "succeeded":
+                suffix = "; I did not undo it. " if metadata.get("target_correction") else ". "
+                result.response = "The earlier command already completed" + suffix + result.response
+            elif previous_outcome == "uncertain":
+                result.response = "The earlier command's outcome is uncertain. " + result.response
+        if not result.success or request.replaced:
+            return result
 
         # Update hit stats
         if pattern_id and self._conn is not None:
@@ -198,18 +405,21 @@ class HAPlugin(CortexPlugin):
                 value = regex_match.group(value_group)
             except IndexError:
                 pass
+        if not value:
+            value = {"turn_on": "on", "turn_off": "off"}.get(command.service, command.service)
 
         response = (
             response_template
             .replace("{entity}", friendly_name or entity_fragment)
             .replace("{name}", friendly_name or entity_fragment)
             .replace("{value}", value)
-        ) if response_template else f"Done."
+        ) if response_template and not metadata.get("correction") else result.response
 
         return CommandResult(
             success=True,
             response=response,
             entities_used=[entity_id] if entity_id else [],
+            metadata={"action_outcome": "succeeded"},
         )
 
     async def discover_entities(self) -> list[dict[str, Any]]:
@@ -245,6 +455,7 @@ class HAPlugin(CortexPlugin):
                       entity_match_group, value_match_group,
                       response_template, confidence
                FROM command_patterns
+               WHERE entity_domain IS NOT NULL AND entity_domain != ''
                ORDER BY confidence DESC"""
         ).fetchall()
         result: list[tuple[re.Pattern, dict]] = []
@@ -270,43 +481,39 @@ class HAPlugin(CortexPlugin):
         logger.debug("HAPlugin loaded %d patterns", len(result))
 
     def _resolve_entity(
-        self, fragment: str, domain: str
+        self, fragment: str, domain: str, room: str | None = None,
     ) -> tuple[str, str]:
         """Look up entity_id and friendly_name for a name fragment."""
         if not fragment or self._conn is None:
             return "", fragment
 
-        fragment_lower = fragment.lower()
-
-        # Try alias exact match
-        row = self._conn.execute(
-            """SELECT d.entity_id, d.friendly_name
-               FROM device_aliases a
-               JOIN ha_devices d ON a.entity_id = d.entity_id
-               WHERE a.alias = ?""",
+        fragment_lower = fragment.casefold().strip()
+        rows = self._conn.execute(
+            "SELECT entity_id, friendly_name, area_name FROM ha_devices "
+            "WHERE (? = '' OR domain = ?)", (domain, domain),
+        ).fetchall()
+        aliases = self._conn.execute(
+            "SELECT entity_id FROM device_aliases WHERE lower(alias) = ?",
             (fragment_lower.replace(" ", "_"),),
-        ).fetchone()
-        if row:
-            return row[0], row[1]
-
-        # Try friendly_name LIKE match, filtered by domain if provided
-        if domain:
-            row = self._conn.execute(
-                """SELECT entity_id, friendly_name FROM ha_devices
-                   WHERE domain = ? AND lower(friendly_name) LIKE ?
-                   LIMIT 1""",
-                (domain, f"%{fragment_lower}%"),
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                """SELECT entity_id, friendly_name FROM ha_devices
-                   WHERE lower(friendly_name) LIKE ?
-                   LIMIT 1""",
-                (f"%{fragment_lower}%",),
-            ).fetchone()
-
-        if row:
-            return row[0], row[1]
+        ).fetchall()
+        alias_ids = {row[0] for row in aliases}
+        exact = [row for row in rows if row["entity_id"].casefold() == fragment_lower
+                 or row["friendly_name"].casefold() == fragment_lower or row["entity_id"] in alias_ids]
+        candidates = exact or [
+            row for row in rows if fragment_lower in row["friendly_name"].casefold()
+        ]
+        if not candidates and domain:
+            fragment_lower = re.sub(r"\s+lights?$", "", fragment_lower)
+            candidates = [row for row in rows if fragment_lower and (
+                fragment_lower in row["friendly_name"].casefold()
+                or fragment_lower == (row["area_name"] or "").casefold()
+            )]
+        if len(candidates) > 1 and room:
+            local = [row for row in candidates if (row["area_name"] or "").casefold() == room.casefold()]
+            if len(local) == 1:
+                candidates = local
+        if len(candidates) == 1:
+            return candidates[0]["entity_id"], candidates[0]["friendly_name"]
         return "", fragment
 
     def _entity_in_area(self, entity_fragment: str, room: str) -> bool:
@@ -345,28 +552,32 @@ class HAPlugin(CortexPlugin):
                     state = regex_match.group(1).lower()
                 except (IndexError, AttributeError):
                     pass
-            service = "turn_on" if state == "on" else "turn_off"
+            service = {"on": "turn_on", "off": "turn_off"}.get(state, "")
             return domain, service, data
 
         if intent == "set_brightness":
             value_group = metadata.get("value_match_group")
-            brightness_pct = 0
+            brightness_pct = None
             if regex_match and value_group:
                 try:
                     brightness_pct = int(regex_match.group(value_group))
                 except (IndexError, ValueError):
-                    pass
+                    return "", "", {}
+            if brightness_pct is None or not 0 <= brightness_pct <= 100:
+                return "", "", {}
             data["brightness_pct"] = brightness_pct
             return domain, "turn_on", data
 
         if intent == "set_temperature":
             value_group = metadata.get("value_match_group")
-            temp = 0
+            temp = None
             if regex_match and value_group:
                 try:
                     temp = float(regex_match.group(value_group))
                 except (IndexError, ValueError):
-                    pass
+                    return "", "", {}
+            if temp is None:
+                return "", "", {}
             data["temperature"] = temp
             return domain, "set_temperature", data
 
@@ -375,9 +586,11 @@ class HAPlugin(CortexPlugin):
                 try:
                     action = regex_match.group(1).lower()
                 except (IndexError, AttributeError):
-                    action = "lock"
+                    return "", "", {}
             else:
-                action = "lock"
+                return "", "", {}
+            if action not in ("lock", "unlock"):
+                return "", "", {}
             return domain, action, data
 
         if intent == "cover":
@@ -385,10 +598,10 @@ class HAPlugin(CortexPlugin):
                 try:
                     action = regex_match.group(1).lower()
                 except (IndexError, AttributeError):
-                    action = "open_cover"
-                service = "open_cover" if action == "open" else "close_cover"
+                    return "", "", {}
+                service = {"open": "open_cover", "close": "close_cover"}.get(action, "")
             else:
-                service = "open_cover"
+                return "", "", {}
             return domain, service, data
 
         if intent == "media_control":
@@ -396,7 +609,7 @@ class HAPlugin(CortexPlugin):
                 try:
                     action = regex_match.group(1).lower()
                 except (IndexError, AttributeError):
-                    action = "media_play"
+                    return "", "", {}
                 _media_map = {
                     "play": "media_play",
                     "pause": "media_pause",
@@ -405,9 +618,9 @@ class HAPlugin(CortexPlugin):
                     "previous": "media_previous_track",
                     "skip": "media_next_track",
                 }
-                service = _media_map.get(action, "media_play")
+                service = _media_map.get(action, "")
             else:
-                service = "media_play"
+                return "", "", {}
             return domain, service, data
 
         if intent == "activate_scene":
@@ -416,5 +629,4 @@ class HAPlugin(CortexPlugin):
         if intent == "get_state":
             return "", "", {}
 
-        # Fallback
-        return domain, "turn_on", data
+        return "", "", {}

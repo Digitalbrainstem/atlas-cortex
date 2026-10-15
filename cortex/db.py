@@ -60,6 +60,83 @@ def init_db(path: str | Path | None = None) -> None:
 
 
 _SCHEMA_SQL = """
+-- Durable operational turns are separate from conversation history.
+CREATE TABLE IF NOT EXISTS pending_turn_sequences (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    PRIMARY KEY (user_id, conversation_id)
+);
+CREATE TABLE IF NOT EXISTS pending_turns (
+    turn_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    device_id TEXT,
+    room TEXT,
+    sequence INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+    idempotency_key TEXT,
+    transcript TEXT NOT NULL,
+    context_json TEXT NOT NULL DEFAULT '{}',
+    input_validated INTEGER NOT NULL CHECK (input_validated = 1),
+    state TEXT NOT NULL DEFAULT 'accepted' CHECK (state IN (
+        'accepted', 'routing', 'fastpath_running', 'llm_pending', 'llm_running',
+        'completed', 'failed', 'cancelled', 'superseded', 'recovery_pending', 'uncertain'
+    )),
+    route_status TEXT,
+    relation TEXT NOT NULL DEFAULT 'independent' CHECK (relation IN (
+        'independent', 'clarification', 'correction', 'replacement', 'cancellation'
+    )),
+    related_turn_id TEXT REFERENCES pending_turns(turn_id) ON DELETE SET NULL,
+    action_outcome TEXT NOT NULL DEFAULT 'none' CHECK (action_outcome IN (
+        'none', 'pending', 'succeeded', 'failed', 'uncertain'
+    )),
+    result TEXT,
+    output_validated INTEGER NOT NULL DEFAULT 0 CHECK (output_validated IN (0, 1)),
+    delivery_state TEXT NOT NULL DEFAULT 'not_ready' CHECK (delivery_state IN (
+        'not_ready', 'ready', 'delivering', 'delivered', 'paused',
+        'interrupted', 'awaiting_confirmation'
+    )),
+    playback_position INTEGER NOT NULL DEFAULT 0 CHECK (playback_position >= 0),
+    lease_owner TEXT,
+    lease_until REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    error_message TEXT,
+    recovery_reason TEXT,
+    stored_bytes INTEGER NOT NULL CHECK (stored_bytes >= 0),
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (user_id, conversation_id, sequence),
+    UNIQUE (user_id, conversation_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_dispatch
+    ON pending_turns(state, created_at, turn_id);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_user
+    ON pending_turns(user_id, conversation_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_lease ON pending_turns(lease_until)
+    WHERE lease_owner IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pending_turn_usage (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    payload_bytes INTEGER NOT NULL CHECK (payload_bytes >= 0)
+);
+INSERT OR IGNORE INTO pending_turn_usage (id, payload_bytes)
+    SELECT 1, COALESCE(SUM(stored_bytes), 0) FROM pending_turns;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_insert AFTER INSERT ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes + NEW.stored_bytes WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_update AFTER UPDATE OF stored_bytes ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes + NEW.stored_bytes - OLD.stored_bytes WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_delete AFTER DELETE ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes - OLD.stored_bytes WHERE id = 1;
+END;
+
 -- ───────── Devices & Patterns ─────────
 
 CREATE TABLE IF NOT EXISTS ha_devices (
@@ -91,6 +168,24 @@ CREATE TABLE IF NOT EXISTS device_capabilities (
     PRIMARY KEY (entity_id, capability),
     FOREIGN KEY (entity_id) REFERENCES ha_devices(entity_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS ha_command_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    room TEXT NOT NULL,
+    speaker_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL UNIQUE,
+    turn_id TEXT,
+    command_json TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ha_command_context_age ON ha_command_context(updated_at);
+CREATE INDEX IF NOT EXISTS idx_ha_command_context_scope
+    ON ha_command_context(user_id, conversation_id, source, device_id, room, speaker_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS command_patterns (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,

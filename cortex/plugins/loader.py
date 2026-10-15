@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -193,7 +194,10 @@ async def _setup_and_register(
     row: Any = None,
 ) -> bool:
     """Instantiate, call setup(), and register on success."""
-    plugin: CortexPlugin = plugin_class()
+    plugin: CortexPlugin = (
+        plugin_class(conn=db) if "conn" in inspect.signature(plugin_class).parameters
+        else plugin_class()
+    )
 
     # Merge env config → DB config (DB wins)
     config = _env_config_for(plugin_id)

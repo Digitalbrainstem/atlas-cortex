@@ -8,11 +8,19 @@ OWNERSHIP: This module defines ALL event types the pipeline can emit.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from .turns import ActionOutcome, RouteStatus, TurnIdentity
 
 
 @dataclass
 class PipelineEvent:
     """Base class for all pipeline events."""
+
+
+@dataclass
+class TurnEvent(PipelineEvent):
+    """Correlation information; text-only consumers ignore this event."""
+
+    identity: TurnIdentity
 
 
 @dataclass
@@ -72,10 +80,15 @@ class LayerResult(PipelineEvent):
     confidence: float = 0.0
     response_time_ms: int = 0
     layer_times: dict[str, float] = field(default_factory=dict)
+    status: RouteStatus = RouteStatus.HANDLED
+    action_outcome: ActionOutcome = ActionOutcome.NONE
+    turn_id: str | None = None
+    revision: int = 1
 
 
 __all__ = [
     "PipelineEvent",
+    "TurnEvent",
     "TextToken",
     "FillerToken",
     "MicroAckToken",
