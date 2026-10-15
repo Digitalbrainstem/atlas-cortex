@@ -316,20 +316,69 @@ class TurnStore:
                 "lease_until=NULL,updated_at=? WHERE turn_id=?", (time.time(), identity.turn_id),
             )
 
-    def voice_delivery_head(self, device_id: str) -> StoredTurn | None:
+    def voice_delivery_head(self, device_id: str, exclude: str = "") -> StoredTurn | None:
         with self._lock:
             try:
                 row = self.conn.execute(
-                    """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=?
+                    """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=? AND turn_id!=?
                        AND state NOT IN ('superseded','cancelled')
                        AND (state IN ('accepted','routing','fastpath_running','llm_pending','llm_running')
-                         OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation'))
-                       ORDER BY created_at,sequence LIMIT 1""", (device_id,),
+                         OR delivery_state IN ('ready','delivering','paused'))
+                       ORDER BY CASE WHEN json_extract(context_json,'$.voice_control')=1
+                         AND delivery_state='ready' THEN 0 ELSE 1 END,created_at,sequence LIMIT 1""",
+                    (device_id, exclude),
                 ).fetchone()
                 return self._stored(row) if row else None
             except sqlite3.Error as exc:
                 logger.exception("Voice delivery listing failed")
                 raise TurnStoreError("Voice delivery listing failed") from exc
+
+    def checkpoint_playback(self, turn_id: str, user_id: str, revision: int, position: int) -> None:
+        with self._transaction():
+            row = self._at_revision(turn_id, user_id, revision)
+            if (row["delivery_state"] != "delivering" or isinstance(position, bool)
+                    or not isinstance(position, int) or not row["playback_position"] <= position <= len(row["result"] or "")):
+                _fail("Invalid playback receipt position", TurnConflictError)
+            self.conn.execute("UPDATE pending_turns SET playback_position=?,updated_at=? WHERE turn_id=?",
+                              (position, time.time(), turn_id))
+
+    def interrupt_delivery(self, turn_id: str, user_id: str, revision: int) -> None:
+        with self._transaction():
+            row = self._at_revision(turn_id, user_id, revision)
+            if row["delivery_state"] not in ("ready", "delivering", "paused", "awaiting_confirmation"):
+                _fail("No current output to interrupt", TurnConflictError)
+            self.conn.execute(
+                "UPDATE pending_turns SET delivery_state='interrupted',revision=revision+1,updated_at=? WHERE turn_id=?",
+                (time.time(), turn_id),
+            )
+
+    def resume_delivery(self, turn_id: str, user_id: str, revision: int) -> None:
+        """Explicit consent queues only the unacknowledged sentence suffix."""
+        with self._transaction():
+            row = self._at_revision(turn_id, user_id, revision)
+            if not row["output_validated"] or row["delivery_state"] not in (
+                "paused", "interrupted", "awaiting_confirmation",
+            ):
+                _fail("No validated interrupted output to resume", TurnConflictError)
+            self.conn.execute(
+                "UPDATE pending_turns SET delivery_state='ready',revision=revision+1,updated_at=? WHERE turn_id=?",
+                (time.time(), turn_id),
+            )
+
+    def voice_pending_targets(self, device_id: str, user_id: str, exclude: str) -> list[StoredTurn]:
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    """SELECT * FROM pending_turns WHERE device_id=? AND user_id=? AND turn_id!=?
+                       AND source='satellite' AND state NOT IN ('cancelled','superseded','uncertain','failed')
+                       AND COALESCE(json_extract(context_json,'$.voice_control'),0)!=1
+                       AND (state!='completed' OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation'))
+                       ORDER BY created_at,sequence LIMIT 2""", (device_id, user_id, exclude),
+                ).fetchall()
+                return [self._stored(row) for row in rows]
+            except sqlite3.Error as exc:
+                logger.exception("Voice target lookup failed")
+                raise TurnStoreError("Voice target lookup failed") from exc
 
     def find_existing(self, identity: TurnIdentity) -> StoredTurn | None:
         with self._lock:

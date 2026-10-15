@@ -19,6 +19,7 @@ import os
 import struct
 import subprocess
 import time
+from collections import deque
 from pathlib import Path
 from typing import Optional
 
@@ -90,6 +91,7 @@ class SatelliteAgent:
         self._playback_task: asyncio.Task | None = None
         self._tts_metadata: dict = {}
         self._capture_bytes = 0
+        self._rejected_playbacks: deque[str] = deque(maxlen=32)
 
         # Barge-in detection: higher energy ratio during SPEAKING to reject
         # speaker echo picked up by the mic.  We require several consecutive
@@ -353,6 +355,7 @@ class SatelliteAgent:
                 self.wake_word.process(audio)
             if self.vad and self.vad.active:
                 self.vad.process(audio)
+
             self._echo_active = True
             return
 
@@ -437,6 +440,8 @@ class SatelliteAgent:
         the speaker's own output picked up by the mic.  Also checks for
         wake-word as a reliable barge-in signal.
         """
+        if not self.config.features.get("acoustic_echo_cancellation", False):
+            return
         rms = _rms(audio)
         ambient = self.vad._ambient_rms if self.vad._calibrated else 0.0
 
@@ -479,14 +484,15 @@ class SatelliteAgent:
         logger.info("Barge-in triggered — interrupting playback")
 
         # 1. Stop audio playback immediately
-        self.audio_out.stop()
+        metadata = dict(self._tts_metadata)
+        await self._stop_playback()
 
         # 2. Reset barge-in counters
         self._bargein_speech_frames = 0
 
         # 3. Notify server
         if self.ws.connected:
-            await self.ws.send_barge_in()
+            await self.ws.send_barge_in(metadata)
 
         # 4. Skip echo suppression — user is actively talking
         self._echo_suppress_until = 0.0
@@ -497,6 +503,17 @@ class SatelliteAgent:
 
         # 6. Transition to listening — user's new speech will be captured
         await self._transition_to_listening(1.0)
+
+    async def _stop_playback(self) -> None:
+        self.audio_out.stop()
+        playback_id = self._tts_metadata.get("playback_id")
+        if playback_id:
+            self._rejected_playbacks.append(playback_id)
+        self._tts_buffer.clear()
+        self._tts_metadata = {}
+        if self._playback_task is not None and not self._playback_task.done():
+            self._playback_task.cancel()
+            await asyncio.gather(self._playback_task, return_exceptions=True)
 
     async def _transition_to_listening(self, confidence: float) -> None:
         self.state = State.LISTENING
@@ -523,6 +540,8 @@ class SatelliteAgent:
 
     async def _on_tts_start(self, msg: dict) -> None:
         """Server is about to send TTS audio."""
+        if msg.get("playback_id") in self._rejected_playbacks:
+            return
         logger.info("TTS_START received (rate=%s)", msg.get("sample_rate", "?"))
         self._tts_buffer.clear()
         self._tts_metadata = {key: msg[key] for key in ("turn_id", "revision", "playback_id") if key in msg}
@@ -540,6 +559,8 @@ class SatelliteAgent:
 
     async def _on_tts_chunk(self, msg: dict) -> None:
         """Received a chunk of TTS audio."""
+        if any(msg.get(key) != self._tts_metadata.get(key) for key in ("playback_id", "turn_id", "revision")):
+            return
         audio_b64 = msg.get("audio", "")
         if audio_b64:
             if len(self._tts_buffer) + len(audio_b64) * 3 // 4 > 4 * 1024 * 1024:
@@ -548,6 +569,8 @@ class SatelliteAgent:
 
     async def _on_tts_end(self, msg: dict) -> None:
         """TTS stream complete — play the buffered audio."""
+        if any(msg.get(key) != self._tts_metadata.get(key) for key in ("playback_id", "turn_id", "revision")):
+            return
         audio = bytes(self._tts_buffer)
         self._tts_buffer.clear()
         metadata = dict(self._tts_metadata)
@@ -650,6 +673,12 @@ class SatelliteAgent:
 
     async def _on_button_press(self) -> None:
         """Button pressed in 'press' or 'hold' mode → start listening."""
+        if self.state == State.SPEAKING:
+            await self._handle_barge_in()
+            return
+        if self.state == State.PROCESSING:
+            await self._transition_to_listening(1.0)
+            return
         if self.state not in (State.IDLE, State.MUTED):
             return
         logger.info("Button: start listening")
@@ -682,7 +711,11 @@ class SatelliteAgent:
         if action == "listen":
             await self._transition_to_listening(1.0)
         elif action == "stop":
+            if params.get("playback_id") and params["playback_id"] != self._tts_metadata.get("playback_id"):
+                return
+            await self._stop_playback()
             self.state = State.IDLE
+            self._capture_done.set()
             self.led.set_pattern("idle")
         elif action == "volume":
             self.config.volume = float(params.get("level", self.config.volume))

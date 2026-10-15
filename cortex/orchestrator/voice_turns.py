@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 import uuid
 import weakref
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from typing import Any
 
 from cortex.orchestrator.conversation import ConversationCoordinator, GenerationOptions
 from cortex.orchestrator.turn_store import TurnStore
+from cortex.orchestrator.interrupt import classify_interrupt
 from cortex.pipeline import prepare_turn
 from cortex.pipeline.turns import DispatchResult, RouteStatus, TurnIdentity
 from cortex.safety import Severity
@@ -79,10 +81,13 @@ class VoiceSession:
         self.playback_id: str | None = None
         self.current_turn: tuple[str, str, int] | None = None
         self.closed = False
+        self.paused_turn: tuple[str, str, int] | None = None
+        self.paused_at = 0.0
+        self.ack_position: int | None = None
 
     async def submit(self, capture: Capture) -> None:
-        if self.closed:
-            raise RuntimeError("Voice connection is closed")
+        if self.closed or self.ingestion.done() or self.delivery.done():
+            raise RuntimeError("Voice connection is unavailable; please reconnect")
         if self.captures.full() or self.service.audio_bytes + len(capture.audio) > self.service.max_audio_bytes:
             logger.warning("STT audio budget reached for %s", self.conn.satellite_id)
             await self.conn.send({"type": "PIPELINE_ERROR", "code": "audio_capacity",
@@ -166,7 +171,8 @@ class VoiceSession:
         store.begin_action(identity.turn_id, user, owner, 1)
         try:
             prepared = None
-            if capture.reason != "capture_limit":
+            control = await self._control(transcript, identity) if capture.reason != "capture_limit" else None
+            if capture.reason != "capture_limit" and control is None:
                 prepared = await prepare_turn(
                     transcript, user_id=user, satellite_id=self.conn.satellite_id, metadata=metadata,
                     db_conn=store.conn,
@@ -178,11 +184,13 @@ class VoiceSession:
                     os.environ.get("MODEL_THINKING", "qwen3:30b-a3b"),
                 ))
             else:
-                result = (prepared.dispatch if prepared is not None else DispatchResult(
+                result = (prepared.dispatch if prepared is not None else control or DispatchResult(
                     RouteStatus.CLARIFICATION, "The recording limit was reached. Please split your request.",
                 ))
                 store.accept(identity, transcript, input_validated=True, promote_accepted=True,
-                             context=prepared.context_snapshot() if prepared else {"metadata": metadata})
+                             context=prepared.context_snapshot() if prepared else {
+                                 "metadata": metadata, "voice_control": control is not None,
+                             })
                 store.claim(identity.turn_id, user, owner)
                 response = coordinator._validated_output(result.response or "", turn, "")
                 store.complete(identity.turn_id, user, owner, 1,
@@ -197,7 +205,77 @@ class VoiceSession:
         await self.conn.send({"type": "TURN_ACCEPTED", "turn_id": identity.turn_id,
                               "revision": 1, "sequence": turn.sequence})
 
+    async def pause(self, msg: dict[str, Any]) -> None:
+        target = self.current_turn
+        if target is None:
+            return
+        if msg.get("playback_id") is not None and (
+            msg.get("playback_id") != self.playback_id or msg.get("turn_id") != target[0]
+            or msg.get("revision") != target[2]
+        ):
+            logger.warning("Ignored stale barge-in for %s", self.conn.satellite_id)
+            return
+        turn = self.service.store.get(target[0], target[1])
+        self.service.store.set_delivery(*target, "paused", position=turn.playback_position)
+        self.paused_turn = target
+        self.paused_at = time.monotonic()
+        playback_id = self.playback_id
+        self.delivery.cancel()
+        await asyncio.gather(self.delivery, return_exceptions=True)
+        self.delivery = asyncio.create_task(self._deliver(), name=f"delivery-{self.conn.satellite_id}")
+        await self.conn.send({"type": "COMMAND", "action": "stop",
+                              "params": {"playback_id": playback_id, "turn_id": target[0], "revision": target[2]}})
+
+    async def _control(self, text: str, identity: TurnIdentity) -> DispatchResult | None:
+        intent = classify_interrupt(text)
+        store = self.service.store
+        targets = store.voice_pending_targets(self.conn.satellite_id, identity.user_id, identity.turn_id)
+        if intent == "stop":
+            if re.fullmatch(r"(?:never\s*mind|forget it|cancel)[.!?,]*", text.strip(), re.IGNORECASE) and len(targets) > 1:
+                return DispatchResult(RouteStatus.CLARIFICATION, "Which question should I cancel? Please name it.")
+            target = next((turn for turn in targets if self.paused_turn and turn.identity.turn_id == self.paused_turn[0]),
+                          targets[0] if targets else None)
+            if target is not None:
+                key = (target.identity.turn_id, target.identity.user_id, target.identity.revision)
+                if self.current_turn == key:
+                    await self.pause({})
+                current = store.get(key[0], key[1])
+                if current.output_validated:
+                    store.interrupt_delivery(*key)
+                else:
+                    self.service.conversation.cancel(*key)
+                self.paused_turn = None
+            return DispatchResult(RouteStatus.HANDLED, "Stopped.")
+        if intent == "resume" and (self.paused_turn or any(
+            turn.delivery_state == "awaiting_confirmation" for turn in targets
+        )):
+            target = next((turn for turn in targets if self.paused_turn and turn.identity.turn_id == self.paused_turn[0]),
+                          targets[0] if len(targets) == 1 else None)
+            if target is None:
+                return DispatchResult(RouteStatus.CLARIFICATION, "Which response should I resume?")
+            stale = not self.paused_turn or time.monotonic() - self.paused_at > 30
+            if stale and text.strip().lower().rstrip(".!?,") != "resume the previous response":
+                return DispatchResult(RouteStatus.CLARIFICATION,
+                                      "Say 'resume the previous response' to confirm playback of the old response.")
+            store.resume_delivery(target.identity.turn_id, target.identity.user_id, target.identity.revision)
+            self.paused_turn = None
+            return DispatchResult(RouteStatus.HANDLED, "Continuing from the last confirmed sentence.")
+        if intent == "pivot" and self.paused_turn:
+            store.interrupt_delivery(*self.paused_turn)
+            self.paused_turn = None
+        return None
+
     async def _deliver(self) -> None:
+        try:
+            await self._delivery_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Voice delivery service failed for %s", self.conn.satellite_id)
+            await self.conn.send({"type": "PIPELINE_ERROR", "code": "delivery_unavailable",
+                                  "detail": "Voice delivery is unavailable. Please reconnect."})
+
+    async def _delivery_loop(self) -> None:
         from cortex.orchestrator import voice
         store = self.service.store
         while True:
@@ -209,24 +287,34 @@ class VoiceSession:
             self.current_turn = (identity.turn_id, identity.user_id, identity.revision)
             try:
                 store.set_delivery(*self.current_turn, "delivering")
-                self.playback_id = uuid.uuid4().hex
-                self.conn.delivery_metadata = {
-                    "turn_id": identity.turn_id, "revision": identity.revision,
-                    "playback_id": self.playback_id,
-                }
-                self.played.clear()
-                audio, rate, provider = await voice.synthesize_speech(
-                    turn.result, voice.resolve_voice(satellite_id=self.conn.satellite_id),
-                )
-                if not audio:
-                    raise RuntimeError("Speech provider returned no audio")
-                await voice._stream_audio_to_satellite(
-                    self.conn, audio, rate, turn.result,
-                    auto_listen=voice.should_auto_listen(turn.result),
-                )
-                if "playback_ack" not in getattr(self.conn, "capabilities", []):
-                    raise RuntimeError("Device cannot confirm playback; delivery remains unconfirmed")
-                await asyncio.wait_for(self.played.wait(), timeout=max(30, len(audio) / (rate * 2) + 15))
+                suffix = turn.result[turn.playback_position:]
+                cursor = turn.playback_position
+                for sentence in re.split(r"(?<=[.!?])(?=\s)", suffix):
+                    cursor += len(sentence)
+                    if not sentence.strip():
+                        continue
+                    if len(sentence) > 2048:
+                        raise ValueError("A voice sentence exceeds the delivery allocation")
+                    self.playback_id = uuid.uuid4().hex
+                    self.conn.delivery_metadata = {
+                        "turn_id": identity.turn_id, "revision": identity.revision,
+                        "playback_id": self.playback_id,
+                    }
+                    self.played.clear()
+                    self.ack_position = None
+                    audio, rate, provider = await voice.synthesize_speech(
+                        sentence.strip(), voice.resolve_voice(satellite_id=self.conn.satellite_id),
+                    )
+                    if not audio or len(audio) > 4 * 1024 * 1024:
+                        raise RuntimeError("Speech audio is empty or exceeds the delivery allocation")
+                    self.ack_position = cursor
+                    await voice._stream_audio_to_satellite(
+                        self.conn, audio, rate, sentence.strip(),
+                        auto_listen=cursor == len(turn.result) and voice.should_auto_listen(turn.result),
+                    )
+                    if "playback_ack" not in getattr(self.conn, "capabilities", []):
+                        raise RuntimeError("Device cannot confirm playback; delivery remains unconfirmed")
+                    await asyncio.wait_for(self.played.wait(), timeout=max(30, len(audio) / (rate * 2) + 15))
                 store.set_delivery(*self.current_turn, "delivered", position=len(turn.result))
             except asyncio.CancelledError:
                 if store.get(identity.turn_id, identity.user_id).delivery_state == "delivering":
@@ -240,10 +328,14 @@ class VoiceSession:
             finally:
                 self.current_turn = None
                 self.playback_id = None
+                self.ack_position = None
                 self.conn.delivery_metadata = {}
 
     def acknowledge(self, msg: dict[str, Any]) -> None:
         if (self.current_turn and msg.get("playback_id") == self.playback_id
                 and msg.get("turn_id") == self.current_turn[0]
-                and msg.get("revision") == self.current_turn[2]):
+                and type(msg.get("revision")) is int
+                and msg.get("revision") == self.current_turn[2]
+                and self.ack_position is not None and not self.played.is_set()):
+            self.service.store.checkpoint_playback(*self.current_turn, self.ack_position)
             self.played.set()

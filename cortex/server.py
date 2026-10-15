@@ -279,6 +279,27 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     conversation_id = uuid.uuid4().hex
     responses: set[asyncio.Task[None]] = set()
     send_lock = asyncio.Lock()
+    tts_task: asyncio.Task[None] | None = None
+    tts_id: str | None = None
+
+    async def respond_tts(payload: dict[str, Any]) -> None:
+        from cortex.speech.tts import synthesize_speech
+        tags = {"playback_id": payload["playback_id"]} if payload.get("playback_id") else {}
+        try:
+            pcm, sample_rate, provider_name = await synthesize_speech(
+                payload["text"], payload.get("voice", "af_bella"),
+            )
+            if not pcm:
+                raise RuntimeError("No TTS provider available")
+            async with send_lock:
+                await websocket.send_json({
+                    "type": "tts_audio", "data": base64.b64encode(pcm).decode(),
+                    "sample_rate": sample_rate, "provider": provider_name, **tags,
+                })
+        except Exception as exc:
+            logger.warning("TTS failed: %s", exc)
+            async with send_lock:
+                await websocket.send_json({"type": "tts_error", "text": str(exc), **tags})
 
     async def respond(payload: dict[str, Any]) -> None:
         message = payload["message"]
@@ -359,34 +380,22 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 continue
 
             # ── Voice output: TTS ────────────────────────────────
+            if msg_type == "tts_cancel":
+                if tts_task is not None and data.get("playback_id") == tts_id:
+                    tts_task.cancel()
+                    await asyncio.gather(tts_task, return_exceptions=True)
+                continue
             if msg_type == "tts_request":
                 text = data.get("text", "")
                 if not text:
                     continue
-                try:
-                    from cortex.speech.tts import synthesize_speech
-                    voice = data.get("voice", "af_bella")
-                    pcm, sample_rate, provider_name = await synthesize_speech(
-                        text, voice,
-                    )
-                    if pcm:
-                        await websocket.send_json({
-                            "type": "tts_audio",
-                            "data": base64.b64encode(pcm).decode(),
-                            "sample_rate": sample_rate,
-                            "provider": provider_name,
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "tts_error",
-                            "text": "No TTS provider available",
-                        })
-                except Exception as exc:
-                    logger.warning("TTS failed: %s", exc)
-                    await websocket.send_json({
-                        "type": "tts_error",
-                        "text": str(exc),
-                    })
+                if tts_task is not None and not tts_task.done():
+                    tts_task.cancel()
+                    await asyncio.gather(tts_task, return_exceptions=True)
+                tts_id = data.get("playback_id")
+                tts_task = asyncio.create_task(respond_tts(dict(data)), name="browser-tts")
+                responses.add(tts_task)
+                tts_task.add_done_callback(response_done)
                 continue
 
             # ── Text chat (default) ──────────────────────────────

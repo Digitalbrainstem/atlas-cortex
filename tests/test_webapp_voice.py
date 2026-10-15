@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import struct
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,6 +51,28 @@ async def _fake_pipeline(**kwargs):
 
 
 # ── Voice Input (STT) Tests ──────────────────────────────────────
+
+
+def test_replacing_browser_tts_cancels_old_synthesis_and_tags_output(client):
+    started, cancelled = threading.Event(), threading.Event()
+
+    async def synthesize(text, voice):
+        if text == "old":
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        return _make_pcm_bytes(), 24000, "fixture"
+
+    with patch("cortex.speech.tts.synthesize_speech", side_effect=synthesize):
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.send_json({"type": "tts_request", "text": "old", "playback_id": "one"})
+            assert started.wait(3)
+            ws.send_json({"type": "tts_request", "text": "new", "playback_id": "two"})
+            response = ws.receive_json()
+            assert response["type"] == "tts_audio" and response["playback_id"] == "two"
+            assert cancelled.wait(3)
 
 
 class TestVoiceSTT:

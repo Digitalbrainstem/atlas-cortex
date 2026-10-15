@@ -226,3 +226,168 @@ async def test_stt_slots_are_bounded_and_independent_of_llm_slots(voice_env, mon
     gate.set()
     await until(lambda: sum(frame["type"] == "TURN_ACCEPTED" for frame in env.frames) == 3)
     assert high_water == 2
+
+
+async def next_audio(env, count):
+    await until(lambda: sum(frame["type"] == "TTS_END" for frame in env.frames) >= count)
+    return [frame for frame in env.frames if frame["type"] == "TTS_END"][count - 1]
+
+
+async def test_pause_resume_starts_at_last_acknowledged_sentence(voice_env):
+    env = voice_env
+    await submit(env, "First sentence. Second sentence", 1)
+    session = env.device.voice_session
+    first = await next_audio(env, 1)
+    session.acknowledge(first)
+    second = await next_audio(env, 2)
+    turn_id = first["turn_id"]
+    before = env.store.get(turn_id, "anonymous")
+    assert 0 < before.playback_position < len(before.result)
+    await session.pause(second)
+    assert env.store.get(turn_id, "anonymous").delivery_state == "paused"
+    await submit(env, "yes!", 2)
+    control = await next_audio(env, 3)
+    session.acknowledge(control)
+    resumed = await next_audio(env, 4)
+    assert resumed["turn_id"] == turn_id and resumed["revision"] == 2
+    start = [frame for frame in env.frames if frame["type"] == "TTS_START"][-1]
+    assert start["text"] == "Second sentence."
+    session.acknowledge(second)
+    assert not session.played.is_set()
+    session.acknowledge(resumed)
+    await until(lambda: env.store.get(turn_id, "anonymous").delivery_state == "delivered")
+
+
+async def test_stop_preserves_other_accepted_questions(voice_env):
+    env = voice_env
+    await submit(env, "first", 1)
+    end = await next_audio(env, 1)
+    await submit(env, "second", 2)
+    await env.device.voice_session.pause(end)
+    await submit(env, "stop!", 3)
+    first = env.store.get(end["turn_id"], "anonymous")
+    assert first.delivery_state == "interrupted" and first.identity.revision == 2
+    second = env.store.get("voice:pi-one:2:0", "anonymous")
+    assert second.state not in ("cancelled", "superseded")
+    assert second.transcript == "second"
+    control = await next_audio(env, 2)
+    assert control["turn_id"] == "voice:pi-one:3:0"
+
+
+async def test_stop_cancels_active_generation_without_cancelling_next_question(voice_env, monkeypatch):
+    env = voice_env
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def chat(messages, **kwargs):
+        async def chunks():
+            if messages[-1]["content"] == "first":
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cancelled.set()
+            yield "Independent answer."
+        return chunks()
+
+    monkeypatch.setattr(env.coordinator.provider, "chat", chat)
+    await submit(env, "first", 1)
+    await asyncio.wait_for(started.wait(), 3)
+    await submit(env, "second", 2)
+    await submit(env, "stop!", 3)
+    await asyncio.wait_for(cancelled.wait(), 3)
+    assert env.store.get("voice:pi-one:1:0", "anonymous").state == "cancelled"
+    await until(lambda: env.store.get("voice:pi-one:2:0", "anonymous").state == "completed")
+
+
+async def test_acknowledgement_is_durable_before_pause_can_run(voice_env):
+    env = voice_env
+    await submit(env, "First sentence. Second sentence", 1)
+    receipt = await next_audio(env, 1)
+    session = env.device.voice_session
+    session.acknowledge(receipt)
+    position = env.store.get(receipt["turn_id"], "anonymous").playback_position
+    assert position > 0
+    await session.pause(receipt)
+    assert env.store.get(receipt["turn_id"], "anonymous").playback_position == position
+
+
+@pytest.mark.parametrize("capture_id", ["", "x" * 129, 42, None, " trailing ", "\n"])
+async def test_invalid_capture_identity_is_rejected(voice_env, capture_id):
+    env = voice_env
+    await _handle_audio_start(env.device, {"capture_id": capture_id})
+    assert not env.device.capture_active
+    assert env.frames[-1]["type"] == "PIPELINE_ERROR"
+
+
+async def test_ambiguous_never_mind_asks_without_draining_backlog(voice_env):
+    env = voice_env
+    await submit(env, "first", 1)
+    end = await next_audio(env, 1)
+    await submit(env, "second", 2)
+    await env.device.voice_session.pause(end)
+    await submit(env, "never mind.", 3)
+    turn = env.store.get("voice:pi-one:3:0", "anonymous")
+    assert turn.route_status == "clarification"
+    assert env.store.get(end["turn_id"], "anonymous").delivery_state == "paused"
+    assert env.store.get("voice:pi-one:2:0", "anonymous").state != "cancelled"
+
+
+async def test_pivot_invalidates_old_audio_but_not_other_room(voice_env):
+    env = voice_env
+    await submit(env, "first", 1)
+    old = await next_audio(env, 1)
+    other = SatelliteConnection(env.device.websocket, "other-room")
+    other.capabilities = ["playback_ack"]
+    env.transcripts.put_nowait("another room")
+    await env.service.session(other).submit(Capture(b"\x01\x00", "other", True, "vad_silence"))
+    await until(lambda: env.store.get(old["turn_id"], "anonymous").delivery_state == "delivering")
+    await env.device.voice_session.pause(old)
+    await submit(env, "a new question", 3)
+    assert env.store.get(old["turn_id"], "anonymous").delivery_state == "interrupted"
+    await until(lambda: env.store.get("voice:other-room:other:0", "anonymous").state == "completed")
+    assert env.store.get("voice:other-room:other:0", "anonymous").delivery_state != "interrupted"
+
+
+async def test_stale_pause_requires_explicit_confirmation(voice_env):
+    env = voice_env
+    await submit(env, "first", 1)
+    old = await next_audio(env, 1)
+    session = env.device.voice_session
+    await session.pause(old)
+    session.paused_at -= 60
+    await submit(env, "yes", 2)
+    assert "confirm" in env.store.get("voice:pi-one:2:0", "anonymous").result
+    assert env.store.get(old["turn_id"], "anonymous").delivery_state == "paused"
+    await submit(env, "resume the previous response", 3)
+    assert env.store.get(old["turn_id"], "anonymous").identity.revision == 2
+
+
+async def test_local_stop_precedes_slow_server_and_stale_frames_are_ignored():
+    from unittest.mock import MagicMock
+    from satellite.atlas_satellite.agent import SatelliteAgent, State
+    from satellite.atlas_satellite.config import SatelliteConfig
+
+    agent = SatelliteAgent(SatelliteConfig())
+    gate = asyncio.Event()
+    agent.audio_out = SimpleNamespace(stop=MagicMock())
+    agent.vad = SimpleNamespace(reset=MagicMock())
+    agent.led = SimpleNamespace(set_pattern=MagicMock())
+    async def slow_server(*args):
+        await gate.wait()
+
+    agent.ws = SimpleNamespace(connected=True, send_barge_in=AsyncMock(side_effect=slow_server),
+                               send_wake=AsyncMock(), send_audio_start=AsyncMock(), send_status=AsyncMock())
+    metadata = {"turn_id": "old", "revision": 1, "playback_id": "old-play"}
+    agent._tts_metadata = metadata
+    agent.state = State.SPEAKING
+    agent._playback_task = asyncio.create_task(asyncio.Event().wait())
+    barge = asyncio.create_task(agent._handle_barge_in())
+    await until(lambda: agent.audio_out.stop.called)
+    await until(lambda: agent._playback_task.done())
+    assert not barge.done()
+    gate.set()
+    await asyncio.wait_for(barge, 2)
+    await agent._on_tts_start({**metadata, "sample_rate": 16000})
+    await agent._on_tts_chunk({**metadata, "audio": base64.b64encode(b"\x01\x00").decode()})
+    assert agent._tts_buffer == b""
+    assert agent.state == State.LISTENING

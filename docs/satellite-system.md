@@ -56,6 +56,29 @@ audio awaits playback. Updated Pi agents advertise `playback_ack`; tagged
 `PLAYBACK_ACK` marks playback complete. Sending bytes is not proof of hearing.
 Legacy devices without receipts remain delivery-unconfirmed, not falsely delivered.
 
+### Interruption and continuation (P07)
+
+Press/hold activation stops local playback before contacting the server. Stops
+carry turn/revision/playback identity; late frames and receipts from that playback
+are ignored. The browser satellite uses actual Web Audio source completion for
+receipts, never an estimated duration. Admin-chat synthesis is independently
+cancellable and its tagged audio cannot revive an interrupted response.
+
+Voice output is delivered sentence by sentence. A receipt immediately persists
+the sentence-end checkpoint; short-lived pause/resume repeats only an unfinished
+sentence, not an acknowledged one. This is not sample-accurate resume. After
+30 seconds or a server restart, old output needs explicit confirmation:
+"resume the previous response". A new question pivots away from paused output.
+An explicit stop cancels only the current scoped question/output and preserves
+other accepted work; ambiguous "never mind" with several targets asks which.
+Legacy clients unable to confirm playback must not claim continuation accuracy.
+
+Automatic acoustic interruption during speaker playback is disabled unless the
+device explicitly enables `features.acoustic_echo_cancellation`. Speaker energy
+alone is not reliable proof of human interruption. Physical press/hold remains
+available; toggle mode retains its wake/mute semantics. Enabling the feature does
+not qualify echo cancellation: actual microphone/speaker recordings are required.
+
 1. **Hardware-agnostic** — works on Raspberry Pi, ESP32-S3, x86 mini-PCs, Orange Pi, BeagleBone, FutureProofHomes Satellite1, or any Linux device with audio I/O
 2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → satellite announces itself, admin provisions from the panel
 3. **Self-announcing** — satellites broadcast their presence via mDNS on boot; Atlas passively listens — no network scanning

@@ -24,6 +24,17 @@ let reconnectTimer = null
 let mediaRecorder = null
 let audioChunks = []
 let audioContext = null
+let playbackId = null
+const audioSources = new Set()
+
+function stopAudio() {
+  const previous = playbackId
+  playbackId = null
+  for (const source of audioSources) source.stop()
+  audioSources.clear()
+  isPlayingAudio.value = false
+  if (previous && connected.value) ws.send(JSON.stringify({ type: 'tts_cancel', playback_id: previous }))
+}
 
 // ── WebSocket ────────────────────────────────────────────────────
 
@@ -102,7 +113,7 @@ function handleMessage(data) {
       send()
     }
   } else if (data.type === 'tts_audio') {
-    playAudio(data.data, data.sample_rate || 24000)
+    if (data.playback_id === playbackId) playAudio(data.data, data.sample_rate || 24000)
   } else if (data.type === 'tts_error') {
     ttsAvailable.value = false
   }
@@ -113,6 +124,7 @@ function handleMessage(data) {
 function send() {
   const text = inputText.value.trim()
   if (!text || isStreaming.value || !connected.value) return
+  stopAudio()
 
   messages.value.push({
     role: 'user',
@@ -153,6 +165,7 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+  stopAudio()
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
@@ -221,7 +234,9 @@ function stopRecording() {
 
 function requestTTS(text) {
   if (!connected.value || !ws) return
-  ws.send(JSON.stringify({ type: 'tts_request', text }))
+  stopAudio()
+  playbackId = crypto.randomUUID()
+  ws.send(JSON.stringify({ type: 'tts_request', text, playback_id: playbackId }))
 }
 
 async function playAudio(base64Data, sampleRate) {
@@ -249,7 +264,11 @@ async function playAudio(base64Data, sampleRate) {
     source.connect(audioContext.destination)
 
     isPlayingAudio.value = true
-    source.onended = () => { isPlayingAudio.value = false }
+    audioSources.add(source)
+    source.onended = () => {
+      audioSources.delete(source)
+      isPlayingAudio.value = audioSources.size > 0
+    }
     source.start()
   } catch (err) {
     console.warn('Audio playback failed:', err)

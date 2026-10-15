@@ -17,7 +17,7 @@ _STOP_PATTERNS = re.compile(
     r"that'?s enough|enough|"
     r"cancel|forget it|"
     r"no more|stop talking|please stop"
-    r")\.?!?\s*$",
+    r")[.!?,]*\s*$",
     re.IGNORECASE,
 )
 
@@ -31,8 +31,8 @@ _RESUME_PATTERNS = re.compile(
     r"what else|and then\??|"
     r"finish|carry on|keep talking|"
     r"you were saying|go on please|"
-    r"what were you saying|please continue"
-    r")\.?\s*$",
+    r"what were you saying|please continue|resume the previous response"
+    r")[.!?,]*\s*$",
     re.IGNORECASE,
 )
 

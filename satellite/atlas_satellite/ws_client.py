@@ -151,9 +151,10 @@ class SatelliteWSClient:
             "status": status,
         })
 
-    async def send_barge_in(self) -> None:
+    async def send_barge_in(self, metadata: dict | None = None) -> None:
         """Notify server that user interrupted during playback."""
         await self._send({
+            **(metadata or {}),
             "type": "BARGE_IN",
             "satellite_id": self.satellite_id,
         })

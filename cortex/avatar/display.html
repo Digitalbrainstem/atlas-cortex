@@ -791,6 +791,15 @@
     let _sentenceSamples = 0;    // total PCM samples for this sentence
     let nextPlayTime = 0;
     let _lastEstimatedDurationMs = 0;
+    let _playbackReceipt = null;
+
+    function _notifyPlaybackComplete() {
+      if (_playbackReceipt && _playbackReceipt.ended && _playbackReceipt.hasAudio && _scheduledSources.length === 0) {
+        const detail = _playbackReceipt.metadata;
+        _playbackReceipt = null;
+        window.dispatchEvent(new CustomEvent('atlas-playback-complete', { detail }));
+      }
+    }
 
     function ensureAudioContext() {
       if (!audioCtx) {
@@ -803,6 +812,7 @@
     }
 
     function _stopAllScheduledAudio() {
+      _playbackReceipt = null;
       _scheduledSources.forEach(s => { try { s.stop(); } catch (_) {} });
       _scheduledSources = [];
     }
@@ -822,6 +832,7 @@
         source.onended = () => {
           const idx = _scheduledSources.indexOf(source);
           if (idx !== -1) _scheduledSources.splice(idx, 1);
+          _notifyPlaybackComplete();
         };
         _scheduledSources.push(source);
         nextPlayTime = startAt + buffer.duration;
@@ -836,6 +847,10 @@
 
     // ── TTS_START: prepare state, store text ──────────────────
     function handleTtsStart(msg) {
+      _playbackReceipt = msg.playback_id ? {
+        metadata: { turn_id: msg.turn_id, revision: msg.revision, playback_id: msg.playback_id },
+        ended: false, hasAudio: false,
+      } : null;
       currentSessionId = msg.session_id;
       audioSampleRate = msg.sample_rate || 24000;
       audioQueue = [];
@@ -864,6 +879,8 @@
 
     // ── TTS_CHUNK: queue audio, schedule visemes on first chunk ──
     function handleTtsChunk(msg) {
+      if (msg.playback_id && (!_playbackReceipt || msg.playback_id !== _playbackReceipt.metadata.playback_id)) return;
+      if (_playbackReceipt) _playbackReceipt.hasAudio = true;
       _hasReceivedAudio = true;
       const ctx = ensureAudioContext();
 
@@ -910,6 +927,11 @@
 
     // ── TTS_END: refine visemes with real duration, schedule reset ──
     function handleTtsEnd(msg) {
+      if (msg.playback_id && (!_playbackReceipt || msg.playback_id !== _playbackReceipt.metadata.playback_id)) return;
+      if (_playbackReceipt) {
+        _playbackReceipt.ended = true;
+        _notifyPlaybackComplete();
+      }
       audioPlaying = false;
       _hasReceivedAudio = false;
 
@@ -986,6 +1008,13 @@
     window.handleTtsStart = handleTtsStart;
     window.handleTtsChunk = handleTtsChunk;
     window.handleTtsEnd = handleTtsEnd;
+    window.stopAtlasPlayback = () => {
+      _stopAllScheduledAudio();
+      audioQueue = [];
+      nextPlayTime = 0;
+      _clearVisemeTimers();
+      _isSpeaking = false;
+    };
     window.audioCtx = audioCtx;  // updated lazily via getter below
     Object.defineProperty(window, 'audioCtx', { get: () => audioCtx });
     Object.defineProperty(window, 'nextPlayTime', { get: () => nextPlayTime });
