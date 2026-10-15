@@ -16,6 +16,26 @@ Atlas acts as a patient, adaptive tutor that adjusts to each learner's age, know
 
 ## Educational Modes
 
+### Household voice games
+
+Number Quest, Science Safari and Word Wizard run without an LLM or a screen.
+Counting prompts use spoken numbers; Word Wizard asks word-opposite questions
+rather than substituting science questions. Say "stop" or "end game" to finish.
+Sessions end after ten questions or expire after ten minutes. Progress is saved
+for the actual user; active sessions are isolated by user, device and room.
+Starting another game finalizes the previous session in that scope.
+
+Difficulty starts adaptively, capped at level one for toddlers and level three
+for child/unknown profiles. Teen/adult profiles can reach level ten. There are
+at most 64 simultaneous sessions; expired sessions are reclaimed on admission.
+These are small voice activities, not the separate Nexus Academy project.
+
+Scoped timer/reminder notifications never broadcast into another room when their
+target is unavailable. User-only notifications use that user's recorded
+interaction location; missing/offline locations remain logged. Only unscoped
+system notifications broadcast. A successful notification channel count includes
+logging and is not evidence that a person heard audio.
+
 ### Homework Helper
 ```
 Child (age 10): "What's 3/4 plus 1/2?"

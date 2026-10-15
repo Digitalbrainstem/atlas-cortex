@@ -248,6 +248,13 @@ class VoiceSession:
                 else:
                     self.service.conversation.cancel(*key)
                 self.paused_turn = None
+            from cortex.plugins import get_registry
+            context = {"user_id": identity.user_id, "satellite_id": identity.device_id, "room": identity.room}
+            for plugin in get_registry().list_plugins():
+                if plugin.plugin_id == "stem_games":
+                    match = await plugin.match(text, context)
+                    if match.matched and match.intent in ("stop_game", "expired_game"):
+                        return None
             return DispatchResult(RouteStatus.HANDLED, "Stopped.")
         if intent == "resume" and (self.paused_turn or any(
             turn.delivery_state == "awaiting_confirmation" for turn in targets

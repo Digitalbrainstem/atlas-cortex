@@ -97,6 +97,31 @@ async def submit(env, text, number):
     await until(lambda: sum(frame["type"] == "TURN_ACCEPTED" for frame in env.frames) >= number)
 
 
+async def test_voice_stop_finishes_scoped_game_through_real_preparation(voice_env, tmp_path, monkeypatch):
+    from cortex.db import init_db, set_db_path
+    from cortex.pipeline import prepare_turn
+    from cortex.plugins import PluginRegistry
+    from cortex.plugins.games import STEMGamesPlugin
+
+    path = tmp_path / "games.db"
+    set_db_path(path)
+    init_db(path)
+    games = STEMGamesPlugin()
+    await games.setup({})
+    registry = PluginRegistry()
+    registry.register(games)
+    monkeypatch.setattr("cortex.plugins._registry", registry)
+    metadata = {"room": "kitchen", "source": "voice", "turn_id": "stop-game", "conversation_id": "voice:pi-one"}
+    identity = TurnIdentity.from_metadata("alice", metadata, satellite_id="pi-one")
+    context = {"user_id": "alice", "satellite_id": "pi-one", "room": "kitchen"}
+    match = await games.match("play Number Quest", context)
+    await games.handle("play Number Quest", match, context)
+    assert await voice_env.service.session(voice_env.device)._control("stop.", identity) is None
+    prepared = await prepare_turn("stop.", user_id="alice", satellite_id="pi-one", metadata=metadata)
+    assert prepared.dispatch.status == RouteStatus.HANDLED
+    assert not games._sessions
+
+
 async def test_three_questions_are_durable_while_first_playback_waits(voice_env):
     env = voice_env
     for number, text in enumerate(("first question", "second question", "third question"), 1):
