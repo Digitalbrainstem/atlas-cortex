@@ -172,6 +172,11 @@ function connectWebSocket() {
           turnState.value = `${msg.state}${msg.delivery_state ? ' / ' + msg.delivery_state : ''}`
         }
       } else if (msg.type === 'error') {
+        if (msg.code === 'authentication') {
+          logout()
+          authError.value = 'Your session expired. Sign in again.'
+          return
+        }
         streaming.value = false
         turnState.value = msg.text || 'The request failed.'
       }

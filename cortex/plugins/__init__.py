@@ -94,6 +94,14 @@ class PluginRegistry:
                         metadata={"action_outcome": "none"},
                     )
                 handler_started = True
+                restricted = context.get("restricted_actions", [])
+                if "*" in restricted or plugin.plugin_id in restricted or match.intent in restricted:
+                    logger.info("Plugin command denied by household action policy")
+                    self._mark_failed(scope, stamp)
+                    return plugin, match, CommandResult(
+                        False, "That action is not allowed by your current household settings.",
+                        metadata={"action_outcome": "none"},
+                    )
                 result = await plugin.handle(message, match, context)
                 if not result.handled:
                     logger.info("Plugin %s explicitly declined the request", plugin.plugin_id)

@@ -282,6 +282,22 @@ async def test_recovery_confirmation_dispatches_without_preloading_or_automatic_
         await restarted.stop()
 
 
+async def test_recovered_generation_rechecks_current_household_policy(env):
+    coordinator, store, provider, safety = env
+    coordinator._admit(prepared("restored under changed policy"), OPTIONS)
+    await coordinator.stop()
+    store.recover(startup=True)
+    safety.blocked_input = True
+    restarted = ConversationCoordinator(store, provider, safety)
+    await restarted.start()
+    try:
+        store.confirm_recovery("restored under changed policy", "alice", 2)
+        await until(lambda: store.get("restored under changed policy", "alice").state == "failed")
+        assert provider.calls == []
+        assert store.get("restored under changed policy", "alice").result == "Input blocked."
+    finally:
+        await restarted.stop()
+
 async def test_full_question_correction_replaces_pending_question(env):
     coordinator, store, provider, _ = env
     provider.block.add("old")

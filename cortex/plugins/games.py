@@ -209,6 +209,11 @@ class STEMGamesPlugin(CortexPlugin):
     async def health(self) -> bool:
         return True
 
+    def forget_user(self, user_id: str) -> None:
+        for key, session in list(self._sessions.items()):
+            if session.user_id == user_id:
+                self._end_game(key)
+
     # ── Match ─────────────────────────────────────────────────
 
     async def match(

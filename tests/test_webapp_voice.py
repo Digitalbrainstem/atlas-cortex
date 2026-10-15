@@ -206,10 +206,11 @@ class TestVoiceTTS:
                 decoded = base64.b64decode(msg["data"])
                 assert decoded == fake_pcm
 
-    def test_tts_empty_text_no_response(self, client):
-        """tts_request with empty text doesn't send a response."""
+    def test_tts_empty_text_returns_explicit_error(self, client):
+        """Invalid speech input is rejected without breaking the connection."""
         with client.websocket_connect("/ws/chat") as ws:
             ws.send_json({"type": "tts_request", "text": ""})
+            assert ws.receive_json()["type"] == "tts_error"
             # Send a chat message to verify the ws is still working
             with patch("cortex.server.run_pipeline", side_effect=_fake_pipeline):
                 ws.send_json({"message": "hi"})

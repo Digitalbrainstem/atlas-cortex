@@ -296,6 +296,23 @@ async def test_pause_resume_starts_at_last_acknowledged_sentence(voice_env):
     await until(lambda: env.store.get(turn_id, "anonymous").delivery_state == "delivered")
 
 
+async def test_resume_revalidates_policy_before_releasing_old_audio(voice_env, monkeypatch):
+    env = voice_env
+    await submit(env, "Original synthetic question", 1)
+    frame = await next_audio(env, 1)
+    session = env.device.voice_session
+    await session.pause(frame)
+    monkeypatch.setattr(env.coordinator.safety, "check_output", lambda *args, **kwargs: GuardrailResult(
+        severity=Severity.SOFT_BLOCK, category="canary", reason="Changed household policy",
+        suggested_response="Safe replacement.",
+    ))
+    identity = TurnIdentity("resume-policy", "voice:pi-one", "anonymous", source="satellite",
+                            device_id="pi-one", room="kitchen")
+    result = await session._control("continue", identity)
+    assert result.status == RouteStatus.FAILED
+    assert env.store.get(frame["turn_id"], "anonymous").delivery_state == "paused"
+    assert len([sent for sent in env.frames if sent["type"] == "TTS_START"]) == 1
+
 async def test_stop_preserves_other_accepted_questions(voice_env):
     env = voice_env
     await submit(env, "first", 1)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 import weakref
 from dataclasses import asdict, dataclass, field
@@ -11,6 +12,39 @@ from enum import Enum
 from typing import Any, AsyncGenerator, Protocol
 
 logger = logging.getLogger(__name__)
+DEFAULT_MAX_OUTPUT_BYTES = 262144
+
+
+def output_byte_limit() -> int:
+    key = "CORTEX_TURN_MAX_OUTPUT_BYTES"
+    try:
+        limit = int(os.environ.get(key, str(DEFAULT_MAX_OUTPUT_BYTES)))
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        return limit
+    except ValueError:
+        logger.error("%s must be a positive integer", key)
+        raise
+
+def sanitize_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Discard caller-supplied policy/credential fields before durable storage."""
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValueError("Metadata must be an object")
+    private = {
+        "content_tier", "forced_content_tier", "role", "is_admin", "authenticated",
+        "authenticated_user_id", "permissions", "user_id", "authorization", "token",
+        "chat_token", "admin_token", "access_token", "refresh_token", "password",
+        "pin", "api_key", "ha_token", "device_fingerprint",
+    }
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: clean(item) for key, item in value.items() if key.lower() not in private}
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        return value
+
+    return clean(metadata or {})
 
 
 class PipelineGenerationError(RuntimeError):

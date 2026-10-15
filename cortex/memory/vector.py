@@ -46,6 +46,9 @@ class VectorStore:
             metadatas=[metadata or {}],
         )
 
+    def delete_user(self, user_id: str) -> None:
+        self._collection.delete(where={"user_id": user_id})
+
     def query(
         self,
         embedding: list[float],

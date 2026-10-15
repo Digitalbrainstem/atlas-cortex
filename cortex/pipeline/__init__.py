@@ -32,9 +32,26 @@ from .layer0_context import assemble_context
 from .layer1_instant import try_instant_answer
 from .layer2_plugins import dispatch_plugins
 from .layer3_llm import stream_llm_response
-from .turns import DispatchResult, PreparedTurn, RouteStatus, TurnIdentity
+from .turns import DispatchResult, PreparedTurn, RouteStatus, TurnIdentity, sanitize_metadata
 
 logger = logging.getLogger(__name__)
+
+def _pipeline_safety(db_conn: Any = None) -> tuple[Any, Any]:
+    from cortex.pipeline.turns import get_conversation_coordinator
+    from cortex.safety.middleware import PipelineSafetyMiddleware
+    coordinator = get_conversation_coordinator()
+    if coordinator is not None:
+        return coordinator.safety, coordinator.store.conn
+    return PipelineSafetyMiddleware(db_conn), db_conn
+
+
+def _validate_output(text: str, prepared: PreparedTurn, safety: Any, prompt: str = "") -> str:
+    from cortex.safety import Severity
+    checked = safety.check_output(text, prepared.identity.user_id, prepared.message,
+                                  prompt, prepared.context.get("metadata", {}))
+    if checked.severity >= Severity.SOFT_BLOCK:
+        return checked.suggested_response or "I'm not able to provide that response."
+    return text
 
 
 async def run_pipeline(
@@ -134,7 +151,7 @@ async def _pipeline_event_generator(
 ) -> AsyncGenerator[PipelineEvent, None]:
     prepared = await prepare_turn(
         message, user_id=user_id, speaker_id=speaker_id, satellite_id=satellite_id,
-        conversation_history=conversation_history, metadata=metadata,
+        conversation_history=conversation_history, metadata=metadata, db_conn=db_conn,
     )
     async for event in run_prepared_pipeline_events(
         prepared, provider, model_fast=model_fast, model_thinking=model_thinking,
@@ -151,10 +168,31 @@ async def prepare_turn(
     satellite_id: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
+    db_conn: Any = None,
 ) -> PreparedTurn:
     """Assemble context and execute fast paths without acquiring an LLM slot."""
+    from cortex.safety import Severity
+    from cortex.profiles import check_parental_allowed, get_parental_controls
+    from datetime import datetime
+    metadata = sanitize_metadata(metadata)
     identity = TurnIdentity.from_metadata(user_id, metadata, satellite_id)
     start_ms = int(time.monotonic() * 1000)
+    safety, policy_db = _pipeline_safety(db_conn)
+    checked = safety.check_input(message, user_id, metadata)
+    blocked = None
+    if checked.severity >= Severity.SOFT_BLOCK:
+        blocked = checked.suggested_response or "I'm not able to help with that request."
+    if policy_db is not None:
+        allowed = check_parental_allowed(policy_db, user_id, hour=datetime.now().hour)
+        if not allowed["allowed"]:
+            logger.info("Household interaction denied by current parental policy")
+            blocked = "This interaction is not available under your current household settings."
+    if blocked:
+        return PreparedTurn(
+            identity, message, {"user_id": user_id, "metadata": metadata, "turn_identity": identity},
+            DispatchResult(RouteStatus.FAILED, blocked, layer="safety"),
+            start_ms, {"L0": 0, "L1": 0, "L2": 0},
+        )
     t0 = time.monotonic()
     context = await assemble_context(
         message=message,
@@ -167,6 +205,9 @@ async def prepare_turn(
     layer0_ms = (time.monotonic() - t0) * 1000
     context["turn_identity"] = identity
     context["room"] = identity.room or context.get("room")
+    if policy_db is not None:
+        controls = get_parental_controls(policy_db, user_id)
+        context["restricted_actions"] = controls["restricted_topics"] if controls else []
     times = {"L0": layer0_ms}
 
     t1 = time.monotonic()
@@ -217,10 +258,15 @@ async def run_prepared_pipeline_events(
     )
 
     result = prepared.dispatch
+    safety, _ = _pipeline_safety(db_conn)
+    safety_prompt = safety.build_system_prompt(user_id, context.get("metadata", {}))
+    if safety_prompt and safety_prompt not in system_prompt:
+        system_prompt = f"{system_prompt}\n\n{safety_prompt}".strip()
     if result.status != RouteStatus.NOT_MATCHED:
         response = result.response
         if response is None:
             raise ValueError("Handled turn must contain a response")
+        response = _validate_output(response, prepared, safety, system_prompt)
         total_ms = int(time.monotonic() * 1000) - start_ms
         logger.info("Fast path %s: %s [total %dms]", result.layer, result.status.value, total_ms)
 
@@ -237,7 +283,10 @@ async def run_prepared_pipeline_events(
             for i, part in enumerate(parts):
                 part = part.strip()
                 if part:
-                    tts_text = _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part
+                    tts_text = _validate_output(
+                        _joke_punchline_tts if (i == 1 and _joke_punchline_tts) else part,
+                        prepared, safety, system_prompt,
+                    )
                     yield TTSEvent(text=tts_text)
             yield ExpressionEvent(
                 expression="laughing",
@@ -300,7 +349,20 @@ async def run_prepared_pipeline_events(
             model_fast=model_fast, model_thinking=model_thinking,
             memory_context=memory_context, system_prompt=system_prompt,
         )
-    async for chunk in chunks:
+    from cortex.pipeline.turns import PipelineGenerationError, output_byte_limit
+    maximum = coordinator.store.policy.max_output_bytes if coordinator else output_byte_limit()
+    buffered: list[str] = []
+    size = 0
+    try:
+        async for chunk in chunks:
+            size += len(chunk.encode("utf-8"))
+            if size > maximum:
+                raise PipelineGenerationError("Generated response exceeded the output byte limit")
+            buffered.append(chunk)
+    finally:
+        await chunks.aclose()
+    validated = _validate_output("".join(buffered), prepared, safety, system_prompt)
+    for chunk in (validated,):
         if not first_token_ms:
             first_token_ms = (time.monotonic() - t3) * 1000
             # The very first chunk from stream_llm_response is the filler

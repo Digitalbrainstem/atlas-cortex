@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from cortex.pipeline.turns import ActionOutcome, DispatchResult, RouteStatus, TurnIdentity
+from cortex.pipeline.turns import ActionOutcome, DEFAULT_MAX_OUTPUT_BYTES, DispatchResult, RouteStatus, TurnIdentity
 from cortex.plugins.base import ConfigField
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class TurnStorePolicy:
     max_active: int = 1
     prefetch: int = 8
     max_input_bytes: int = 65536
-    max_output_bytes: int = 262144
+    max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES
     max_store_bytes: int = 64 * 1024 * 1024
     min_free_disk_bytes: int = 16 * 1024 * 1024
     retention_seconds: int = 7 * 86400

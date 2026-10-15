@@ -30,7 +30,8 @@ class MemoryWriter:
         self._conn = conn
         self._vector_store = vector_store
         self._provider = provider
-        self._queue: asyncio.Queue[MemoryEntry] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[MemoryEntry, int]] = asyncio.Queue()
+        self._user_revisions: dict[str, int] = {}
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -43,6 +44,18 @@ class MemoryWriter:
         self._running = False
         if self._task:
             self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+            self._task = None
+
+    def forget_user(self, user_id: str) -> None:
+        """Invalidate queued/in-flight writes before removing persisted memories."""
+        if not user_id.strip():
+            raise ValueError("Memory deletion requires a user scope")
+        self._user_revisions[user_id] = self._user_revisions.get(user_id, 0) + 1
+        if self._vector_store is not None:
+            self._vector_store.delete_user(user_id)
+        self._conn.execute("DELETE FROM memory_fts WHERE user_id=?", (user_id,))
+        self._conn.commit()
 
     async def enqueue(self, text: str, user_id: str, tags: list[str] | None = None) -> None:
         """Fire-and-forget: queue text for background memory processing."""
@@ -58,14 +71,16 @@ class MemoryWriter:
             memory_type=mem_type,
             tags=tags or [],
         )
-        await self._queue.put(entry)
+        await self._queue.put((entry, self._user_revisions.get(user_id, 0)))
 
     async def _worker(self) -> None:
         while self._running:
             try:
-                entry = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-                await self._write(entry)
-                self._queue.task_done()
+                entry, revision = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                try:
+                    await self._write(entry, revision=revision)
+                finally:
+                    self._queue.task_done()
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -73,8 +88,11 @@ class MemoryWriter:
             except Exception as exc:
                 logger.error("Memory write error: %s", exc)
 
-    async def _write(self, entry: MemoryEntry) -> None:
+    async def _write(self, entry: MemoryEntry, *, revision: int | None = None) -> None:
         """Persist entry to FTS5 (and optionally ChromaDB)."""
+        revision = self._user_revisions.get(entry.user_id, 0) if revision is None else revision
+        if revision != self._user_revisions.get(entry.user_id, 0):
+            return
         try:
             self._conn.execute(
                 "DELETE FROM memory_fts WHERE doc_id = ?", (entry.doc_id,)
@@ -97,6 +115,8 @@ class MemoryWriter:
         if self._vector_store is not None and self._provider is not None:
             try:
                 emb = await get_embedding(entry.text, self._provider)
+                if revision != self._user_revisions.get(entry.user_id, 0):
+                    return
                 if emb is not None:
                     self._vector_store.upsert(
                         doc_id=entry.doc_id,

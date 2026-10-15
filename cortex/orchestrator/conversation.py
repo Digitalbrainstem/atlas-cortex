@@ -296,6 +296,11 @@ class ConversationCoordinator:
         self._signal()
 
     def _validated_output(self, text: str, turn: StoredTurn, prompt: str) -> str:
+        from datetime import datetime
+        from cortex.profiles import check_parental_allowed
+        if not check_parental_allowed(self.store.conn, turn.identity.user_id, hour=datetime.now().hour)["allowed"]:
+            logger.info("Withheld conversation output under current parental policy")
+            return "This interaction is not available under your current household settings."
         checked = self.safety.check_output(
             text, turn.identity.user_id, turn.transcript, prompt, turn.context.get("metadata", {}),
         )
@@ -381,6 +386,13 @@ class ConversationCoordinator:
             context["conversation_length"] = len(context["conversation_history"])
             metadata = context.get("metadata", {})
             checked = self.safety.check_input(turn.transcript, identity.user_id, metadata)
+            from datetime import datetime
+            from cortex.profiles import check_parental_allowed
+            if not check_parental_allowed(self.store.conn, identity.user_id, hour=datetime.now().hour)["allowed"]:
+                checked = GuardrailResult(
+                    severity=Severity.SOFT_BLOCK, category="parental", reason="Current household policy",
+                    suggested_response="This interaction is not available under your current household settings.",
+                )
             safety_prompt = self.safety.build_system_prompt(identity.user_id, metadata)
             prompt = options.system_prompt
             if safety_prompt and safety_prompt not in prompt:

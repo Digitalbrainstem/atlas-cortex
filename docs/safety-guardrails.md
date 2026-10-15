@@ -8,6 +8,66 @@
 4. **Language awareness** — Atlas adjusts vocabulary, tone, and phrasing based on the audience. No profanity for children; measured language for adults
 5. **Honest, not compliant** — Atlas challenges bad ideas, doesn't guess at answers, and admits uncertainty (see grounding.md)
 
+## Shared entry-point enforcement
+
+HTTP (including SSE), browser WebSocket, Open WebUI Pipe and satellite voice share
+pre-action input checks and output validation. Fast-path/plugin answers are
+checked before text or TTS events. Generated responses are bounded and buffered
+until validation, including the fallback path without a running coordinator.
+This deliberately preserves safety rather than streaming unvalidated prefixes.
+
+Content tiers come from current server-side profiles, chat-auth configuration and
+parental controls, not caller metadata. Strict parental controls take precedence.
+Allowed hours and restricted plugin/intent actions are checked before dispatch.
+Home Assistant rechecks current settings immediately before execution; a
+non-empty parental device allowlist restricts the permitted device targets.
+Door-lock commands additionally require a live signed-in PIN/password/passkey
+profile. A speaker label, room, no-auth profile or claimed metadata permission is
+not privileged authentication.
+
+Protected browser profiles require matching chat-session tokens on chat, status
+and speech frames. Protected HTTP identities require the matching token in the
+Bearer header. Public chat sends the token in frames, not a WebSocket URL.
+Guest/no-auth profiles remain deliberately unprotected; legacy OpenAI placeholder
+keys are not authentication and remain compatible for unprotected identities.
+Keep the server on its intended trusted household network rather than exposing
+unprotected API/profile access to the Internet.
+
+Recovery rechecks current input/parental policy before generation. Old/resumed
+voice output is revalidated before synthesis and again before delivery; changed
+policy or a deleted/obsolete turn prevents old audio from being published.
+Unowned external actions require manual verification, never an automatic retry
+that could duplicate a side effect.
+
+### Local data and deletion
+
+The durable SQLite ledger contains household text and operational context. Its
+bounded retention is not raw-audio storage: accepted/recovering work and unheard
+results are retained until resolved. Protect the database and backups as private
+household data. Known credential and caller-policy fields are removed from
+metadata before persistence; diagnostic lifecycle views return no transcripts.
+
+Admin user deletion removes local auth/session eligibility, durable work, HA
+conversation context, interaction/location history, learning progress and memory
+FTS entries, and deletes that user's vectors from an active vector backend.
+Queued and in-flight cold writes are invalidated so deletion cannot resurrect
+old vectors. Active game sessions are finalized before progress is removed.
+Reassign child profiles before deleting a parent. Deletion errors are explicit;
+they are not reported as completed erasure.
+
+This is not deletion of off-device backups, external integrations, operator logs
+or independently stored experimental session data. Handle those stores under the
+installation/retention procedure, and reapply deletions after restoring an older
+backup. Do not put household raw audio or real credentials in qualification logs.
+
+### Integrity boundary
+
+The shared pipeline safety change was explicitly approved for the FROZEN-listed
+pipeline module. No integrity checksum or other frozen safety/auth/database file
+was changed to make tests pass. Existing deployments must follow their approved
+integrity-change procedure before adopting changed source; fresh-test database
+startup is not evidence that a production integrity baseline was approved.
+
 ---
 
 ## Age-Aware Content Tiers

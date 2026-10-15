@@ -267,6 +267,8 @@ class VoiceSession:
             if stale and text.strip().lower().rstrip(".!?,") != "resume the previous response":
                 return DispatchResult(RouteStatus.CLARIFICATION,
                                       "Say 'resume the previous response' to confirm playback of the old response.")
+            if self.service.conversation._validated_output(target.result or "", target, "") != target.result:
+                return DispatchResult(RouteStatus.FAILED, "The previous response is no longer allowed by current household policy. Please ask a new question.")
             store.resume_delivery(target.identity.turn_id, target.identity.user_id, target.identity.revision)
             self.paused_turn = None
             return DispatchResult(RouteStatus.HANDLED, "Continuing from the last confirmed sentence.")
@@ -306,6 +308,8 @@ class VoiceSession:
                         continue
                     if len(sentence) > 2048:
                         raise ValueError("A voice sentence exceeds the delivery allocation")
+                    if self.service.conversation._validated_output(turn.result, turn, "") != turn.result:
+                        raise ValueError("Household policy changed; previous playback is no longer allowed")
                     self.playback_id = uuid.uuid4().hex
                     self.conn.delivery_metadata = {
                         "turn_id": identity.turn_id, "revision": identity.revision,
@@ -318,6 +322,11 @@ class VoiceSession:
                     )
                     if not audio or len(audio) > 4 * 1024 * 1024:
                         raise RuntimeError("Speech audio is empty or exceeds the delivery allocation")
+                    current = store.get(identity.turn_id, identity.user_id)
+                    if current.identity.revision != identity.revision:
+                        raise ValueError("Voice playback revision changed before delivery")
+                    if self.service.conversation._validated_output(turn.result, current, "") != turn.result:
+                        raise ValueError("Household policy changed before speech delivery")
                     self.ack_position = cursor
                     await voice._stream_audio_to_satellite(
                         self.conn, audio, rate, sentence.strip(),

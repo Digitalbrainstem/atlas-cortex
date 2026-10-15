@@ -35,11 +35,12 @@ from pydantic import BaseModel, Field
 from aiohttp import ClientError
 
 from cortex.admin_api import router as admin_router
-from cortex.auth_user import get_user_auth
+from cortex.auth_user import ChatAuthenticationError, chat_request_actor, get_user_auth
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
 from cortex.pipeline.turns import (
     ConversationConflictError, ConversationStorageError, PipelineGenerationError, TurnSupersededError,
+    sanitize_metadata,
 )
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
@@ -276,6 +277,7 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     """Browser chat WebSocket — streams pipeline responses and voice I/O."""
     await websocket.accept()
     audio_buffer = bytearray()
+    audio_rejected = False
     conversation_id = uuid.uuid4().hex
     responses: set[asyncio.Task[None]] = set()
     send_lock = asyncio.Lock()
@@ -285,12 +287,26 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     async def respond_tts(payload: dict[str, Any]) -> None:
         from cortex.speech.tts import synthesize_speech
         tags = {"playback_id": payload["playback_id"]} if payload.get("playback_id") else {}
+        error_text = "Speech synthesis is unavailable or blocked by household policy"
         try:
+            user = get_user_auth().resolve_request_user(
+                payload.get("user_id", "web_user"), payload.get("chat_token", ""),
+            )
+            from cortex.safety.middleware import PipelineSafetyMiddleware
+            from cortex.safety import Severity
+            safety = _safety_middleware or PipelineSafetyMiddleware(_get_db())
+            checked = safety.check_output(payload["text"], user, metadata={})
+            if checked.severity >= Severity.SOFT_BLOCK:
+                raise ValueError("Speech was blocked by household policy")
             pcm, sample_rate, provider_name = await synthesize_speech(
                 payload["text"], payload.get("voice", "af_bella"),
             )
             if not pcm:
+                error_text = "No TTS provider available"
                 raise RuntimeError("No TTS provider available")
+            get_user_auth().resolve_request_user(user, payload.get("chat_token", ""))
+            if safety.check_output(payload["text"], user, metadata={}).severity >= Severity.SOFT_BLOCK:
+                raise ValueError("Household policy changed before speech delivery")
             async with send_lock:
                 await websocket.send_json({
                     "type": "tts_audio", "data": base64.b64encode(pcm).decode(),
@@ -299,21 +315,37 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
         except Exception as exc:
             logger.warning("TTS failed: %s", exc)
             async with send_lock:
-                await websocket.send_json({"type": "tts_error", "text": str(exc), **tags})
+                await websocket.send_json({"type": "tts_error", "text": error_text, **tags})
 
     async def respond(payload: dict[str, Any]) -> None:
         message = payload["message"]
-        metadata = dict(payload.get("metadata") or {})
+        try:
+            user_id = get_user_auth().resolve_request_user(
+                payload.get("user_id", "web_user"), payload.get("chat_token", ""),
+            )
+        except ChatAuthenticationError:
+            await websocket.send_json({"type": "error", "code": "authentication",
+                                       "text": "Sign in again to use this profile"})
+            return
+        metadata = sanitize_metadata(payload.get("metadata"))
         metadata.setdefault("conversation_id", conversation_id)
         metadata.setdefault("turn_id", uuid.uuid4().hex)
         metadata["source"] = "browser"
         turn_id = metadata["turn_id"]
-        pipeline = run_pipeline(
-            message=message, provider=_get_provider(),
-            user_id=payload.get("user_id", "web_user"),
-            conversation_history=payload.get("history", []),
-            metadata=metadata, db_conn=_get_db(),
-        )
+        async def authorized_pipeline():
+            with chat_request_actor(user_id, payload.get("chat_token", "")):
+                inner = run_pipeline(
+                    message=message, provider=_get_provider(), user_id=user_id,
+                    conversation_history=payload.get("history", []),
+                    metadata=metadata, db_conn=_get_db(),
+                )
+                try:
+                    async for chunk in inner:
+                        get_user_auth().resolve_request_user(user_id, payload.get("chat_token", ""))
+                        yield chunk
+                finally:
+                    await inner.aclose()
+        pipeline = authorized_pipeline()
         try:
             # Admission must not hold the output lock while waiting for inference.
             first = await anext(pipeline, None)
@@ -346,6 +378,15 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     try:
         while True:
             data = await websocket.receive_json()
+            if not isinstance(data, dict):
+                await websocket.send_json({"type": "error", "text": "Chat messages must be objects"})
+                continue
+            try:
+                get_user_auth().resolve_request_user(data.get("user_id", "web_user"), data.get("chat_token", ""))
+            except ChatAuthenticationError:
+                await websocket.send_json({"type": "error", "code": "authentication",
+                                           "text": "Sign in again to use this profile"})
+                continue
             msg_type = data.get("type", "chat")
 
             if msg_type == "turn_status":
@@ -372,16 +413,27 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
             # ── Voice input: STT ─────────────────────────────────
             if msg_type == "audio_start":
                 audio_buffer.clear()
+                audio_rejected = False
                 continue
 
             if msg_type == "audio_data":
+                if audio_rejected:
+                    continue
                 try:
-                    audio_buffer.extend(base64.b64decode(data.get("data", "")))
-                except Exception:
-                    pass
+                    chunk = base64.b64decode(data.get("data", ""), validate=True)
+                    if len(audio_buffer) + len(chunk) > 2 * 1024 * 1024:
+                        raise ValueError("Browser recording exceeds the audio limit")
+                    audio_buffer.extend(chunk)
+                except (ValueError, TypeError):
+                    audio_buffer.clear()
+                    audio_rejected = True
+                    await websocket.send_json({"type": "error", "text": "Invalid or oversized browser recording"})
                 continue
 
             if msg_type == "audio_end":
+                if audio_rejected:
+                    await websocket.send_json({"type": "error", "text": "Recording was rejected; start a new capture"})
+                    continue
                 transcript = ""
                 try:
                     from cortex.speech.stt import transcribe, is_hallucinated
@@ -408,7 +460,8 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 continue
             if msg_type == "tts_request":
                 text = data.get("text", "")
-                if not text:
+                if not isinstance(text, str) or not 0 < len(text) <= 16000:
+                    await websocket.send_json({"type": "tts_error", "text": "Speech text must contain 1 to 16000 characters"})
                     continue
                 if tts_task is not None and not tts_task.done():
                     tts_task.cancel()
@@ -426,6 +479,11 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
 
             if not message:
                 await websocket.send_json({"type": "error", "text": "Empty message"})
+                continue
+            if (not isinstance(message, str)
+                    or not isinstance(data.get("metadata", {}), dict)
+                    or not isinstance(history, list)):
+                await websocket.send_json({"type": "error", "text": "Invalid chat message, metadata or history"})
                 continue
 
             task = asyncio.create_task(respond(dict(data)), name="browser-chat-turn")
@@ -571,8 +629,16 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     db_conn = _get_db()
 
     user_id = request.user or request.metadata.get("user_id", "default")
-    metadata = dict(request.metadata)
+    metadata = sanitize_metadata(request.metadata)
     metadata["source"] = "http"
+    token = raw.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    auth_user = get_user_auth().get_user(user_id)
+    if not (auth_user and auth_user.auth_method != "none") and not get_user_auth().verify_session_token(token):
+        token = ""
+    try:
+        get_user_auth().resolve_request_user(user_id, token)
+    except ChatAuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     if raw.headers.get("Idempotency-Key"):
         metadata["idempotency_key"] = raw.headers["Idempotency-Key"]
 
@@ -599,15 +665,20 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     if _safety_middleware is not None:
         system_prompt = _safety_middleware.build_system_prompt(user_id, metadata)
 
-    pipeline = run_pipeline(
-        message=user_message,
-        provider=provider,
-        user_id=user_id,
-        conversation_history=conversation_history,
-        metadata=metadata,
-        db_conn=db_conn,
-        system_prompt=system_prompt,
-    )
+    async def authorized_pipeline():
+        with chat_request_actor(user_id, token):
+            inner = run_pipeline(
+                message=user_message, provider=provider, user_id=user_id,
+                conversation_history=conversation_history, metadata=metadata,
+                db_conn=db_conn, system_prompt=system_prompt,
+            )
+            try:
+                async for chunk in inner:
+                    get_user_auth().resolve_request_user(user_id, token)
+                    yield chunk
+            finally:
+                await inner.aclose()
+    pipeline = authorized_pipeline()
 
     if request.stream:
         return StreamingResponse(

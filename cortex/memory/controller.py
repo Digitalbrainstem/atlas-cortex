@@ -86,5 +86,10 @@ class MemorySystem:
     async def start(self) -> None:
         self._writer.start()
 
+    def forget_user(self, user_id: str) -> None:
+        self._writer.forget_user(user_id)
+
     async def stop(self) -> None:
         await self._writer.stop()
+        if get_memory_system() is self:
+            set_memory_system(None)

@@ -69,7 +69,7 @@ onMounted(refresh)
         <summary>Effective resource settings (read-only; restart after configuration changes)</summary>
         <dl v-for="field in status.config_fields" :key="field.key">
           <dt>{{ field.label || field.key }}</dt>
-          <dd>{{ status.policy[field.key] }} <small>{{ field.description }}</small></dd>
+          <dd>{{ field.default }} <small>{{ field.help_text }}</small></dd>
         </dl>
       </details>
     </template>

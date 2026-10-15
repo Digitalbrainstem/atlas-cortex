@@ -330,6 +330,31 @@ class HAPlugin(CortexPlugin):
             })
         else:
             command = HACommand(domain, command.service, entity_id, command.data)
+        def authorization_error() -> str | None:
+            from datetime import datetime
+            from cortex.auth_user import has_verified_actor
+            from cortex.profiles import check_parental_allowed, get_parental_controls
+            user = context.get("user_id", "anonymous")
+            if command.domain == "lock" and not has_verified_actor(user):
+                return "Door lock commands require a signed-in PIN, password or passkey profile; speaker recognition is not authorization."
+            allowed = check_parental_allowed(self._conn, user, hour=datetime.now().hour)
+            controls = get_parental_controls(self._conn, user)
+            restricted = controls["restricted_topics"] if controls else []
+            if not allowed["allowed"] or any(
+                action in restricted for action in ("*", self.plugin_id, match.intent, command.service)
+            ):
+                return "That device action is not allowed by your current household settings."
+            devices = self._conn.execute(
+                "SELECT entity_id FROM parental_allowed_devices WHERE child_user_id=?", (user,),
+            ).fetchall()
+            if devices and entity_id not in [row["entity_id"] for row in devices]:
+                return "That device is not allowed by your current household settings."
+            return None
+
+        denied = authorization_error()
+        if denied:
+            logger.info("HA command denied before device dispatch")
+            return CommandResult(False, denied, metadata={"action_outcome": "none"})
         try:
             request = self._commands.enqueue(
                 command, context, correction=metadata.get("correction", False),
@@ -342,6 +367,10 @@ class HAPlugin(CortexPlugin):
             )
 
         async def execute() -> CommandResult:
+            denied = authorization_error()
+            if denied:
+                logger.info("HA command authorization changed before execution")
+                return CommandResult(False, denied, metadata={"action_outcome": "none"})
             try:
                 await self._client.call_service(command.domain, command.service, {
                     **command.data, "entity_id": entity_id,

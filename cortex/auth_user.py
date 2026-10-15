@@ -14,6 +14,8 @@ import os
 import secrets
 import time
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 import bcrypt
@@ -25,6 +27,31 @@ logger = logging.getLogger(__name__)
 
 JWT_ALGORITHM = "HS256"
 CHAT_TOKEN_EXPIRY = int(os.environ.get("CORTEX_CHAT_TOKEN_EXPIRY", "86400"))
+_request_actor: ContextVar[tuple[str, str] | None] = ContextVar("chat_request_actor", default=None)
+
+
+@contextmanager
+def chat_request_actor(user_id: str, token: str):
+    manager = get_user_auth()
+    manager.resolve_request_user(user_id, token)
+    previous = _request_actor.set((user_id, token) if token else None)
+    try:
+        yield
+    finally:
+        _request_actor.reset(previous)
+
+
+def has_verified_actor(user_id: str) -> bool:
+    actor = _request_actor.get()
+    manager = get_user_auth()
+    user = manager.get_user(user_id)
+    return bool(
+        actor and actor[0] == user_id and user and user.auth_method in ("pin", "password", "passkey")
+        and manager.verify_session_token(actor[1]) == user_id
+    )
+
+class ChatAuthenticationError(ValueError):
+    """A chat identity is not authorized by the supplied live session."""
 
 
 @dataclass
@@ -50,6 +77,21 @@ class UserAuthManager:
 
     def __init__(self) -> None:
         self._users: dict[str, UserAuthConfig] = {}
+
+    def resolve_request_user(self, user_id: str, token: str = "") -> str:
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise ChatAuthenticationError("A valid chat identity is required")
+        user = self.get_user(user_id)
+        if token:
+            verified = self.verify_session_token(token)
+            if verified != user_id or (user_id != "guest" and user is None):
+                raise ChatAuthenticationError("Chat session expired or does not match this profile")
+        elif user is not None and user.auth_method != "none":
+            raise ChatAuthenticationError("Sign in to use this protected profile")
+        return user_id
+
+    def forget_user(self, user_id: str) -> None:
+        self._users.pop(user_id, None)
 
     def load_from_db(self, conn: Any) -> None:
         """Load user auth configs from the database."""
