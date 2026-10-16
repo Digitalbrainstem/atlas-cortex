@@ -33,6 +33,7 @@ from .mdns import SatelliteAnnouncer, ServerDiscovery
 from .vad import VoiceActivityDetector, _rms
 from .wake_word import WakeWordDetector
 from .ws_client import SatelliteWSClient
+from . import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -57,14 +58,20 @@ class SatelliteAgent:
     """Core satellite agent — captures audio, detects wake words,
     streams to server, and plays responses."""
 
-    def __init__(self, config: SatelliteConfig):
+    def __init__(
+        self,
+        config: SatelliteConfig,
+        config_path: str | Path | None = None,
+    ):
         self.config = config
         self.state = State.IDLE
         self._running = False
         self._start_time = 0.0
 
         # Resolve paths based on mode
-        if config.mode == "dedicated":
+        if config.data_dir:
+            base = Path(config.data_dir)
+        elif config.mode == "dedicated":
             base = Path("/opt/atlas-satellite")
         else:
             base = Path.home() / ".atlas-satellite"
@@ -82,6 +89,7 @@ class SatelliteAgent:
         self.button: Optional[ButtonHandler] = None
 
         self._base_dir = base
+        self._config_path = Path(config_path) if config_path else None
         self._tts_buffer = bytearray()
         self._tts_sample_rate = 22050
         self._server_url_discovered = asyncio.Event()
@@ -106,7 +114,7 @@ class SatelliteAgent:
 
     async def start(self) -> None:
         """Initialize components and run the main loop."""
-        logger.info("=== Atlas Satellite Agent v0.1.0 ===")
+        logger.info("=== Atlas Satellite Agent v%s ===", __version__)
         logger.info("ID: %s | Room: %s | Mode: %s",
                      self.config.satellite_id, self.config.room, self.config.mode)
 
@@ -201,6 +209,8 @@ class SatelliteAgent:
             device=cfg.audio_device_in,
             sample_rate=cfg.sample_rate,
             channels=cfg.channels,
+            capture_channels=cfg.capture_channels,
+            capture_format=cfg.capture_format,
             period_size=cfg.frames_per_chunk,
             mic_gain=cfg.mic_gain,
         )
@@ -243,6 +253,12 @@ class SatelliteAgent:
             satellite_id=cfg.satellite_id,
             room=cfg.room,
             capabilities=self._detect_capabilities(),
+            hw_info={
+                "profile": cfg.hardware_profile,
+                "capture_format": cfg.capture_format,
+                "capture_channels": cfg.capture_channels,
+                "agent_version": __version__,
+            },
         )
         self._register_ws_handlers()
 
@@ -258,7 +274,7 @@ class SatelliteAgent:
         self.fillers = FillerCache(cache_dir)
 
         # Button (ReSpeaker 2-mic HAT GPIO 17)
-        if cfg.button_enabled and cfg.led_type == "respeaker_2mic":
+        if cfg.button_enabled and cfg.hardware_profile == "respeaker_2mic":
             self.button = ButtonHandler(mode=cfg.button_mode)
             self.button.register(
                 on_press=self._on_button_press,
@@ -786,14 +802,14 @@ class SatelliteAgent:
     async def _on_config(self, msg: dict) -> None:
         """Apply pushed configuration from server."""
         values = {key: value for key, value in msg.items() if key in self.config.__dataclass_fields__}
-        path = self._base_dir / "config.json"
+        path = self._config_path or self._base_dir / "config.json"
         if path.exists():
             with path.open() as stream:
                 persisted = json.load(stream)
             values = {**{key: value for key, value in persisted.items()
                          if key in self.config.__dataclass_fields__}, **values}
         candidate = replace(self.config, **values)
-        await asyncio.to_thread(candidate.save, self._base_dir / "config.json")
+        await asyncio.to_thread(candidate.save, path)
         previous = replace(self.config)
         live_fields = {
             "room", "wake_word", "wake_word_enabled", "wake_word_threshold", "wake_word_model",
@@ -1049,6 +1065,9 @@ class SatelliteAgent:
             "button": bool(self.button and self.button.available),
             "button_mode": self.button.mode if self.button else self.config.button_mode,
             "room": self.config.room,
+            "hardware_profile": self.config.hardware_profile,
+            "capture_format": self.config.capture_format,
+            "capture_channels": self.config.capture_channels,
             "led_count": self.config.led_count if self.config.led_type != "none" else 0,
             "state": self.state.value,
             "config_error": self._config_error,

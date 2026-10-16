@@ -1,86 +1,89 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────────
-# ReSpeaker HAT Setup for Raspberry Pi
-# Configures I2C, SPI, and audio overlay for ReSpeaker 2-Mic/4-Mic HAT
-#
-# Tested on: Raspberry Pi OS Bookworm (32-bit), Pi Zero 2 W
-# ──────────────────────────────────────────────────────────────────
+# Configure ReSpeaker 2-Mic or 4-Mic Raspberry Pi HAT hardware.
 set -euo pipefail
 
-echo "╔══════════════════════════════════════════╗"
-echo "║     ReSpeaker HAT Setup Script           ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""
+PROFILE=""
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VOICECARD_REPOSITORY="https://github.com/respeaker/seeed-voicecard.git"
+VOICECARD_REF="c52606626de050bdad85803d7e427a64cb0cf05c"
 
-CONFIG_FILE="/boot/firmware/config.txt"
-if [ ! -f "$CONFIG_FILE" ]; then
-    CONFIG_FILE="/boot/config.txt"
+while (($#)); do
+    case "$1" in
+        --profile) PROFILE="${2:?missing profile}"; shift 2 ;;
+        --source) SOURCE_DIR="$(realpath "${2:?missing source}")"; shift 2 ;;
+        -h|--help)
+            echo "Usage: sudo $0 --profile respeaker-2mic|respeaker-4mic [--source DIR]"
+            exit 0
+            ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Run setup-respeaker.sh as root." >&2
+    exit 1
 fi
+case "$PROFILE" in
+    respeaker-2mic|respeaker-4mic) ;;
+    *) echo "--profile must be respeaker-2mic or respeaker-4mic" >&2; exit 2 ;;
+esac
 
-echo "→ Using config: $CONFIG_FILE"
-
-# ── 1. Enable I2C ─────────────────────────────────────────────────
-echo "→ Enabling I2C..."
-sudo raspi-config nonint do_i2c 0
-
-# ── 2. Enable SPI (for APA102 LEDs) ──────────────────────────────
-echo "→ Enabling SPI..."
-sudo raspi-config nonint do_spi 0
-
-# ── 3. Install seeed-voicecard drivers ────────────────────────────
-# The ReSpeaker 2-Mic HAT uses the WM8960 codec which needs
-# a device tree overlay. The seeed-voicecard project provides this.
-echo "→ Installing ReSpeaker audio drivers..."
-
-if [ ! -d "/tmp/seeed-voicecard" ]; then
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq git dkms
-    cd /tmp
-    git clone --depth 1 https://github.com/HinTak/seeed-voicecard.git
-    cd seeed-voicecard
-else
-    cd /tmp/seeed-voicecard
-    git pull
+CONFIG_FILE=/boot/firmware/config.txt
+OVERLAY_DIR=/boot/firmware/overlays
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    CONFIG_FILE=/boot/config.txt
+    OVERLAY_DIR=/boot/overlays
 fi
-
-# Install the driver
-sudo ./install.sh
-
-# ── 4. Verify overlay is in config.txt ────────────────────────────
-if ! grep -q "seeed-2mic-voicecard" "$CONFIG_FILE" 2>/dev/null; then
-    echo "→ Adding device tree overlay to $CONFIG_FILE"
-    echo "dtoverlay=seeed-2mic-voicecard" | sudo tee -a "$CONFIG_FILE" > /dev/null
-fi
-
-# ── 5. Set up ALSA defaults ──────────────────────────────────────
-echo "→ Configuring ALSA defaults..."
-cat > "$HOME/.asoundrc" << 'EOF'
-# ReSpeaker 2-Mic HAT as default audio device
-pcm.!default {
-    type asym
-    playback.pcm "plughw:seeed2micvoicec"
-    capture.pcm "plughw:seeed2micvoicec"
+[[ -f "$CONFIG_FILE" ]] || {
+    echo "Raspberry Pi boot config was not found." >&2
+    exit 1
 }
 
-ctl.!default {
-    type hw
-    card seeed2micvoicec
+ensure_line() {
+    local line=$1 file=$2
+    grep -Fqx "$line" "$file" || printf '%s\n' "$line" >> "$file"
+}
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq device-tree-compiler git i2c-tools
+ensure_line "dtparam=i2c_arm=on" "$CONFIG_FILE"
+ensure_line "dtparam=spi=on" "$CONFIG_FILE"
+printf '%s\n' i2c-dev spidev > /etc/modules-load.d/atlas-respeaker.conf
+
+if [[ "$PROFILE" == respeaker-2mic ]]; then
+    source_dts="$SOURCE_DIR/overlays/seeed-2mic-voicecard.dts"
+    [[ -f "$source_dts" ]] || {
+        echo "Missing bundled 2-Mic overlay: $source_dts" >&2
+        exit 1
+    }
+    install -d -m 0755 "$OVERLAY_DIR"
+    dtc -@ -I dts -O dtb -o "$OVERLAY_DIR/seeed-2mic-voicecard.dtbo" "$source_dts"
+    ensure_line "dtoverlay=seeed-2mic-voicecard" "$CONFIG_FILE"
+else
+    apt-get install -y -qq dkms
+    driver_dir="/usr/src/atlas-seeed-voicecard-$VOICECARD_REF"
+    if [[ ! -d "$driver_dir/.git" ]]; then
+        rm -rf -- "$driver_dir"
+        git clone -q "$VOICECARD_REPOSITORY" "$driver_dir"
+    fi
+    git -C "$driver_dir" fetch -q --depth 1 origin "$VOICECARD_REF"
+    git -C "$driver_dir" checkout -q --detach "$VOICECARD_REF"
+    if [[ "$(uname -m)" == aarch64 ]]; then
+        "$driver_dir/install_arm64.sh"
+    else
+        "$driver_dir/install.sh"
+    fi
+fi
+
+install -d -m 0755 /var/lib/atlas-satellite
+cat > /var/lib/atlas-satellite/hardware.json <<EOF
+{
+  "profile": "$PROFILE",
+  "configured_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "boot_config": "$CONFIG_FILE",
+  "voicecard_ref": "$([[ "$PROFILE" == respeaker-4mic ]] && echo "$VOICECARD_REF" || echo bundled-overlay)"
 }
 EOF
-
-echo ""
-echo "╔══════════════════════════════════════════╗"
-echo "║     ReSpeaker Setup Complete! ✓          ║"
-echo "╚══════════════════════════════════════════╝"
-echo ""
-echo "⚠  A REBOOT is required for changes to take effect."
-echo ""
-echo "After reboot, test with:"
-echo "  arecord -D plughw:seeed2micvoicec -f S16_LE -r 16000 -c 1 -d 5 test.wav"
-echo "  aplay test.wav"
-echo ""
-read -p "Reboot now? [y/N] " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    sudo reboot
-fi
+touch /run/atlas-satellite-reboot-required
+echo "$PROFILE configured. Reboot is required before hardware diagnostics."

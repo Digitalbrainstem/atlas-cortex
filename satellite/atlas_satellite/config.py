@@ -22,6 +22,7 @@ class SatelliteConfig:
     room: str = ""
     mode: str = "dedicated"
     service_port: int = 5110
+    data_dir: str = ""
 
     # Audio
     wake_word: str = "hey atlas"
@@ -35,6 +36,9 @@ class SatelliteConfig:
     # Hardware
     audio_device_in: str = "default"
     audio_device_out: str = "default"
+    capture_format: str = "S16_LE"
+    capture_channels: int = 1
+    hardware_profile: str = "generic"
     led_type: str = "none"  # none | respeaker | gpio
     led_count: int = 3
 
@@ -87,6 +91,39 @@ class SatelliteConfig:
     features: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.mode not in ("dedicated", "shared"):
+            raise ValueError("mode must be dedicated or shared")
+        if self.hardware_profile not in (
+            "generic", "respeaker_2mic", "respeaker_4mic",
+        ):
+            raise ValueError(
+                "hardware_profile must be generic, respeaker_2mic, or respeaker_4mic"
+            )
+        if self.led_type not in (
+            "none", "gpio", "respeaker", "respeaker_2mic",
+            "respeaker_4mic", "respeaker_apa102",
+        ):
+            raise ValueError("unsupported led_type")
+        if self.capture_format not in ("S16_LE", "S32_LE"):
+            raise ValueError("capture_format must be S16_LE or S32_LE")
+        if type(self.capture_channels) is not int or self.capture_channels < 1:
+            raise ValueError("capture_channels must be a positive integer")
+        expected_capture = {
+            "respeaker_2mic": ("S16_LE", 2),
+            "respeaker_4mic": ("S32_LE", 4),
+        }.get(self.hardware_profile)
+        if expected_capture and (
+            self.capture_format, self.capture_channels
+        ) != expected_capture:
+            expected_format, expected_channels = expected_capture
+            raise ValueError(
+                f"{self.hardware_profile} requires {expected_format} "
+                f"with {expected_channels} capture channels"
+            )
+        if type(self.channels) is not int or self.channels != 1:
+            raise ValueError("channels must be 1; Atlas transport requires mono audio")
+        if type(self.led_count) is not int or self.led_count < 0:
+            raise ValueError("led_count must be a non-negative integer")
         if self.button_mode not in ("toggle", "press", "hold"):
             raise ValueError("button_mode must be toggle, press, or hold")
         if type(self.vad_sensitivity) is not int or not 0 <= self.vad_sensitivity <= 3:
@@ -98,6 +135,8 @@ class SatelliteConfig:
         for name in ("wake_word_enabled", "button_enabled", "vad_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean")
+        if self.hardware_profile == "respeaker_4mic" and self.button_enabled:
+            raise ValueError("respeaker_4mic has no hardware button")
         if not isinstance(self.features, dict):
             raise ValueError("features must be an object")
 

@@ -1050,122 +1050,98 @@ satellite/
 │   ├── __init__.py
 │   ├── __main__.py              # Entry point
 │   ├── agent.py                 # SatelliteAgent orchestrator
-│   ├── audio_capture.py         # Microphone input
-│   ├── audio_playback.py        # Speaker output
+│   ├── audio.py                 # ALSA capture, HAT conversion and playback
+│   ├── button.py                # ReSpeaker 2-Mic GPIO17 button
+│   ├── diagnostics.py           # Non-destructive install/readiness checks
 │   ├── wake_word.py             # Wake word detection
 │   ├── vad.py                   # Voice activity detection
-│   ├── aec.py                   # Acoustic echo cancellation
-│   ├── connection.py            # WebSocket to Atlas server
-│   ├── feedback.py              # LED / visual feedback
-│   ├── wyoming.py               # Wyoming protocol server
+│   ├── ws_client.py             # WebSocket to Atlas server
+│   ├── led.py                   # 3/12-pixel APA102 feedback
+│   ├── mdns.py                  # Discovery and announcement
 │   ├── config.py                # Configuration management
-│   ├── hw_detect.py             # Local hardware detection
-│   └── platforms/
-│       ├── __init__.py
-│       ├── raspberry_pi.py      # Pi-specific GPIO, I2S, LED
-│       ├── esp32.py             # ESP32-S3 / ESPHome specifics
-│       ├── fph_satellite1.py    # FutureProofHomes Satellite1
-│       └── generic_linux.py     # PulseAudio / ALSA fallback
+│   └── setup_server.py          # Optional, disabled by system service
+├── systemd/
+│   └── atlas-satellite.service
+├── overlays/
+│   └── seeed-2mic-voicecard.dts
 ├── requirements.txt
-├── install.sh                   # One-line installer (any Linux)
+├── setup.py                     # Installable Python package + CLI entry points
+├── install.sh                   # Direct install/update/rollback/uninstall
+├── setup-respeaker.sh           # Pinned 2-Mic/4-Mic HAT driver setup
 ├── atlas-sat-prepare.sh         # SD card/live system preparation script
-├── atlas-announce.service       # systemd unit for mDNS self-announcement
-├── atlas-announce.py            # Lightweight mDNS announcer (runs before provisioning)
-├── esphome/
-│   ├── atlas-satellite.yaml     # Base ESPHome config for ESP32-S3
-│   ├── atlas-satellite-fph.yaml # FutureProofHomes Satellite1 variant
-│   └── components/              # Custom ESPHome components
-├── Dockerfile
-└── tests/
+├── esp32/                       # ESPHome satellite profiles
+└── README.md                    # Pi installation/operator guide
 ```
 
 ---
 
 ## Installation Methods
 
-### Method 1: Pre-configured SD Card Image (easiest)
+### Method 1: Raspberry Pi OS + direct HAT installer (recommended)
 
-Download a pre-built image with the satellite agent and announce service already installed:
-
-```bash
-# Download image
-wget https://github.com/Betanu701/atlas-cortex/releases/download/latest/atlas-satellite-rpi.img.gz
-gunzip atlas-satellite-rpi.img.gz
-# Flash with ANY tool: Raspberry Pi Imager, balenaEtcher, dd, Rufus, etc.
-# Image comes pre-configured: hostname=atlas-satellite, user=atlas, SSH enabled
-# Just set Wi-Fi credentials (via Imager settings or atlas-sat-prepare.sh)
-```
-
-### Method 2: Standard OS + Prepare Script (recommended)
-
-1. Flash **any** Linux OS (Raspberry Pi OS Lite, DietPi, Armbian, Ubuntu Server, etc.) using **any** flasher
-2. Configure hostname/SSH/Wi-Fi using your flasher's built-in settings, **or** run the prepare script on the mounted SD card:
-   ```bash
-   curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/atlas-sat-prepare.sh | bash
-   ```
-3. Boot the device — it announces itself via mDNS
-4. Atlas auto-provisions via the admin panel
-
-### Method 3: Shared Mode — Add to Existing Machine (any Linux device)
-
-For machines already running other services. Installs **only** the satellite service — does not modify hostname, SSH config, or any other system setting.
+Flash current 64-bit Raspberry Pi OS Lite and configure SSH/Wi-Fi in Raspberry
+Pi Imager. Attach the HAT while powered off, boot, then run one profile-specific
+command:
 
 ```bash
-# On the existing machine, run the satellite-only installer:
-curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/install.sh | bash -s -- --shared
+# ReSpeaker 2-Mic Pi HAT (capture, playback, 3 LEDs and GPIO17 button)
+curl -fsSL \
+  https://raw.githubusercontent.com/Digitalbrainstem/atlas-cortex/main/satellite/install.sh |
+sudo bash -s -- \
+  --hat respeaker-2mic \
+  --server ws://192.168.1.10:5100/ws/satellite \
+  --room Kitchen
 
-# This installs:
-#   - atlas-satellite service (systemd)
-#   - Listens on port 5110 (WebSocket)
-#   - Does NOT modify hostname, SSH, or system config
-#   - Does NOT announce via mDNS (admin adds it manually)
-
-# Or manually:
-git clone https://github.com/Betanu701/atlas-cortex.git
-cd atlas-cortex/satellite
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m atlas_satellite --mode shared --port 5110
+# ReSpeaker 4-Mic Array (four-channel capture, 12 LEDs, separate playback)
+curl -fsSL \
+  https://raw.githubusercontent.com/Digitalbrainstem/atlas-cortex/main/satellite/install.sh |
+sudo bash -s -- \
+  --hat respeaker-4mic \
+  --output-device default \
+  --server ws://192.168.1.10:5100/ws/satellite \
+  --room "Living Room"
 ```
 
-Then in the Admin Panel: **+ Add Manual** → select **Shared** mode → enter the machine's IP and port → Atlas connects to the satellite service directly (no SSH).
+The installer stages root-owned releases under `/opt/atlas-satellite`, preserves
+configuration in `/etc/atlas-satellite`, stores runtime state under
+`/var/lib/atlas-satellite`, installs a dedicated systemd service account, and
+enables the service for the required reboot. It supports atomic release selection,
+rerun-to-update, `--rollback`, `--uninstall`, and `--purge`.
 
-### Method 4: Dedicated Mode — Manual Install Script (any Linux device)
+After reboot, run:
 
 ```bash
-# On a dedicated satellite device:
-curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/install.sh | bash
-
-# Or manually:
-git clone https://github.com/Betanu701/atlas-cortex.git
-cd atlas-cortex/satellite
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -m atlas_satellite --server ws://atlas-server:5100/ws/satellite
+sudo -u atlas-satellite \
+  /opt/atlas-satellite/current/venv/bin/atlas-satellite-diagnose \
+  --config /etc/atlas-satellite/config.json
+sudo systemctl status atlas-satellite --no-pager
 ```
 
-### Method 5: Docker (any Linux device)
+The 4-Mic board only captures audio. It requires a separate playback device.
+See [`satellite/README.md`](../satellite/README.md) for ALSA tests, update,
+rollback and uninstall commands. Diagnostics establish software/device readiness,
+not wake-word or acoustic qualification.
+
+### Method 2: Shared Mode — Add to Existing Machine
+
+The same installer accepts `--shared` and does not change the hostname or Wi-Fi.
+System package, service account, audio-device and systemd setup are still required.
 
 ```bash
-docker run -d \
-  --name atlas-satellite \
-  --device /dev/snd \
-  --net host \
-  -e ATLAS_SERVER=ws://atlas-server:5100/ws/satellite \
-  -e ROOM=Kitchen \
-  ghcr.io/betanu701/atlas-satellite:latest
+curl -fsSL \
+  https://raw.githubusercontent.com/Digitalbrainstem/atlas-cortex/main/satellite/install.sh |
+sudo bash -s -- --shared --hat none \
+  --server ws://192.168.1.10:5100/ws/satellite --room Office
 ```
 
-### Method 6: ESPHome (ESP32-S3 / FutureProofHomes Satellite1)
+### Method 3: ESPHome (ESP32-S3 / FutureProofHomes Satellite1)
 
 ```bash
 # Option A: Use the Atlas web flasher from your browser (admin panel)
 #   Navigate to Admin → Satellites → Flash ESPHome
 
 # Option B: Use the ESPHome CLI
-curl -sSL https://raw.githubusercontent.com/Betanu701/atlas-cortex/main/satellite/esphome/atlas-satellite.yaml -o atlas-satellite.yaml
+curl -sSL https://raw.githubusercontent.com/Digitalbrainstem/atlas-cortex/main/satellite/esp32/generic-esp32-s3.yaml -o atlas-satellite.yaml
 # Edit Wi-Fi credentials in the YAML
 esphome run atlas-satellite.yaml
 
