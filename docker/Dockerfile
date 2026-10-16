@@ -13,12 +13,13 @@ WORKDIR /app
 
 # System deps for mDNS satellite discovery and SSH provisioning
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    avahi-utils libnss-mdns curl \
+    avahi-utils libnss-mdns curl gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove gcc
 
 # Copy source
 COPY cortex/ ./cortex/
@@ -36,6 +37,8 @@ RUN mkdir -p /data
 ENV CORTEX_DATA_DIR=/data
 ENV CORTEX_HOST=0.0.0.0
 ENV CORTEX_PORT=5100
+ARG CORTEX_BUILD_REVISION=unknown
+ENV CORTEX_BUILD_REVISION=${CORTEX_BUILD_REVISION}
 
 # Default service discovery (host networking — services publish ports)
 ENV PIPER_HOST=localhost
@@ -43,13 +46,16 @@ ENV PIPER_PORT=10200
 ENV STT_BACKEND=whisper_cpp
 ENV STT_HOST=localhost
 ENV STT_PORT=10300
-ENV LLM_URL=http://localhost:11434
+ENV LLM_PROVIDER=openai_compatible
+ENV LLM_URL=http://localhost:8080
 ENV ORPHEUS_FASTAPI_URL=http://localhost:5005
-ENV TTS_PROVIDER=orpheus
+ENV TTS_PROVIDER=kokoro
+ENV KOKORO_HOST=localhost
+ENV KOKORO_PORT=8880
 
 EXPOSE 5100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-    CMD curl -sf http://localhost:5100/health || exit 1
+    CMD curl -sf http://localhost:${CORTEX_PORT}/live || exit 1
 
 CMD ["python", "-m", "cortex.server"]

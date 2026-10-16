@@ -73,12 +73,19 @@ def register_channel(channel: NotificationChannel) -> None:
     _channels.append(channel)
 
 
+def unregister_channel(channel: NotificationChannel) -> None:
+    """Remove a lifecycle-owned channel without affecting other transports."""
+    _channels.remove(channel)
+
+
 async def send_notification(
     level: str,
     title: str,
     message: str,
     source: str = "",
     metadata: dict[str, Any] | None = None,
+    *,
+    channel_type: type[NotificationChannel] | None = None,
 ) -> int:
     """Send a notification to all registered channels. Returns count of successful deliveries."""
     _ensure_default_channels()
@@ -91,9 +98,11 @@ async def send_notification(
     )
     success = 0
     for channel in _channels:
+        if channel_type is not None and not isinstance(channel, channel_type):
+            continue
         try:
             if await channel.send(notif):
                 success += 1
         except Exception as e:
-            logger.debug("Channel %s failed: %s", type(channel).__name__, e)
+            logger.warning("Channel %s failed: %s", type(channel).__name__, e)
     return success

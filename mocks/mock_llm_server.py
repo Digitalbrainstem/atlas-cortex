@@ -1,4 +1,4 @@
-"""Mock LLM server matching the Ollama /api/chat endpoint.
+"""Mock LLM server with OpenAI-compatible and legacy Ollama endpoints.
 
 Serves pre-recorded responses from benchmark data with realistic timing
 (simulated TTFT and token streaming delays). No GPU required.
@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -20,7 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Mock Ollama (Atlas Cortex)")
+app = FastAPI(title="Mock LLM (Atlas Cortex)")
 
 # Load benchmark data for response lookup
 _DATA_DIR = Path(__file__).parent / "data"
@@ -184,6 +185,51 @@ async def list_models():
             }
         }]
     }
+
+
+@app.get("/v1/models")
+async def openai_models():
+    return {
+        "object": "list",
+        "data": [{"id": "qwen2.5:7b", "object": "model", "owned_by": "atlas-mock"}],
+    }
+
+
+@app.post("/v1/chat/completions")
+async def openai_chat(request: Request):
+    """Adapt the same recorded responses and timing to the OpenAI wire format."""
+    response = await chat(request)
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    created = int(time.time())
+    if isinstance(response, JSONResponse):
+        body = json.loads(response.body)
+        return {
+            "id": completion_id, "object": "chat.completion", "created": created,
+            "model": body["model"],
+            "choices": [{"index": 0, "message": body["message"], "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": body["prompt_eval_count"],
+                "completion_tokens": body["eval_count"],
+                "total_tokens": body["prompt_eval_count"] + body["eval_count"],
+            },
+        }
+
+    async def stream_openai():
+        async for raw in response.body_iterator:
+            body = json.loads(raw)
+            chunk = {
+                "id": completion_id, "object": "chat.completion.chunk",
+                "created": created, "model": body["model"],
+                "choices": [{
+                    "index": 0,
+                    "delta": {} if body["done"] else body["message"],
+                    "finish_reason": "stop" if body["done"] else None,
+                }],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream_openai(), media_type="text/event-stream")
 
 
 @app.get("/")

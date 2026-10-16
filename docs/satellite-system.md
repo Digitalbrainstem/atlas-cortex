@@ -28,6 +28,121 @@ The satellite system enables Atlas to be present in every room through distribut
 
 ## Design Principles
 
+### MVP voice admission (P06)
+
+Pi captures are mono PCM16 at 16 kHz, at most 480,000 bytes (15 seconds).
+Malformed frames, oversized chunks/captures and exhausted transient STT capacity
+return explicit errors; nothing is trimmed to its last bytes or evicted to make
+room. A capture-limit end asks the speaker to split the request and cannot execute
+an incomplete command. Short valid commands are not rejected by a duration floor.
+
+`AUDIO_PHRASE_END` is an acoustic pause, not a completed question. Audio remains in
+the bounded capture until `AUDIO_END`; duplicate ends do not submit a second tail.
+After STT, explicit question punctuation may separate questions. Local activation
+(wake/button/follow-up) permits continuations without demanding another spoken
+wake word. The extended VAD window cannot end an utterance before its long-pause
+threshold merely because a sliding window contains silence.
+
+The server runs bounded STT independently of LLM and delivery slots. Each finalized,
+input-validated transcript is committed before preparation/dispatch, with a
+pessimistic action claim during preparation so interrupted effects remain uncertain.
+`TURN_ACCEPTED` is sent only after durable routing. Pending transcript work stays
+in SQLite, while raw audio is released. Capture IDs support retry without repeating
+an already-admitted command.
+
+Delivery is separate from admission: later speech can be accepted while earlier
+audio awaits playback. Updated Pi agents advertise `playback_ack`; tagged
+`TTS_START/CHUNK/END` frames carry turn ID, revision and playback ID. Only a matching
+`PLAYBACK_ACK` marks playback complete. Sending bytes is not proof of hearing.
+Legacy devices without receipts remain delivery-unconfirmed, not falsely delivered.
+
+### Interruption and continuation (P07)
+
+Press/hold activation stops local playback before contacting the server. Stops
+carry turn/revision/playback identity; late frames and receipts from that playback
+are ignored. The browser satellite uses actual Web Audio source completion for
+receipts, never an estimated duration. Admin-chat synthesis is independently
+cancellable and its tagged audio cannot revive an interrupted response.
+
+Voice output is delivered sentence by sentence. A receipt immediately persists
+the sentence-end checkpoint; short-lived pause/resume repeats only an unfinished
+sentence, not an acknowledged one. This is not sample-accurate resume. After
+30 seconds or a server restart, old output needs explicit confirmation:
+"resume the previous response". A new question pivots away from paused output.
+An explicit stop cancels only the current scoped question/output and preserves
+other accepted work; ambiguous "never mind" with several targets asks which.
+Legacy clients unable to confirm playback must not claim continuation accuracy.
+
+Automatic acoustic interruption during speaker playback is disabled unless the
+device explicitly enables `features.acoustic_echo_cancellation`. Speaker energy
+alone is not reliable proof of human interruption. Physical press/hold remains
+available; toggle mode retains its wake/mute semantics. Enabling the feature does
+not qualify echo cancellation: actual microphone/speaker recordings are required.
+
+### P08 software readiness and pending hardware qualification
+
+**Software verified; physical qualification pending.** Automated mocks do not
+qualify wake recognition, microphone quality, acoustic echo cancellation or
+audible interruption latency on either required Pi/ReSpeaker setup.
+
+Wake health distinguishes loading, warming, ready, missing-model, unavailable
+backend and inference-error states.
+Wake model loading runs outside the audio/button event loop, with a bounded,
+owned loader that coalesces configuration changes; loading readiness is reported
+before initialization finishes. A configured missing model never falls back
+to unrelated built-in wake words or arbitrary VAD speech. Explicitly disabling
+wake mode opts into VAD-only activation; available press/hold buttons work without
+a wake model. A missing microphone cannot accept speech through a button.
+Admin satellite cards/details expose connection and device-reported readiness;
+unknown legacy health is not reported as ready. Devices without LEDs use logs
+and admin readiness instead. Button availability means GPIO initialization
+succeeded, not that an untested physical switch has been qualified.
+
+Toggle means wake/mute, press means activate, and hold means activate/release.
+Muting stops local audio and explicitly cancels an unaccepted capture. Admin
+updates validate the mode, persist it in SQLite, push it to the agent, and the
+agent atomically saves its configuration before applying it. Offline changes are
+replayed after registration; the saved room wins over stale device announcements.
+Normalized admin VAD sensitivity (0..1) maps to agent aggressiveness (0..3).
+Remote configuration uses the same validated persistence/application path.
+Configuration errors and structural settings requiring restart are reported.
+
+On three LEDs, LED 0 shows processing activity independently of listening on LEDs
+1-2. No-LED devices retain both states in software; a single GPIO LED cannot
+encode the same two-color distinction. Offline is amber where supported.
+Replacing a duplicate connection closes its old voice tasks/socket; the old
+disconnect cannot mark its replacement offline. A room change stops old output,
+cancels unaccepted capture and leaves old-room durable work intact without
+automatically playing it in the new room. ESP32 keeps its separate handler;
+legacy Pi/tablet clients without real receipts remain delivery-unconfirmed.
+
+#### Required physical qualification (not yet performed)
+
+For **each** required Pi/ReSpeaker setup, retain device/OS/model hashes,
+microphone/speaker settings, room/distance/noise labels, recordings and timestamps:
+
+1. Run at least 100 labeled positive wake attempts, including at least 20 cold
+   starts. Require at least 95% first-attempt detection; report cold/warm results
+   separately, including startup-to-ready and wake-to-listening p50/p95.
+2. Use a fixed background-only corpus of at least 10,000 windows. Require at most
+   0.1% triggered windows; report window size, corpus duration and deduplicated
+   trigger events. Include Atlas TTS playback; do not merely lower thresholds.
+3. Exercise all three button modes through admin save, agent application,
+   process restart and reconnect. Remove the wake model and disconnect the mic
+   separately; verify truthful errors and physical-button fallback when the mic
+   remains available. Verify real three-LED listening/activity combinations.
+4. Issue three questions during earlier playback on both devices concurrently.
+   Check accepted order, room isolation, real completion receipts and resume
+   after the last confirmed sentence. Interrupt 100 times: no stale output may
+   return. Measure detection separately from the proposed p95 local audible-stop
+   target of 250 ms; software callback tests are not audible-stop measurements.
+5. Drop network/server connectivity, reconnect duplicate device IDs, change rooms
+   and restart the server. Verify offline indication, stopped stale audio,
+   persisted configuration and explicit confirmation before replaying old output.
+
+Record all measurements and failures before declaring the P08 hardware gate
+passed. No physical results have been fabricated or inferred from mock tests.
+
 1. **Hardware-agnostic** — works on Raspberry Pi, ESP32-S3, x86 mini-PCs, Orange Pi, BeagleBone, FutureProofHomes Satellite1, or any Linux device with audio I/O
 2. **Plug-and-play provisioning** — flash an OS, set a hostname, boot → satellite announces itself, admin provisions from the panel
 3. **Self-announcing** — satellites broadcast their presence via mDNS on boot; Atlas passively listens — no network scanning

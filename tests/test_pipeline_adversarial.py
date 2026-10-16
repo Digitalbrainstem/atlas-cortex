@@ -608,11 +608,7 @@ class TestLayer2LearnedPatterns:
         assert conf == 0.0
 
     def test_invalid_backreference_template(self):
-        r"""Template with \\1 but no capture group → graceful fallback.
-
-        Code does `m.expand(template)` which raises on bad backrefs.
-        The except block falls back to returning the raw template.
-        """
+        r"""A broken response template is logged and skipped, not presented raw."""
         conn = _make_tmp_db()
         conn.execute(
             "INSERT INTO command_patterns (pattern, intent, response_template, confidence) "
@@ -623,9 +619,8 @@ class TestLayer2LearnedPatterns:
 
         with patch("cortex.db.get_db", return_value=conn):
             result, conf = _try_learned_patterns("hello world")
-        # expand() fails → falls back to raw template
-        assert result == r"Hello \1!"
-        assert conf == 1.0
+        assert result is None
+        assert conf == 0.0
 
     def test_empty_command_patterns_table(self):
         """No rows in command_patterns → returns (None, 0.0)."""
@@ -939,26 +934,24 @@ class TestLayer3StreamLLMResponse:
 
     @pytest.mark.asyncio
     async def test_stream_handles_provider_error(self):
-        """If the LLM provider raises, an error message is yielded."""
+        """Provider failure is explicit, not a completed error-shaped answer."""
         from cortex.pipeline.layer3_llm import stream_llm_response
+        from cortex.pipeline.turns import PipelineGenerationError
 
         provider = AsyncMock(spec=LLMProvider)
         provider.chat = AsyncMock(side_effect=Exception("connection refused"))
 
         ctx = _base_context(sentiment="question", effective_sentiment="question")
 
-        tokens: list[str] = []
-        async for tok in stream_llm_response(
-            message="hello",
-            context=ctx,
-            provider=provider,
-            model_fast="fast",
-            model_thinking="think",
-        ):
-            tokens.append(tok)
-
-        full = "".join(tokens)
-        assert "Error" in full or "error" in full
+        with pytest.raises(PipelineGenerationError, match="language model"):
+            async for _ in stream_llm_response(
+                message="hello",
+                context=ctx,
+                provider=provider,
+                model_fast="fast",
+                model_thinking="think",
+            ):
+                pass
 
     @pytest.mark.asyncio
     async def test_empty_context_history_no_crash(self):

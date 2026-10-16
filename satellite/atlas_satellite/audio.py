@@ -94,6 +94,10 @@ class AudioCapture:
             self._pcm = None
         logger.info("Audio capture stopped")
 
+    @property
+    def available(self) -> bool:
+        return self._running
+
     def read(self) -> Optional[bytes]:
         """Read one period of audio. Returns raw mono PCM bytes or None."""
         if not self._pcm or not self._running:
@@ -161,14 +165,14 @@ class AudioPlayback:
 
     async def play_pcm(
         self, audio_data: bytes, sample_rate: int = 22050
-    ) -> None:
+    ) -> bool:
         """Play raw PCM audio asynchronously."""
-        self._interrupted.clear()
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, self._play_pcm_sync, audio_data, sample_rate)
+        return await loop.run_in_executor(None, self._play_pcm_sync, audio_data, sample_rate)
 
-    def _play_pcm_sync(self, audio_data: bytes, sample_rate: int) -> None:
+    def _play_pcm_sync(self, audio_data: bytes, sample_rate: int) -> bool:
         with self._lock:
+            self._interrupted.clear()
             self._playing.set()
             try:
                 logger.info("Playing %d bytes at %dHz on %s", len(audio_data), sample_rate, self.device)
@@ -181,7 +185,7 @@ class AudioPlayback:
                     pcm = self._open_playback(hw_channels, sample_rate)
                 if pcm is None:
                     logger.error("Could not open playback device %s", self.device)
-                    return
+                    return False
 
                 if self.volume != 1.0:
                     audio_data = AudioCapture._apply_gain(audio_data, self.volume)
@@ -205,8 +209,10 @@ class AudioPlayback:
                 pcm.close()
                 if not interrupted:
                     logger.info("Playback complete (%d bytes)", len(audio_data))
+                return not interrupted
             except Exception:
                 logger.exception("Audio playback error")
+                return False
             finally:
                 self._playing.clear()
 

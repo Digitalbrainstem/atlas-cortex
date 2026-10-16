@@ -60,7 +60,12 @@ def register_startup_task(
     critical: bool = False,
 ) -> None:
     """Register a task to run at server startup."""
-    _startup_tasks.append(StartupTask(name, coro_fn, blocking=blocking, critical=critical))
+    task = StartupTask(name, coro_fn, blocking=blocking, critical=critical)
+    for index, existing in enumerate(_startup_tasks):
+        if existing.name == name:
+            _startup_tasks[index] = task
+            return
+    _startup_tasks.append(task)
 
 
 def register_service(
@@ -69,7 +74,12 @@ def register_service(
     stop_fn: Callable[[], Coroutine[Any, Any, None]],
 ) -> None:
     """Register a background service with start/stop lifecycle."""
-    _background_services.append(BackgroundService(name, start_fn, stop_fn))
+    service = BackgroundService(name, start_fn, stop_fn)
+    for index, existing in enumerate(_background_services):
+        if existing.name == name:
+            _background_services[index] = service
+            return
+    _background_services.append(service)
 
 
 async def start_all() -> None:

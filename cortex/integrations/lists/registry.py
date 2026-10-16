@@ -250,13 +250,22 @@ class ListPlugin(CortexPlugin):
                     response=f"You don't have permission to remove items from the {list_name} list.",
                 )
             items = await self._backend.get_items(lst["id"])
-            target = next((i for i in items if item_text in i.content.lower()), None)
-            if target is None:
+            targets = [item for item in items if item.content.lower() == item_text]
+            if not targets:
+                targets = [item for item in items if item_text in item.content.lower()]
+            if not targets:
                 return CommandResult(
                     success=False,
                     response=f"Couldn't find that item in your {list_name} list.",
                 )
-            await self._backend.remove_item(lst["id"], target.id)
+            if len(targets) != 1:
+                return CommandResult(
+                    success=False, response="Which item do you mean? Please use its full name.",
+                    clarification_required=True,
+                )
+            target = targets[0]
+            if not await self._backend.remove_item(lst["id"], target.id):
+                return CommandResult(success=False, response="That item could not be removed.")
             return CommandResult(
                 success=True,
                 response=f"Removed {target.content} from your {list_name} list.",

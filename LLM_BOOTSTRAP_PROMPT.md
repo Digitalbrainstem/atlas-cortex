@@ -11,6 +11,8 @@
 Read these files in order before making any changes:
 
 1. **`.github/copilot-instructions.md`** — Build, test, architecture, conventions
+   Then read **`docs/mvp-release.md`** for the authoritative P00-P14 household
+   status, verified source revision, reproducible commands and outstanding gates.
 2. **`docs/roadmap.md`** — What's done, what's next
 3. **`docs/architecture.md`** — 4-layer pipeline, processing flow
 4. **`docs/voice-engine.md`** — TTS providers, voice pipeline, timing data
@@ -29,21 +31,21 @@ pip install -r requirements.txt
 
 # Start mock servers (LLM + STT + TTS)
 python -m mocks.run
-# This prints env vars — the server reads them automatically
+# Export the printed variables in the terminal used to launch the server.
 
 # In another terminal, start Atlas Cortex:
 LLM_URL=http://localhost:11434 \
 STT_HOST=localhost STT_PORT=10300 \
 TTS_PROVIDER=kokoro KOKORO_HOST=localhost KOKORO_PORT=8880 \
-LLM_PROVIDER=ollama MODEL_FAST=qwen2.5:7b MODEL_THINKING=qwen2.5:7b \
+LLM_PROVIDER=openai_compatible MODEL_FAST=qwen3.5:4b MODEL_THINKING=qwen3.5:4b \
 python -m cortex.server
 ```
 
 ## Step 3: Run Tests
 
 ```bash
-# All tests (3,660+ pass)
-python -m pytest tests/ -q
+# CI-equivalent non-browser tests (known blockers below; not currently green)
+python -m pytest tests/ -q -m "not browser" --ignore=tests/test_ui_browser.py
 
 # Specific module
 python -m pytest tests/test_pipeline.py -v
@@ -52,15 +54,31 @@ python -m pytest tests/test_pipeline.py -v
 python -m pytest tests/test_pipeline.py -k "test_instant_answer" -v
 ```
 
-Known pre-existing failures (not regressions):
-- `tests/test_wyoming.py` — 4-9 failures (Wyoming protocol attribute issues)
-- `tests/test_voice.py::TestOrpheusTTSProvider::test_init_defaults` — port mismatch
-- `tests/test_voice.py::TestSpeechEndpoint::test_list_voices` — needs live Kokoro
-- `tests/test_satellite.py::TestProvisioning::test_provision_config` — SSID mismatch
+Current evidence at clean integrated software candidate `954ca43ac`:
+- Full clean-source non-browser run: 5,405 passed, one informational schema-
+  inventory skip, 118 browser tests deselected; no failures or collection errors.
+- All three browser suites: 150 passed, no skips. Production Vite build and
+  Chromium reload/enrollment/voice/provider-lifecycle smoke checks passed.
+- 10,000 durable turns: 1,097,728 bytes incremental RSS (32 MiB limit), one active
+  inference, prefetch eight.
+- User explicitly authorized integrating, fixing, testing and committing all
+  pending workspace work. Coding/memory/routing modules and tests are now tracked;
+  their former clean-source import, Git fixture and asyncio test blockers are fixed.
+- Ownership and brow-free avatar generation/tests are fixed. Parental controls
+  now use correct user IDs, response wrappers and HH:MM fields, with persisted
+  save/reload and explicit load-error browser coverage.
+- Non-failing deprecation/subprocess-teardown warnings remain. Docker execution,
+  Python 3.11 and physical Pi/ReSpeaker/provider/NAS/paired-image rollback gates
+  remain pending. No remote CI success or household MVP completion is claimed.
+- Versioned GPU research scripts were not executed; the Nexus Academy document
+  remains a separate design, not an implemented household feature.
+
+See `docs/mvp-release.md` for exact commands, scope and acceptance thresholds;
+`docs/mvp-recovery.md` documents offline-only restore and compatible rollback.
 
 ## Step 4: Understand Current State
 
-### Completed Parts (16 of 18 phases)
+### Historical Component Inventory (not household release qualification)
 - **Part 1**: Core Engine — 4-layer pipeline, providers, memory (HOT/COLD), safety, avatar, profiles, context, backup
 - **Part 2**: Integration — HA, discovery, voice pipeline, self-learning, knowledge (WebDAV/CalDAV), lists, offsite backup
 - **Part 2.5**: Satellite system (wake word deferred)
@@ -83,6 +101,7 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - RX 7900 XT (20GB, ROCm) — LLM inference + LoRA training at night
 - RTX 4060 (8GB, CUDA) — TTS (Qwen3-TTS), specialist models (vision, embeddings)
 - TTS hierarchy: Qwen3-TTS → Fish Audio S2 (stories) → Orpheus → Kokoro → Piper
+- LLM backend: llama.cpp via OpenAI-compatible API (GGUF models, Q4 quantized)
 
 ### Remaining Parts (Planned)
 - P13: Legacy Protocol
@@ -102,12 +121,15 @@ Chat, Dashboard, Users, UserDetail, Parental, Safety, Voice, Avatar, Devices, Sa
 - **Last resort: Piper** — Ultra-fast CPU, basic quality
 
 ### LLM Configuration
-- `LLM_PROVIDER=transformers` — default; uses HuggingFace Transformers with KV cache injection (CAG)
-- `CAG_MODEL=Qwen/Qwen3-4B` — HuggingFace model for inference
+- `LLM_PROVIDER=openai_compatible` — **default**; talks to llama.cpp server via OpenAI-compatible API
+- `LLM_URL=http://localhost:8080` — llama.cpp server endpoint (atlas-llm container)
+- `LLM_MODEL=qwen35-4b-q4.gguf` — GGUF model file (Q4 quantized, 2.7GB)
+- `LLM_KV_TYPE=q4_0` — KV cache quantization (4-bit, ~4× memory savings)
+- `LLM_CTX_SIZE=65536` — context window (Qwen3.5 supports up to 262K)
+- `CAG_MODEL=Qwen/Qwen3.5-4B` — model identifier for CAG/tokenizer
 - `EMBED_MODEL=all-MiniLM-L6-v2` — sentence-transformers embedding model
-- `LLM_PROVIDER=ollama` — legacy fallback (set `OLLAMA_BASE_URL`)
-- `MODEL_FAST=qwen2.5:14b` — factual questions (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
-- `MODEL_THINKING=qwen3:30b-a3b` — reasoning tasks (Ollama/OpenAI providers; production uses `qwen2.5:7b`)
+- `LLM_PROVIDER=transformers` — alternative; HuggingFace Transformers with KV cache injection
+- `LLM_PROVIDER=ollama` — deprecated (llama.cpp is strictly faster)
 
 ### Satellite Hardware (Reference)
 - Pi Zero 2W + ReSpeaker 2-mic HAT
@@ -182,7 +204,7 @@ cortex/
 ├── memory/                      # HOT/COLD memory system
 ├── safety/                      # Input/Output guardrails, jailbreak defense
 ├── plugins/                     # CortexPlugin ABC + PluginRegistry
-├── providers/                   # LLM providers (Transformers, Ollama, OpenAI)
+├── providers/                   # LLM providers (OpenAI-compat default, Transformers, Ollama deprecated)
 ├── profiles/                    # User profiles, parental controls
 ├── context/                     # Token budgeting
 ├── scheduling/                  # Alarms, timers, reminders
@@ -218,7 +240,7 @@ mocks/
 ├── run.py                       # Start all mock servers
 ├── benchmark.py                 # 35-question corpus
 ├── benchmark_voice.py           # Voice pipeline benchmark
-├── mock_llm_server.py           # Mock Ollama
+├── mock_llm_server.py           # Mock LLM (OpenAI-compatible)
 ├── mock_stt_server.py           # Mock Whisper
 ├── mock_tts_server.py           # Mock Kokoro
 └── data/                        # Benchmark results

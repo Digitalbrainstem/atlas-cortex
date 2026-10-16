@@ -26,7 +26,7 @@ class TestSatelliteConfig:
         assert cfg.channels == 1
         assert cfg.chunk_ms == 30
         assert cfg.volume == 0.7
-        assert cfg.wake_word_enabled is False
+        assert cfg.wake_word_enabled is True
         assert cfg.led_type == "none"
         assert cfg.mode == "dedicated"
 

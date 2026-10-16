@@ -17,8 +17,14 @@ from typing import Any
 from cortex.db import get_db
 from cortex.learning.education import ProgressTracker, QuizGenerator, QuizQuestion
 from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+from cortex.profiles import get_or_create_user_profile
+from cortex.safety import resolve_content_tier
 
 logger = logging.getLogger(__name__)
+MAX_GAME_QUESTIONS = 10
+MAX_GAME_SECONDS = 600
+MAX_GAME_SESSIONS = 64
+SessionKey = str | tuple[str, str, str]
 
 # ── Game Definitions ─────────────────────────────────────────────
 
@@ -113,6 +119,7 @@ class GameSession:
     current_question: QuizQuestion | None = None
     db_session_id: int | None = None
     started_at: float = field(default_factory=time.time)
+    max_difficulty: int = 10
 
 
 # ── Pattern matching ─────────────────────────────────────────────
@@ -144,7 +151,7 @@ _PROGRESS_CHECK = re.compile(
 )
 
 _STOP = re.compile(
-    r"^(?:stop|quit|end\s+game|i'?m?\s+done|exit|no\s+more)$",
+    r"^(?:stop|quit|end\s+game|i'?m?\s+done|exit|no\s+more)[.!?,]*$",
     re.IGNORECASE,
 )
 
@@ -184,7 +191,13 @@ class STEMGamesPlugin(CortexPlugin):
         super().__init__()
         self._quiz: QuizGenerator | None = None
         self._tracker: ProgressTracker | None = None
-        self._sessions: dict[str, GameSession] = {}
+        self._sessions: dict[SessionKey, GameSession] = {}
+
+    @staticmethod
+    def _session_key(context: dict[str, Any]) -> SessionKey:
+        user = context.get("user_id", "unknown")
+        device, room = context.get("satellite_id") or "", context.get("room") or ""
+        return (user, device, room) if device or room else user
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -196,16 +209,26 @@ class STEMGamesPlugin(CortexPlugin):
     async def health(self) -> bool:
         return True
 
+    def forget_user(self, user_id: str) -> None:
+        for key, session in list(self._sessions.items()):
+            if session.user_id == user_id:
+                self._end_game(key)
+
     # ── Match ─────────────────────────────────────────────────
 
     async def match(
         self, message: str, context: dict[str, Any],
     ) -> CommandMatch:
         msg = message.strip()
-        user_id = context.get("user_id", "unknown")
+        user_id = self._session_key(context)
+        if _PLAY_GAME.search(msg):
+            return CommandMatch(True, "start_game", confidence=0.95,
+                                metadata={"game_id": _detect_game_id(msg)})
 
         # Active-session patterns: answer, continue, stop, progress
         if user_id in self._sessions:
+            if time.time() - self._sessions[user_id].started_at >= MAX_GAME_SECONDS:
+                return CommandMatch(True, "expired_game")
             if _STOP.search(msg):
                 return CommandMatch(
                     matched=True, intent="stop_game", confidence=0.95,
@@ -220,7 +243,10 @@ class STEMGamesPlugin(CortexPlugin):
                 )
             # Any text while a question is active is treated as an answer
             session = self._sessions[user_id]
-            if session.current_question is not None:
+            if session.current_question is not None and not re.match(
+                r"^(?:what|where|when|why|how|who|please|set|cancel|turn|remind|add|remove|tell)\b",
+                msg, re.IGNORECASE,
+            ):
                 return CommandMatch(
                     matched=True, intent="answer", confidence=0.85,
                     metadata={"answer": msg},
@@ -256,20 +282,24 @@ class STEMGamesPlugin(CortexPlugin):
         assert self._tracker is not None
 
         user_id = context.get("user_id", "unknown")
+        key = self._session_key(context)
         intent = match.intent
 
         if intent == "suggest_game":
             return self._suggest_game(user_id)
         if intent == "start_game":
-            return self._start_game(user_id, match.metadata.get("game_id"))
+            return self._start_game(user_id, match.metadata.get("game_id"), key=key)
         if intent == "answer":
-            return self._handle_answer(user_id, message.strip())
+            return self._handle_answer(key, message.strip())
         if intent == "continue_game":
-            return self._next_question(user_id)
-        if intent == "stop_game":
-            return self._end_game(user_id)
+            return self._next_question(key)
+        if intent in ("stop_game", "expired_game"):
+            result = self._end_game(key)
+            if intent == "expired_game":
+                result.response = "That game session has expired. " + result.response
+            return result
         if intent == "check_progress":
-            return self._check_progress(user_id)
+            return self._check_progress(user_id, key=key)
 
         return CommandResult(success=False, response="I'm not sure what you mean. Want to play a game? 🎮")
 
@@ -311,7 +341,7 @@ class STEMGamesPlugin(CortexPlugin):
                 weakest = game_id
         return weakest
 
-    def _start_game(self, user_id: str, game_id: str | None) -> CommandResult:
+    def _start_game(self, user_id: str, game_id: str | None, *, key: SessionKey | None = None) -> CommandResult:
         """Start a new game session."""
         assert self._quiz is not None
         assert self._tracker is not None
@@ -321,12 +351,24 @@ class STEMGamesPlugin(CortexPlugin):
 
         if game_id not in GAMES:
             return self._suggest_game(user_id)
+        key = user_id if key is None else key
+        for expired_key, old in list(self._sessions.items()):
+            if time.time() - old.started_at >= MAX_GAME_SECONDS:
+                self._end_game(expired_key)
+        if key in self._sessions:
+            self._end_game(key)
+        if len(self._sessions) >= MAX_GAME_SESSIONS:
+            logger.warning("Voice game session capacity reached")
+            return CommandResult(False, "There are too many active games. Please finish one before starting another.")
 
         game = GAMES[game_id]
-        difficulty = self._quiz.get_adaptive_difficulty(user_id, game["subject"])
+        db = get_db()
+        profile = get_or_create_user_profile(db, user_id)
+        tier = resolve_content_tier(profile)
+        max_difficulty = 1 if profile.get("age_group") == "toddler" else 3 if tier in ("child", "unknown") else 10
+        difficulty = min(max_difficulty, self._quiz.get_adaptive_difficulty(user_id, game["subject"]))
 
         # Create DB learning session
-        db = get_db()
         cur = db.execute(
             "INSERT INTO learning_sessions "
             "(user_id, subject, topic, mode, difficulty_level) "
@@ -341,8 +383,9 @@ class STEMGamesPlugin(CortexPlugin):
             user_id=user_id,
             difficulty=difficulty,
             db_session_id=session_id,
+            max_difficulty=max_difficulty,
         )
-        self._sessions[user_id] = session
+        self._sessions[key] = session
 
         # Generate first question
         question = self._generate_question(session)
@@ -362,7 +405,7 @@ class STEMGamesPlugin(CortexPlugin):
             },
         )
 
-    def _handle_answer(self, user_id: str, answer: str) -> CommandResult:
+    def _handle_answer(self, user_id: SessionKey, answer: str) -> CommandResult:
         """Check the user's answer and respond."""
         assert self._quiz is not None
         assert self._tracker is not None
@@ -380,7 +423,7 @@ class STEMGamesPlugin(CortexPlugin):
 
         # Record progress
         self._tracker.record_attempt(
-            user_id, game["subject"], question.topic, is_correct, session.difficulty,
+            session.user_id, game["subject"], question.topic, is_correct, session.difficulty,
         )
 
         if is_correct:
@@ -398,7 +441,7 @@ class STEMGamesPlugin(CortexPlugin):
                 parts.append(f"  🔥 Streak: {session.streak}! (+5 bonus)")
 
             # Check auto-advance
-            level_up_msg = self._check_auto_advance(session, user_id)
+            level_up_msg = self._check_auto_advance(session, session.user_id)
             if level_up_msg:
                 parts.append(f"\n{level_up_msg}")
 
@@ -409,6 +452,12 @@ class STEMGamesPlugin(CortexPlugin):
             parts.append(f"\nThe answer was: **{question.correct_answer}**")
             if question.hint:
                 parts.append(f"💡 Hint for next time: {question.hint}")
+
+        if session.questions_asked >= MAX_GAME_QUESTIONS:
+            self._update_db_session(session)
+            result = self._end_game(user_id)
+            result.response = "\n".join(parts) + "\nLet's take a break. " + result.response
+            return result
 
         # Generate next question
         next_q = self._generate_question(session)
@@ -436,7 +485,7 @@ class STEMGamesPlugin(CortexPlugin):
             },
         )
 
-    def _next_question(self, user_id: str) -> CommandResult:
+    def _next_question(self, user_id: SessionKey) -> CommandResult:
         """Generate next question for active session."""
         session = self._sessions.get(user_id)
         if not session:
@@ -445,10 +494,13 @@ class STEMGamesPlugin(CortexPlugin):
                 response="No active game! Want to play? Say 'let's play a game' 🎮",
             )
 
+        if session.questions_asked >= MAX_GAME_QUESTIONS:
+            return self._end_game(user_id)
         game = GAMES[session.game_id]
         question = self._generate_question(session)
         session.current_question = question
         session.questions_asked += 1
+        self._update_db_session(session)
 
         score_line = f"Score: {session.score} | Streak: {session.streak}"
         return CommandResult(
@@ -461,7 +513,7 @@ class STEMGamesPlugin(CortexPlugin):
             },
         )
 
-    def _end_game(self, user_id: str) -> CommandResult:
+    def _end_game(self, user_id: SessionKey) -> CommandResult:
         """End the current game and show summary."""
         session = self._sessions.pop(user_id, None)
         if not session:
@@ -518,7 +570,7 @@ class STEMGamesPlugin(CortexPlugin):
             },
         )
 
-    def _check_progress(self, user_id: str) -> CommandResult:
+    def _check_progress(self, user_id: str, *, key: SessionKey | None = None) -> CommandResult:
         """Show the user's learning progress."""
         assert self._tracker is not None
 
@@ -540,7 +592,7 @@ class STEMGamesPlugin(CortexPlugin):
                 )
 
         # Active session info
-        session = self._sessions.get(user_id)
+        session = self._sessions.get(user_id if key is None else key)
         if session:
             lines.append(f"\n🎮 **Active game:** {GAMES[session.game_id]['name']}")
             lines.append(f"  Score: {session.score} | Level: {session.difficulty}")
@@ -567,13 +619,21 @@ class STEMGamesPlugin(CortexPlugin):
         subject = game["subject"]
 
         if subject == "math":
+            if session.difficulty == 1:
+                number = random.randint(1, 4)
+                return QuizQuestion(
+                    f"What number comes after {number}?", str(number + 1), 1,
+                    "math", "counting", explanation=f"After {number} comes {number + 1}.",
+                )
             return self._quiz.generate_math_question(session.difficulty)
         if subject == "science":
             return self._quiz.generate_science_question(session.difficulty)
 
-        # Language/word wizard — use science questions as a fallback pool
-        # since QuizGenerator doesn't have a language generator yet
-        return self._quiz.generate_science_question(session.difficulty)
+        word, opposite = random.choice([("hot", "cold"), ("up", "down"), ("big", "small"), ("day", "night")])
+        return QuizQuestion(
+            f"What is the opposite of {word}?", opposite, session.difficulty,
+            "language", "opposites", explanation=f"The opposite of {word} is {opposite}.",
+        )
 
     def _check_auto_advance(self, session: GameSession, user_id: str) -> str | None:
         """Auto-advance difficulty when proficiency > 0.8."""
@@ -581,7 +641,7 @@ class STEMGamesPlugin(CortexPlugin):
         game = GAMES[session.game_id]
         p = self._tracker.get_proficiency(user_id, game["subject"])
 
-        if p["proficiency"] > 0.8 and session.difficulty < 10:
+        if p["proficiency"] > 0.8 and session.difficulty < session.max_difficulty:
             session.difficulty += 1
             return game["level_up"].format(level=session.difficulty)
 

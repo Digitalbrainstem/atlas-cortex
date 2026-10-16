@@ -37,6 +37,30 @@
   let vadSilenceTimer = null;
   let autoListenPending = false;
   let isSpeaking = false;  // true while Atlas TTS is playing
+  let currentPlayback = null;
+  const rejectedPlaybacks = new Set();
+
+  window.addEventListener('atlas-playback-complete', event => {
+    if (!currentPlayback || event.detail.playback_id !== currentPlayback.playback_id) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ ...event.detail, type: 'PLAYBACK_ACK' }));
+    }
+    currentPlayback = null;
+    isSpeaking = false;
+    if (mode === 'vad' && !isListening) startListeningIfIdle();
+  });
+
+  function stopLocalPlayback() {
+    const previous = currentPlayback;
+    if (previous) {
+      rejectedPlaybacks.add(previous.playback_id);
+      if (rejectedPlaybacks.size > 32) rejectedPlaybacks.delete(rejectedPlaybacks.values().next().value);
+    }
+    currentPlayback = null;
+    if (typeof window.stopAtlasPlayback === 'function') window.stopAtlasPlayback();
+    isSpeaking = false;
+    return previous;
+  }
 
   // ── UI Setup ──────────────────────────────────────────────────
   const style = document.createElement('style');
@@ -120,20 +144,23 @@
   function connectSatellite() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${proto}//${location.host}/ws/satellite`;
-    ws = new WebSocket(url);
+    const socket = new WebSocket(url);
+    ws = socket;
 
     ws.onopen = () => {
+      if (ws !== socket) return;
       // Send ANNOUNCE
       ws.send(JSON.stringify({
         type: 'ANNOUNCE',
         satellite_id: SATELLITE_ID,
         hostname: 'web-satellite',
         room: ROOM,
-        capabilities: ['web_browser', 'wake_word'],
+        capabilities: ['web_browser', 'wake_word', 'playback_ack'],
       }));
     };
 
     ws.onmessage = (evt) => {
+      if (ws !== socket) return;
       try {
         const msg = JSON.parse(evt.data);
         handleServerMessage(msg);
@@ -143,6 +170,9 @@
     };
 
     ws.onclose = () => {
+      if (ws !== socket) return;
+      stopLocalPlayback();
+      if (isListening) stopListening('cancelled');
       isConnected = false;
       updateStatus('disconnected');
       // Reconnect after 3s
@@ -169,6 +199,10 @@
         break;
 
       case 'TTS_START':
+        if (rejectedPlaybacks.has(msg.playback_id)) break;
+        currentPlayback = msg.playback_id ? {
+          turn_id: msg.turn_id, revision: msg.revision, playback_id: msg.playback_id,
+        } : null;
         isSpeaking = true;
         micBtn.classList.add('speaking');
         // Stop listening during TTS to avoid echo
@@ -180,18 +214,21 @@
         break;
 
       case 'TTS_CHUNK':
+        if (msg.playback_id && (!currentPlayback || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== currentPlayback[key]))) break;
         if (typeof window.handleTtsChunk === 'function') {
           window.handleTtsChunk(msg);
         }
         break;
 
       case 'TTS_END':
+        if (msg.playback_id && (!currentPlayback || ['playback_id', 'turn_id', 'revision'].some(key => msg[key] !== currentPlayback[key]))) break;
         // Don't clear isSpeaking yet — audio may still be playing through
         // the Web Audio queue. Wait for actual playback to finish.
         micBtn.classList.remove('speaking');
         if (typeof window.handleTtsEnd === 'function') {
           window.handleTtsEnd(msg);
         }
+        if (msg.playback_id) break;
         // Wait for audio playback to fully drain before re-enabling mic
         const remainSec = estimatePlaybackRemaining();
         const guardMs = Math.max(500, remainSec * 1000 + 800);
@@ -201,6 +238,12 @@
             startListeningIfIdle();
           }
         }, guardMs);
+        break;
+
+      case 'COMMAND':
+        if (msg.action === 'stop' && (!msg.params?.playback_id || msg.params.playback_id === currentPlayback?.playback_id)) {
+          stopLocalPlayback();
+        }
         break;
 
       case 'PLAY_FILLER':
@@ -352,7 +395,13 @@
 
   // ── Listening control ─────────────────────────────────────────
   async function startListening() {
-    if (isListening || isSpeaking) return;
+    if (isListening) return;
+    if (isSpeaking) {
+      const previous = stopLocalPlayback();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ ...previous, type: 'BARGE_IN' }));
+      }
+    }
     if (!(await ensureMic())) return;
 
     isListening = true;
@@ -368,8 +417,10 @@
 
     // Send AUDIO_START
     if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'WAKE', wake_word_confidence: 1 }));
       ws.send(JSON.stringify({
         type: 'AUDIO_START',
+        capture_id: crypto.randomUUID(),
         format: 'pcm_16k_16bit_mono',
         format_info: { rate: SAMPLE_RATE, width: 2, channels: 1 },
       }));

@@ -1,7 +1,7 @@
 <!-- Public chat interface — profile picker + auth + chat.
      Full-screen, mobile-responsive, no admin chrome. -->
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
 const state = ref('picker') // picker, auth, chat
 const users = ref([])
@@ -15,6 +15,56 @@ const inputText = ref('')
 const streaming = ref(false)
 const ws = ref(null)
 const messagesEl = ref(null)
+const connectionState = ref('Disconnected')
+const turnState = ref('')
+const pending = ref(null)
+let reconnectTimer
+let statusTimer
+let disposed = false
+
+function pendingKey() {
+  return `atlas-pending:${currentUser.value?.user_id || 'guest'}`
+}
+
+function clearPending() {
+  sessionStorage.removeItem(pendingKey())
+  pending.value = null
+}
+
+function requestResult() {
+  if (pending.value && ws.value?.readyState === WebSocket.OPEN) {
+    ws.value.send(JSON.stringify({
+      type: 'turn_result', ...pending.value, user_id: currentUser.value?.user_id,
+      chat_token: sessionToken.value,
+    }))
+  }
+}
+
+function setAnswer(turnId, text) {
+  const answer = messages.value.find(m => m.role === 'assistant' && m.turn_id === turnId)
+  if (answer) answer.content = text
+  else messages.value.push({ role: 'assistant', content: text, turn_id: turnId })
+}
+
+onUnmounted(() => {
+  disposed = true
+  clearTimeout(reconnectTimer)
+  clearInterval(statusTimer)
+  if (ws.value) {
+    ws.value.onclose = null
+    ws.value.close()
+    ws.value = null
+  }
+})
+
+function checkTurn() {
+  if (pending.value && ws.value?.readyState === WebSocket.OPEN) {
+    ws.value.send(JSON.stringify({
+      type: 'turn_status', ...pending.value, user_id: currentUser.value?.user_id,
+      chat_token: sessionToken.value,
+    }))
+  }
+}
 
 function getDeviceFingerprint() {
   const data = [
@@ -55,7 +105,7 @@ onMounted(async () => {
         connectWebSocket()
         return
       }
-    } catch (e) { /* token invalid, continue to picker */ }
+    } catch (e) { authError.value = 'Could not restore the chat session.' }
     localStorage.removeItem('atlas_chat_token')
   }
 
@@ -66,6 +116,7 @@ onMounted(async () => {
     users.value = data.users || []
   } catch (e) {
     users.value = []
+    authError.value = 'Could not load household profiles. Retry after checking the connection.'
   }
 
   // If only one user with no auth, auto-login
@@ -123,32 +174,86 @@ async function authenticate(extra = {}) {
 }
 
 function connectWebSocket() {
+  if (disposed) return
+  if (!pending.value) {
+    try {
+      pending.value = JSON.parse(sessionStorage.getItem(pendingKey()) || 'null')
+    } catch {
+      turnState.value = 'Saved turn identity could not be restored.'
+      sessionStorage.removeItem(pendingKey())
+    }
+  }
+  clearTimeout(reconnectTimer)
+  if (ws.value) {
+    ws.value.onclose = null
+    ws.value.close()
+  }
+  connectionState.value = 'Connecting'
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const socket = new WebSocket(`${proto}//${location.host}/ws/chat`)
+  socket.onopen = () => {
+    if (disposed || ws.value !== socket) return
+    connectionState.value = 'Connected'
+    checkTurn()
+    clearInterval(statusTimer)
+    statusTimer = setInterval(checkTurn, 1000)
+  }
+  socket.onerror = () => { connectionState.value = 'Connection error' }
 
   socket.onmessage = (event) => {
+    if (disposed || ws.value !== socket) return
     try {
       const msg = JSON.parse(event.data)
       if (msg.type === 'token') {
-        const last = messages.value[messages.value.length - 1]
-        if (last && last.role === 'assistant') {
-          last.content += msg.text
-        } else {
-          messages.value.push({ role: 'assistant', content: msg.text })
-        }
+        const answer = messages.value.find(m => m.role === 'assistant' && m.turn_id === msg.turn_id)
+        setAnswer(msg.turn_id, (answer?.content || '') + msg.text)
       } else if (msg.type === 'start') {
-        messages.value.push({ role: 'assistant', content: '' })
+        setAnswer(msg.turn_id, '')
         streaming.value = true
       } else if (msg.type === 'end') {
         streaming.value = false
+        turnState.value = 'Completed'
+        if (pending.value?.turn_id === msg.turn_id) {
+          if (msg.durable) requestResult()
+          else clearPending()
+        }
+      } else if (msg.type === 'turn_result') {
+        if (pending.value?.turn_id !== msg.turn_id) return
+        setAnswer(msg.turn_id, msg.text)
+        streaming.value = false
+        turnState.value = 'Completed'
+        socket.send(JSON.stringify({
+          type: 'turn_ack', ...pending.value, revision: msg.revision,
+          user_id: currentUser.value?.user_id, chat_token: sessionToken.value,
+        }))
+      } else if (msg.type === 'turn_ack') {
+        if (pending.value?.turn_id === msg.turn_id) clearPending()
+      } else if (msg.type === 'turn_status') {
+        if (pending.value?.turn_id === msg.turn_id) {
+          turnState.value = `${msg.state}${msg.delivery_state ? ' / ' + msg.delivery_state : ''}`
+          if (msg.has_result && ['completed', 'failed', 'uncertain'].includes(msg.state)) requestResult()
+          else if (['cancelled', 'superseded', 'failed'].includes(msg.state)) clearPending()
+        }
+      } else if (msg.type === 'error') {
+        if (msg.code === 'authentication') {
+          logout()
+          authError.value = 'Your session expired. Sign in again.'
+          return
+        }
+        streaming.value = false
+        turnState.value = msg.text || 'The request failed.'
       }
-    } catch (e) { /* ignore parse errors */ }
+    } catch (e) { turnState.value = 'Invalid response from chat server.' }
   }
 
   socket.onclose = () => {
+    if (disposed || ws.value !== socket) return
+    clearInterval(statusTimer)
+    streaming.value = false
+    connectionState.value = 'Disconnected. Accepted work continues; actions are not automatically retried.'
     // Reconnect after a short delay
-    setTimeout(() => {
-      if (state.value === 'chat') connectWebSocket()
+    reconnectTimer = setTimeout(() => {
+      if (!disposed && state.value === 'chat') connectWebSocket()
     }, 3000)
   }
 
@@ -156,24 +261,39 @@ function connectWebSocket() {
 }
 
 function sendMessage() {
-  if (!inputText.value.trim() || !ws.value || ws.value.readyState !== WebSocket.OPEN) return
+  if (pending.value || streaming.value || !inputText.value.trim() || !ws.value || ws.value.readyState !== WebSocket.OPEN) return
   const text = inputText.value.trim()
+  const key = `atlas-conversation:${currentUser.value?.user_id || 'guest'}`
+  const conversation = sessionStorage.getItem(key) || crypto.randomUUID()
+  sessionStorage.setItem(key, conversation)
+  pending.value = { conversation_id: conversation, turn_id: crypto.randomUUID() }
+  sessionStorage.setItem(pendingKey(), JSON.stringify(pending.value))
+  turnState.value = 'Submitted; waiting for admission or a fast-path response'
+  streaming.value = true
   messages.value.push({ role: 'user', content: text })
   ws.value.send(JSON.stringify({
     type: 'chat',
     message: text,
     user_id: currentUser.value?.user_id || 'guest',
+    chat_token: sessionToken.value,
+    metadata: { ...pending.value, idempotency_key: pending.value.turn_id },
     history: messages.value.slice(-20),
   }))
   inputText.value = ''
 }
 
 function logout() {
+  clearTimeout(reconnectTimer)
+  clearInterval(statusTimer)
   localStorage.removeItem('atlas_chat_token')
+  clearPending()
   state.value = 'picker'
   currentUser.value = null
   sessionToken.value = ''
   messages.value = []
+  pending.value = null
+  streaming.value = false
+  turnState.value = ''
   if (ws.value) {
     ws.value.onclose = null
     ws.value.close()
@@ -188,6 +308,7 @@ function logout() {
     <div class="logo">🧠</div>
     <h1>Atlas</h1>
     <p class="subtitle">Who's chatting?</p>
+    <p v-if="authError" class="error" role="alert">{{ authError }}</p>
     <div class="user-grid">
       <button
         v-for="user in users" :key="user.user_id"
@@ -253,6 +374,8 @@ function logout() {
       <span class="chat-title">Atlas</span>
       <button class="btn-logout" @click="logout()">Switch User</button>
     </div>
+    <p role="status">{{ connectionState }} <span v-if="turnState">| {{ turnState }}</span></p>
+    <button v-if="pending && !streaming" @click="clearPending()">Dismiss status (work may continue)</button>
 
     <div class="chat-messages" ref="messagesEl">
       <div v-if="messages.length === 0" class="empty-state">
@@ -274,7 +397,7 @@ function logout() {
         @keydown.enter="sendMessage()"
         autofocus
       >
-      <button @click="sendMessage()" :disabled="!inputText.trim() || streaming">Send</button>
+      <button @click="sendMessage()" :disabled="!inputText.trim() || streaming || !!pending">Send</button>
     </div>
   </div>
 </template>

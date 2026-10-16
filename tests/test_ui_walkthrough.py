@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -26,10 +25,6 @@ import httpx  # noqa: E402
 
 pytestmark = pytest.mark.browser
 
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 15101
-BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
-ADMIN_URL = f"{BASE_URL}/admin/"
 
 # Default admin credentials seeded by init_db
 ADMIN_USER = "admin"
@@ -39,54 +34,12 @@ ADMIN_PASS = "atlas-admin"
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
-def _wait_for_server(base_url: str, *, retries: int = 40, delay: float = 0.5) -> bool:
-    """Poll the /health endpoint synchronously."""
-    for _ in range(retries):
-        try:
-            resp = httpx.get(f"{base_url}/health", timeout=1)
-            if resp.status_code == 200:
-                return True
-        except Exception:
-            pass
-        time.sleep(delay)
-    return False
-
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 
 @pytest.fixture(scope="module")
-def server():
-    """Start the cortex server in a subprocess for browser tests."""
-    tmpdir = tempfile.mkdtemp(prefix="cortex_ui_test_")
-    env = os.environ.copy()
-    env["CORTEX_DATA_DIR"] = tmpdir
-    env["CORTEX_HOST"] = SERVER_HOST
-    env["CORTEX_PORT"] = str(SERVER_PORT)
-    env["LLM_PROVIDER"] = "ollama"
-    env["OLLAMA_BASE_URL"] = "http://127.0.0.1:1"  # unreachable on purpose
-    env["TTS_PROVIDER"] = "none"
-
-    proc = subprocess.Popen(
-        ["python3", "-m", "cortex.server"],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    if not _wait_for_server(BASE_URL):
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.skip("Cortex server failed to start — skipping browser tests")
-
-    yield BASE_URL
-
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=3)
+def server(browser_server):
+    return browser_server
 
 
 @pytest.fixture(scope="module")

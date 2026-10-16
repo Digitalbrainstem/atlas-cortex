@@ -40,6 +40,7 @@ async def _stream_audio_to_satellite(
 ) -> None:
     """Stream PCM audio to a satellite as TTS_START/CHUNK/END."""
     await conn.send({
+        **getattr(conn, "delivery_metadata", {}),
         "type": "TTS_START",
         "session_id": conn.session_id,
         "format": f"pcm_{rate // 1000}k_16bit_mono",
@@ -51,11 +52,13 @@ async def _stream_audio_to_satellite(
     for offset in range(0, len(audio), chunk_size):
         chunk = audio[offset:offset + chunk_size]
         await conn.send({
+            **getattr(conn, "delivery_metadata", {}),
             "type": "TTS_CHUNK",
             "session_id": conn.session_id,
             "audio": base64.b64encode(chunk).decode("ascii"),
         })
     msg: dict[str, Any] = {
+        **getattr(conn, "delivery_metadata", {}),
         "type": "TTS_END",
         "session_id": conn.session_id,
         "is_filler": is_filler,
@@ -245,7 +248,7 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
     t_start = time.monotonic()
 
     # Reject very short audio clips — likely echo/noise
-    min_audio_bytes = 48000  # ~1.5s at 16kHz 16-bit mono
+    min_audio_bytes = 2  # A PCM sample, not a semantic command-length test.
     if len(audio_data) < min_audio_bytes:
         audio_sec = len(audio_data) / 32000
         logger.info("Audio too short from %s (%.1fs, %d bytes) — dropping",
@@ -296,37 +299,25 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
 
         logger.info("STT result from %s (%.0fms): %r", satellite_id, stt_ms, transcript)
 
-        # Server-side wake word filter
-        if not conn.has_wake_word:
-            wake_keywords = {"atlas", "atmos", "alice"}
-            transcript_lower = transcript.lower()
-            has_keyword = any(kw in transcript_lower for kw in wake_keywords)
-            if not has_keyword:
-                logger.info("No wake keyword in transcript from %s (no local wake word), dropping: %r",
-                            satellite_id, transcript[:80])
-                try:
-                    await conn.send({"type": "PIPELINE_ERROR", "detail": "No wake word detected"})
-                except Exception:
-                    pass
-                return
-            for kw in sorted(wake_keywords, key=len, reverse=True):
-                idx = transcript_lower.find(kw)
-                if idx != -1:
-                    prefix = transcript[:idx].strip().lower()
-                    clean_prefixes = {"hey", "ok", "okay", "hi", "yo", ""}
-                    if prefix in clean_prefixes:
-                        transcript = transcript[idx + len(kw):].strip()
-                    else:
-                        transcript = (transcript[:idx] + transcript[idx + len(kw):]).strip()
-                    break
-            if not transcript:
-                logger.info("Transcript empty after wake word removal from %s", satellite_id)
-                try:
-                    await conn.send({"type": "PIPELINE_ERROR", "detail": "Empty after wake word"})
-                except Exception:
-                    pass
-                return
-            logger.info("After wake word filter from %s: %r", satellite_id, transcript)
+        # Server-side wake word filter — always runs via cortex.wake_word.
+        # Satellites with local openwakeword detection already stripped the
+        # wake word from the audio trigger, but the transcript still contains
+        # the keyword so we clean it here as well.
+        from cortex.wake_word import filter_transcript as _ww_filter
+
+        filtered = _ww_filter(transcript)
+        if filtered is None:
+            logger.info("Wake word filter dropped transcript from %s: %r",
+                        satellite_id, transcript[:80])
+            try:
+                await conn.send({"type": "PIPELINE_ERROR", "detail": "No wake word detected"})
+            except Exception:
+                pass
+            return
+        if filtered != transcript:
+            logger.info("After wake word filter from %s: %r → %r",
+                        satellite_id, transcript[:60], filtered[:60])
+        transcript = filtered
 
         # ── CE-4: Interrupt classification (pause & pivot) ───────────
         paused = getattr(conn, "paused_response", None)
@@ -435,10 +426,14 @@ async def process_voice_pipeline(conn: Any, audio_data: bytes) -> None:
         if personality_context:
             extra_context = f"{personality_context}\n{extra_context}" if extra_context else personality_context
 
-        pipeline_gen = await run_pipeline(
+        pipeline_gen = run_pipeline(
             message=transcript,
             provider=provider,
             satellite_id=satellite_id,
+            metadata={
+                "source": "satellite",
+                "conversation_id": conn.session_id or satellite_id,
+            },
             model_fast="qwen2.5:7b",
             memory_context=extra_context,
         )

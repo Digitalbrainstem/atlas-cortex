@@ -98,6 +98,7 @@ class _RequestState:
         "start_time",
         "processing_task",
         "token_sink",
+        "slot_reserved",
     )
 
     def __init__(self, request: InferenceRequest) -> None:
@@ -112,6 +113,7 @@ class _RequestState:
         self.start_time: float = 0.0
         self.processing_task: asyncio.Task[None] | None = None
         self.token_sink: asyncio.Queue[str | None] | None = None
+        self.slot_reserved = False
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +171,6 @@ class RequestQueue:
         self._slot_available.set()
         self._dispatcher_task: asyncio.Task[None] | None = None
         self._running: bool = False
-        self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -198,6 +199,10 @@ class RequestQueue:
         # Cancel everything still tracked.
         for rid in list(self._states):
             self._cancel_state(rid, reason="shutdown")
+        tasks = [state.processing_task for state in self._states.values()
+                 if state.processing_task is not None]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         log.info("RequestQueue stopped")
 
     # ------------------------------------------------------------------
@@ -211,6 +216,8 @@ class RequestQueue:
         """
         if not request.id:
             request.id = uuid.uuid4().hex[:12]
+        if request.id in self._states:
+            raise ValueError(f"Inference request already exists: {request.id}")
 
         state = _RequestState(request)
         self._states[request.id] = state
@@ -245,11 +252,13 @@ class RequestQueue:
         state = self._states.get(request_id)
         if state is None:
             raise KeyError(request_id)
-        return await asyncio.wait_for(state.result_future, timeout=timeout)
+        return await asyncio.wait_for(asyncio.shield(state.result_future), timeout=timeout)
 
     async def submit_and_stream(
         self,
         request: InferenceRequest,
+        *,
+        buffer_size: int = 0,
     ) -> AsyncGenerator[str, None]:
         """Submit and yield tokens as they arrive.
 
@@ -259,24 +268,39 @@ class RequestQueue:
         request.stream = True
         rid = self.submit(request)
         state = self._states[rid]
-        token_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        token_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=buffer_size)
 
         # Stash a token sink so _process_request can push tokens.
         state.token_sink = token_queue
 
         try:
             while True:
-                try:
-                    token = await asyncio.wait_for(token_queue.get(), timeout=120)
-                except asyncio.TimeoutError:
+                if token_queue.empty() and state.result_future.done():
+                    await state.result_future
                     break
+                token = await asyncio.wait_for(token_queue.get(), timeout=120)
                 if token is None:
+                    await state.result_future
                     break
                 yield token
         finally:
             # Ensure state is cleaned up even if consumer stops reading.
-            if state.status == "processing":
+            if state.status in ("queued", "processing"):
                 self._cancel_state(rid, reason="stream-closed")
+
+    async def release(self, request_id: str) -> None:
+        """Release a consumed request, including its task and result buffers."""
+        state = self._states.get(request_id)
+        if state is None:
+            return
+        if state.status in ("queued", "processing"):
+            self._cancel_state(request_id, reason="consumer-released")
+        if state.processing_task is not None:
+            await asyncio.gather(state.processing_task, return_exceptions=True)
+            self._release_slot(state)
+        if state.result_future.done() and not state.result_future.cancelled():
+            state.result_future.exception()
+        self._states.pop(request_id, None)
 
     def cancel_request(self, request_id: str) -> bool:
         """Cancel a single request.  Returns ``True`` if it was still active."""
@@ -333,6 +357,8 @@ class RequestQueue:
                 # Acquire a slot — preempt a lower-priority task if needed.
                 acquired = False
                 while not acquired:
+                    if state.cancel_event.is_set():
+                        break
                     if self._active_count < self._max_concurrent:
                         acquired = True
                     elif self._try_preempt(entry.request.priority):
@@ -343,16 +369,19 @@ class RequestQueue:
                         # Can't preempt and no free slot — wait.
                         self._slot_available.clear()
                         await self._slot_available.wait()
+                if state.cancel_event.is_set():
+                    continue
 
-                async with self._lock:
-                    self._active_count += 1
-                    if self._active_count >= self._max_concurrent:
-                        self._slot_available.clear()
+                self._active_count += 1
+                state.slot_reserved = True
+                if self._active_count >= self._max_concurrent:
+                    self._slot_available.clear()
 
                 state.processing_task = asyncio.create_task(
                     self._process_request(state),
                     name=f"infer-{entry.request.id}",
                 )
+                state.processing_task.add_done_callback(lambda done, st=state: self._release_slot(st))
             except asyncio.CancelledError:
                 return
             except Exception:
@@ -382,14 +411,18 @@ class RequestQueue:
             )
 
             if request.stream and hasattr(gen, "__aiter__"):
-                async for chunk in gen:
-                    if state.cancel_event.is_set():
-                        break
-                    content_parts.append(chunk)
-                    state.token_count += 1
-                    state.partial_content = "".join(content_parts)
-                    if token_sink is not None:
-                        await token_sink.put(chunk)
+                try:
+                    async for chunk in gen:
+                        if state.cancel_event.is_set():
+                            break
+                        content_parts.append(chunk)
+                        state.token_count += 1
+                        state.partial_content = "".join(content_parts)
+                        if token_sink is not None:
+                            await token_sink.put(chunk)
+                finally:
+                    if hasattr(gen, "aclose"):
+                        await gen.aclose()
             else:
                 # Non-streaming: gen is a dict.
                 body = gen if isinstance(gen, dict) else {}
@@ -439,9 +472,11 @@ class RequestQueue:
                     token_sink.put_nowait(None)  # signal end-of-stream
                 except asyncio.QueueFull:
                     pass
-            async with self._lock:
-                self._active_count -= 1
-                self._slot_available.set()
+    def _release_slot(self, state: _RequestState) -> None:
+        if state.slot_reserved:
+            state.slot_reserved = False
+            self._active_count -= 1
+            self._slot_available.set()
 
     # ------------------------------------------------------------------
     # Preemption
@@ -492,6 +527,9 @@ class RequestQueue:
 
         if state.processing_task is not None and not state.processing_task.done():
             state.processing_task.cancel()
+        if state.token_sink is not None and not state.token_sink.full():
+            state.token_sink.put_nowait(None)
+        self._slot_available.set()
 
         # Resolve the future so waiters don't hang.
         if not state.result_future.done():

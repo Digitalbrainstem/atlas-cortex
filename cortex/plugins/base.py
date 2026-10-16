@@ -57,6 +57,8 @@ class CommandResult:
     response: str
     entities_used: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    clarification_required: bool = False
+    handled: bool = True
 
 
 class CortexPlugin(abc.ABC):

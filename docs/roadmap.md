@@ -1,6 +1,6 @@
 # 🗺️ Atlas Cortex — Roadmap
 
-> **For current implementation status, see the main [README](../README.md#-implementation-status).**
+> **For current household MVP phase/qualification status, see [MVP release handoff](mvp-release.md).**
 >
 > **For detailed phase designs, see [phases.md](phases.md).**
 
@@ -8,10 +8,15 @@ This document outlines planned future features organized by implementation part.
 
 ---
 
-## ✅ Completed
+## Implemented Component Inventory
+
+These historical component labels are not P00-P14 household acceptance results.
+Available software work is implemented and the full local Python/browser checks
+pass; the release still has unrun platform and physical/operator gates.
 
 ### Part 1: Core Engine
-Everything in Part 1 is **complete** — the brain of Atlas works standalone with any LLM backend.
+Part 1 modules are implemented. Only the configurations and evidence recorded in
+the household handoff are qualified; this is not a promise of every LLM backend.
 
 | Phase | Module | Description |
 |-------|--------|-------------|

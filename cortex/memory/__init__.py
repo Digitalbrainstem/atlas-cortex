@@ -24,6 +24,9 @@ from cortex.memory.hot import rrf_fuse, hot_query, format_memory_context
 from cortex.memory.cold import MemoryWriter
 from cortex.memory.controller import MemorySystem, get_memory_system, set_memory_system
 from cortex.memory.cag import CAGEngine, KnowledgeBank, CAGRecall, get_cag_engine, set_cag_engine
+from cortex.memory.knowledge_tree import KnowledgeTree, TreeNode, TreeStats
+from cortex.memory.memory_index import MemoryIndex
+from cortex.memory.proactive_loader import ProactiveLoader, ContextBundle
 
 # Backward compat aliases (old private names used in tests)
 _classify_memory = classify_memory
@@ -35,6 +38,19 @@ MemoryPalace = CAGEngine
 PalaceRecall = CAGRecall
 get_palace = get_cag_engine
 set_palace = set_cag_engine
+
+
+def __getattr__(name: str):
+    """Experimental extensions are loaded only when explicitly requested."""
+    import importlib
+    extensions = {
+        "SessionStore": "sessions", "Session": "sessions", "Turn": "sessions",
+        "get_session_store": "sessions", "set_session_store": "sessions",
+        "ContextCompactor": "compaction", "CompactionResult": "compaction",
+    }
+    if name not in extensions:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(f"{__name__}.{extensions[name]}"), name)
 
 __all__ = [
     "redact_pii",
@@ -57,6 +73,12 @@ __all__ = [
     "CAGRecall",
     "get_cag_engine",
     "set_cag_engine",
+    "KnowledgeTree",
+    "TreeNode",
+    "TreeStats",
+    "MemoryIndex",
+    "ProactiveLoader",
+    "ContextBundle",
     # Backward compat
     "MemoryPalace",
     "PalaceRecall",

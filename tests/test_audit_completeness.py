@@ -128,8 +128,22 @@ class TestPhase4Orchestrator:
     def test_satellite_delegates_to_orchestrator(self):
         """satellite/websocket.py must delegate to orchestrator."""
         code = (CORTEX_ROOT / "satellite" / "websocket.py").read_text()
-        assert "process_voice_pipeline" in code, \
-            "satellite/websocket.py doesn't delegate to orchestrator"
+        handler = next(
+            node for node in ast.parse(code).body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_handle_audio_end"
+        )
+        assert any(
+            isinstance(node, ast.ImportFrom) and node.module == "cortex.orchestrator.voice_turns"
+            for node in ast.walk(handler)
+        )
+        calls = [node for node in ast.walk(handler) if isinstance(node, ast.Call)]
+        assert any(isinstance(node.func, ast.Name) and node.func.id == "get_voice_service" for node in calls)
+        assert any(
+            isinstance(node.func, ast.Attribute) and node.func.attr == "submit"
+            and isinstance(node.func.value, ast.Call)
+            and isinstance(node.func.value.func, ast.Attribute) and node.func.value.func.attr == "session"
+            for node in calls
+        ), "Completed satellite captures must enter the lifecycle-owned orchestrator service"
 
 
 # ── Phase 5: Memory + dormant system wiring ───────────────────────

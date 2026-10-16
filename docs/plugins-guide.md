@@ -9,8 +9,76 @@ Layer 2 of the 4-layer pipeline handles plugin dispatch. When a message arrives:
 3. **Layer 2** tries each registered plugin in order:
    - Calls `match(message, context)` → returns `CommandMatch`
    - If `matched=True`, calls `handle(message, match, context)` → returns `CommandResult`
-   - **First match wins** — no further plugins are tried
-4. **Layer 3** falls through to the LLM if no plugin matches
+   - A handled result, clarification, or recognized failure ends dispatch.
+   - An unhealthy matched plugin reports unavailability; the LLM must not invent
+     successful execution.
+4. **Layer 3** runs only on genuine fallthrough.
+
+`CommandResult` retains its existing constructor fields and adds optional
+`clarification_required=False` and `handled=True`. Use
+`clarification_required=True` for a deterministic follow-up question. Use
+`handled=False` only to explicitly decline a request without performing an action
+(for example, an unconfigured informational movie lookup). `success=False`
+alone represents a recognized failure, not permission to route a failed action
+to the LLM. Disabled plugins remain unloaded.
+
+`prepare_turn()` runs context and fast-path dispatch without acquiring an LLM
+slot. Its typed result distinguishes `not_matched`, `handled`, `clarification`
+and `failed`, with structured action outcomes and entity references.
+`run_prepared_pipeline_events()` consumes that result once, so rendering cannot
+repeat plugin side effects. The existing text and typed-event generator APIs
+remain available. Typed consumers additionally receive turn identity and revision
+metadata; text-only consumers continue receiving strings.
+
+Built-in plugins declaring a `conn` constructor parameter receive the initialized
+SQLite connection from the loader. Necessary operational context can be serialized
+using the prepared turn's `context_snapshot()`; do not persist raw audio as context.
+
+## Deterministic corrections and action outcomes
+
+Executable plugins now take precedence over learned response templates. Only
+explicitly informational learned intents (`greet`, `greeting`, `greet_*`, `name`,
+`inform`, `definition`, `fact`) without an entity domain can supply template-only
+answers. Device/list/timer intents must execute through their backend; a template
+saying "Done" is not evidence that an action occurred. Malformed templates are
+logged and skipped rather than displayed as raw backreferences.
+
+HA target corrections use recent structured service intent, not an LLM:
+
+- `turn on the kitchen lights` then `actually the bedroom` targets the bedroom.
+  If the kitchen command is still queued, its durable intent is atomically
+  superseded before it can run. If it already started, the correction waits for
+  its outcome and reports completion/uncertainty without claiming cancellation
+  or silently turning the kitchen back off.
+- `no, turn them off` explicitly requests an inverse on the established device.
+- Ambiguous names, expired context, an unidentified shared-device speaker, or
+  missing user/conversation/source/device/room/speaker continuity ask for an
+  explicit target. A different recent plugin or a failed preceding request must
+  not reuse an older device target. Unsupported contextual corrections to other
+  plugins ask for the complete command rather than guessing an edit.
+- Recent resolution is valid for 120 seconds. The registry retains at most 256
+  lightweight scope markers; eviction disables implicit resolution, not accepted
+  work. Clients without stable conversation identity must name devices explicitly.
+- Concurrent effects on the same resolved HA entity are serialized within the
+  plugin instance, including across its calling event loops. This is not a
+  distributed or multi-worker exactly-once execution guarantee.
+
+HA now requires an unambiguous resolved device and a valid service/value before
+reporting success. Discovered literal-name patterns execute the corresponding
+backend service. Connection loss after sending a service request is reported as
+`uncertain`, not a confirmed failure or permission to blindly retry.
+Action metadata is committed before the effect; failure to save intent prevents
+execution. Failure to save an outcome after execution is reported as uncertain.
+
+List removals prefer an exact item name and ask on multiple partial matches.
+Permission checks still run on the resolved list. Timer cancel/pause/resume
+targets must be unique in the user's specified room, optionally selected with
+`called <label>`; these operations no longer silently select the latest timer.
+Backend mutation failures cannot return successful removal/cancellation text.
+
+Plugins can report `metadata["action_outcome"]` as `none`, `succeeded`, `failed`
+or `uncertain`. Clarifications, HA state reads, scheduling-list reads and empty
+timer controls report no device effect. Existing result fields remain compatible.
 
 ## Plugin Categories
 

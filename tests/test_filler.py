@@ -7,11 +7,13 @@ from cortex.filler import select_filler, DEFAULT_FILLERS, CONFIDENCE_FILLERS
 
 
 class TestSelectFiller:
-    def test_command_returns_empty(self):
-        assert select_filler("command", 1.0) == ""
+    def test_command_returns_filler(self):
+        filler = select_filler("command", 1.0)
+        assert filler in DEFAULT_FILLERS["command"]
 
-    def test_casual_returns_empty(self):
-        assert select_filler("casual", 1.0) == ""
+    def test_casual_returns_filler(self):
+        filler = select_filler("casual", 1.0)
+        assert filler in DEFAULT_FILLERS["casual"]
 
     def test_question_returns_filler(self):
         filler = select_filler("question", 1.0)
@@ -66,18 +68,49 @@ class TestSelectFiller:
 
 
 class TestDefaultPools:
-    def test_all_sentiments_have_entries_or_are_empty(self):
+    def test_all_sentiments_have_entries(self):
         expected_sentiments = {
             "greeting", "question", "frustrated", "excited",
             "late_night", "follow_up", "command", "casual",
         }
         assert set(DEFAULT_FILLERS.keys()) >= expected_sentiments
 
-    def test_command_pool_is_empty(self):
-        assert DEFAULT_FILLERS["command"] == []
+    def test_command_pool_has_phrases(self):
+        assert len(DEFAULT_FILLERS["command"]) >= 50
 
-    def test_casual_pool_is_empty(self):
-        assert DEFAULT_FILLERS["casual"] == []
+    def test_casual_pool_has_phrases(self):
+        assert len(DEFAULT_FILLERS["casual"]) >= 100
+
+    def test_question_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["question"]) >= 150
+
+    def test_greeting_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["greeting"]) >= 150
+
+    def test_frustrated_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["frustrated"]) >= 100
+
+    def test_excited_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["excited"]) >= 100
+
+    def test_late_night_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["late_night"]) >= 100
+
+    def test_follow_up_pool_expanded(self):
+        assert len(DEFAULT_FILLERS["follow_up"]) >= 100
+
+    def test_no_duplicate_phrases_within_sentiment(self):
+        for sentiment, phrases in DEFAULT_FILLERS.items():
+            unique = set(phrases)
+            assert len(unique) == len(phrases), (
+                f"{sentiment} has {len(phrases) - len(unique)} duplicates"
+            )
+
+    def test_high_variety_over_many_draws(self):
+        # With 150+ phrases, 20 draws should yield at least 10 unique
+        results = [select_filler("question", 1.0) for _ in range(20)]
+        unique = set(results)
+        assert len(unique) >= 8, f"Only {len(unique)} unique in 20 draws"
 
 
 class TestConfidenceFillers:

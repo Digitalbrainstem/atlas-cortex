@@ -18,12 +18,26 @@ const avatarVisible = ref(false)
 const sttAvailable = ref(true)
 const ttsAvailable = ref(true)
 const isPlayingAudio = ref(false)
+const voiceError = ref('')
 
 let ws = null
 let reconnectTimer = null
 let mediaRecorder = null
 let audioChunks = []
 let audioContext = null
+let playbackId = null
+let microphoneStream = null
+let disposed = false
+const audioSources = new Set()
+
+function stopAudio() {
+  const previous = playbackId
+  playbackId = null
+  for (const source of audioSources) source.stop()
+  audioSources.clear()
+  isPlayingAudio.value = false
+  if (previous && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'tts_cancel', playback_id: previous }))
+}
 
 // ── WebSocket ────────────────────────────────────────────────────
 
@@ -48,6 +62,7 @@ function connect() {
 
   ws.onclose = () => {
     connected.value = false
+    stopAudio()
     isStreaming.value = false
     reconnectTimer = setTimeout(connect, 3000)
   }
@@ -102,7 +117,7 @@ function handleMessage(data) {
       send()
     }
   } else if (data.type === 'tts_audio') {
-    playAudio(data.data, data.sample_rate || 24000)
+    if (data.playback_id === playbackId) playAudio(data.data, data.sample_rate || 24000)
   } else if (data.type === 'tts_error') {
     ttsAvailable.value = false
   }
@@ -113,6 +128,7 @@ function handleMessage(data) {
 function send() {
   const text = inputText.value.trim()
   if (!text || isStreaming.value || !connected.value) return
+  stopAudio()
 
   messages.value.push({
     role: 'user',
@@ -153,10 +169,21 @@ async function toggleRecording() {
 }
 
 async function startRecording() {
+  stopAudio()
+  voiceError.value = ''
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    voiceError.value = 'Microphone access requires HTTPS or localhost and a supported browser.'
+    return
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
     })
+    if (disposed) {
+      stream.getTracks().forEach(t => t.stop())
+      return
+    }
+    microphoneStream = stream
 
     audioChunks = []
     mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
@@ -167,7 +194,8 @@ async function startRecording() {
 
     mediaRecorder.onstop = async () => {
       stream.getTracks().forEach(t => t.stop())
-      if (audioChunks.length === 0) return
+      microphoneStream = null
+      if (disposed || audioChunks.length === 0) return
 
       // Convert to raw PCM via AudioContext decoding
       const blob = new Blob(audioChunks, { type: 'audio/webm' })
@@ -176,6 +204,7 @@ async function startRecording() {
         const arrayBuf = await blob.arrayBuffer()
         const audioBuf = await audioContext.decodeAudioData(arrayBuf)
         const pcm = audioBuf.getChannelData(0)
+        if (disposed || ws?.readyState !== WebSocket.OPEN) return
 
         // Convert float32 to int16
         const int16 = new Int16Array(pcm.length)
@@ -207,6 +236,9 @@ async function startRecording() {
   } catch (err) {
     console.warn('Microphone access denied:', err)
     sttAvailable.value = false
+    voiceError.value = err.name === 'NotAllowedError'
+      ? 'Microphone permission was denied. Allow access in browser settings to try again.'
+      : `Microphone unavailable: ${err.message}`
   }
 }
 
@@ -221,7 +253,9 @@ function stopRecording() {
 
 function requestTTS(text) {
   if (!connected.value || !ws) return
-  ws.send(JSON.stringify({ type: 'tts_request', text }))
+  stopAudio()
+  playbackId = crypto.randomUUID()
+  ws.send(JSON.stringify({ type: 'tts_request', text, playback_id: playbackId }))
 }
 
 async function playAudio(base64Data, sampleRate) {
@@ -249,7 +283,11 @@ async function playAudio(base64Data, sampleRate) {
     source.connect(audioContext.destination)
 
     isPlayingAudio.value = true
-    source.onended = () => { isPlayingAudio.value = false }
+    audioSources.add(source)
+    source.onended = () => {
+      audioSources.delete(source)
+      isPlayingAudio.value = audioSources.size > 0
+    }
     source.start()
   } catch (err) {
     console.warn('Audio playback failed:', err)
@@ -291,9 +329,15 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
   if (reconnectTimer) clearTimeout(reconnectTimer)
-  if (ws) ws.close()
+  stopAudio()
+  if (ws) {
+    ws.onclose = null
+    ws.close()
+  }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
+  microphoneStream?.getTracks().forEach(t => t.stop())
   if (audioContext) audioContext.close().catch(() => {})
 })
 </script>
@@ -328,6 +372,7 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <p v-if="voiceError" role="alert">{{ voiceError }}</p>
         <div class="chat-messages" ref="messagesEl">
           <div v-if="messages.length === 0" class="empty-state">
             <span class="empty-icon">🧠</span>

@@ -1,5 +1,31 @@
 # Atlas Cortex — Known Issues
 
+## Household candidate release gates
+
+At clean integrated candidate `954ca43ac`, **5,405 non-browser tests pass** with
+one informational schema-inventory skip, and **all 150 browser tests pass**
+without skips. Production UI, bounded-resource and browser/voice lifecycle
+checks also pass. The prior collection, ownership, avatar and async-loop blockers
+are fixed; authorized experimental modules are now tracked. Parental-control
+selection, loading and persisted HH:MM settings are repaired and browser-tested.
+See [MVP handoff](mvp-release.md) for reproduction and evidence scope.
+
+| Gate | Current issue |
+|---|---|
+| Platform validation | Docker execution and Python 3.11 not available locally; no remote CI result claimed |
+| Test diagnostics | Informational extra-table inventory skip and non-failing deprecation/subprocess-teardown warnings remain |
+| Household acceptance | Two-Pi/ReSpeaker wake/acoustic metrics, real services/NAS, paired-image rollback and operator approval pending |
+
+No failures were hidden with xfails and no hardware success was inferred from
+mock transport. Restore is now offline-only; see [implemented recovery commands](mvp-recovery.md).
+Research scripts were included as source, not qualified on GPUs or real models.
+
+## Historical adversarial inventory
+
+The older findings below are retained as historical triage, **not a freshly
+verified current audit**. Reproduce them against the candidate before treating
+their descriptions or suggested fixes as current.
+
 Generated from adversarial test suite (1486+ tests). Each issue includes:
 - Severity, module, description
 - How to reproduce (test name or steps)

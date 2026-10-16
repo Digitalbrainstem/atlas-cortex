@@ -24,6 +24,25 @@ logger = logging.getLogger(__name__)
 # User profiles
 # ──────────────────────────────────────────────────────────────────
 
+def get_user_profile(conn: Any, user_id: str) -> dict[str, Any] | None:
+    """Read the current profile and administrator-controlled content tier."""
+    row = conn.execute("SELECT * FROM user_profiles WHERE user_id=?", (user_id,)).fetchone()
+    profile = dict(row) if row else {}
+    auth = conn.execute("SELECT content_tier FROM user_auth WHERE user_id=?", (user_id,)).fetchone()
+    if auth:
+        from cortex.safety import resolve_content_tier
+        age_tier = resolve_content_tier(profile)
+        auth_tier = auth["content_tier"]
+        rank = {"unknown": 0, "child": 0, "teen": 1, "adult": 2}
+        profile["forced_content_tier"] = (
+            age_tier if row and rank.get(age_tier, 0) < rank.get(auth_tier, 0) else auth_tier
+        )
+    controls = get_parental_controls(conn, user_id)
+    if controls and controls["content_filter_level"] == "strict":
+        profile["forced_content_tier"] = "child"
+    return profile or None
+
+
 def get_or_create_user_profile(conn: Any, user_id: str, display_name: str = "") -> dict[str, Any]:
     """Return the user profile, creating it if it doesn't exist."""
     row = conn.execute(

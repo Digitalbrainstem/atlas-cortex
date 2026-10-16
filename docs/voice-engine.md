@@ -62,7 +62,7 @@ class TTSProvider:
 
 ### Current Production Stack
 
-Qwen3-TTS is the primary TTS engine, running as a Docker container (`atlas-qwen-tts`, port 8766). It provides:
+Qwen3-TTS is the primary TTS engine, running as a Docker container (`atlas-qwen-tts`, port 7860). It provides:
 - **9 built-in speakers** across English, Chinese, Japanese, and Korean
 - **Instruction-based control** — describe emotion/style in natural language
 - **Voice design** — create new voices from text descriptions
@@ -73,8 +73,8 @@ Kokoro remains the fast CPU fallback for latency-sensitive paths (fillers, insta
 ```
 User speaks → STT processes audio (GPU: whisper.cpp)
               → Atlas pipeline runs (CPU)
-              → LLM generates response text (GPU: Ollama)
-              → Qwen3-TTS generates speech (GPU, port 8766)
+              → LLM generates response text (GPU: llama.cpp)
+              → Qwen3-TTS generates speech (GPU, port 7860)
               → Fallback: Kokoro (CPU, port 8880) or Piper (CPU, port 10200)
               → Audio streams to satellite while TTS still generating
 ```
@@ -85,7 +85,7 @@ User speaks → STT processes audio (GPU: whisper.cpp)
 |----------|---------|-------------|
 | `TTS_PROVIDER` | `qwen3_tts` | Primary TTS engine (`qwen3_tts`, `orpheus`, `kokoro`, `piper`, `auto`) |
 | `QWEN_TTS_HOST` | `localhost` | Qwen3-TTS server hostname |
-| `QWEN_TTS_PORT` | `8766` | Qwen3-TTS server port |
+| `QWEN_TTS_PORT` | `7860` | Qwen3-TTS server port |
 | `KOKORO_HOST` | `localhost` | Kokoro server hostname |
 | `KOKORO_PORT` | `8880` | Kokoro server port |
 | `KOKORO_VOICE` | `af_bella` | Default Kokoro voice ID |

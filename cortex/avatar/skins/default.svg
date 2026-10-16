@@ -119,4 +119,4 @@
     <path d="M113 175 Q145 185 177 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round" />
     <path d="M223 175 Q255 185 287 175" fill="#FF8C00" stroke="#E07B00" stroke-width="3" stroke-linecap="round" />
   </g>
-<g id="eyebrows-base"><path d="M116.2 126 Q145 118.8 173.8 126" fill="none" stroke="#C0392B" stroke-width="3.9" stroke-linecap="round" /><path d="M226.2 126 Q255 118.8 283.8 126" fill="none" stroke="#C0392B" stroke-width="3.9" stroke-linecap="round" /></g><g id="expr-listening" style="display:none" /><g id="expr-neutral" style="display:none" /></svg>
+<g id="eyebrows-base" /><g id="expr-listening" style="display:none" /><g id="expr-neutral" style="display:none" /></svg>

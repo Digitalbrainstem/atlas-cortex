@@ -11,6 +11,7 @@ vaderSentiment>=3.3.2
 
 # ── Voice / TTS ──────────────────────────────────────────────────
 aiohttp>=3.9.0
+resemblyzer>=0.1.4
 
 # ── Safety / Embeddings ──────────────────────────────────────────
 numpy>=1.24.0
@@ -50,6 +51,9 @@ ytmusicapi>=1.0
 yt-dlp>=2024.0
 mutagen>=1.47
 plexapi>=4.15
+
+# ── System Monitoring ─────────────────────────────────────────────
+psutil>=5.9.0
 
 # CLI dependencies
 rich>=13.0

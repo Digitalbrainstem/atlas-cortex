@@ -311,17 +311,18 @@ class TestSvgExpressionMouths:
                 f"{expr} missing eyes shape in expressions.json"
             )
 
-    def test_expressions_have_eyebrows(self, skin):
-        """Every non-neutral expression should have eyebrows in expressions.json."""
+    def test_brow_free_library_and_skins(self, skin):
+        """The current face design omits eyebrows, including the neutral base."""
         import json
+        import xml.etree.ElementTree as ET
         lib_path = _SKINS_DIR / "expressions.json"
         lib = json.loads(lib_path.read_text())
         for expr in _NEED_MOUTH:
             entry = lib["expressions"].get(expr, {})
-            brows = entry.get("eyebrows", {})
-            assert "shape" in brows, (
-                f"{expr} missing eyebrows shape in expressions.json"
-            )
+            assert "eyebrows" not in entry, f"{expr} unexpectedly adds eyebrows"
+        brows = ET.fromstring(self._load(skin)).find(".//*[@id='eyebrows-base']")
+        assert brows is not None
+        assert len(brows) == 0
 
     def test_neutral_and_listening_no_replace_mouth(self, skin):
         svg = self._load(skin)

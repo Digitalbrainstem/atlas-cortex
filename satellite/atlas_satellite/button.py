@@ -40,6 +40,8 @@ class ButtonHandler:
     """Handles ReSpeaker button GPIO events via libgpiod."""
 
     def __init__(self, mode: str = "toggle") -> None:
+        if mode not in ("toggle", "press", "hold"):
+            raise ValueError("Unsupported button mode")
         self.mode = mode  # toggle | press | hold
         self._on_press = None  # callback: async def on_press()
         self._on_release = None  # callback: async def on_release()
@@ -101,6 +103,10 @@ class ButtonHandler:
                 pass
             self._request = None
         self._active = False
+
+    @property
+    def available(self) -> bool:
+        return self._active
 
     def _poll_loop(self) -> None:
         """Background thread polling for GPIO edge events."""

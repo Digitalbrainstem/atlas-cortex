@@ -31,15 +31,24 @@ class SatelliteChannel(NotificationChannel):
         Strategy:
         1. If metadata has 'room', try that satellite first
         2. If metadata has 'user_id', try user's last known room
-        3. Escalate to all connected satellites
-        4. Fall back to log channel
+        3. Broadcast only unscoped system notifications
+        4. Leave unavailable scoped delivery logged, not broadcast elsewhere
         """
         meta = notification.metadata
         room = meta.get("room", "")
         user_id = meta.get("user_id", "")
         tts_text = notification.message
 
-        targets = await self._resolve_targets(room, user_id)
+        satellite_id = meta.get("satellite_id")
+        if satellite_id:
+            from cortex.db import get_db
+            row = get_db().execute(
+                "SELECT id FROM satellites WHERE id=? AND status='online' AND (?='' OR room=?)",
+                (satellite_id, room, room),
+            ).fetchone()
+            targets = [row["id"]] if row else []
+        else:
+            targets = await self._resolve_targets(room, user_id)
         if not targets:
             logger.info(
                 "No satellite targets for notification '%s', logged only",
@@ -54,7 +63,7 @@ class SatelliteChannel(NotificationChannel):
                 if ok:
                     delivered = True
             except Exception:
-                logger.debug("Failed to deliver to satellite %s", sat_id, exc_info=True)
+                logger.warning("Failed to deliver to satellite %s", sat_id, exc_info=True)
 
         return delivered
 
@@ -64,7 +73,8 @@ class SatelliteChannel(NotificationChannel):
             from cortex.db import get_db
             conn = get_db()
         except Exception:
-            return []
+            logger.exception("Notification target database is unavailable")
+            raise
 
         # 1. Room-based lookup
         if room:
@@ -72,15 +82,15 @@ class SatelliteChannel(NotificationChannel):
                 "SELECT id FROM satellites WHERE room = ? AND status = 'online'",
                 (room,),
             ).fetchall()
-            if rows:
-                return [r["id"] for r in rows]
+            return [r["id"] for r in rows]
 
         # 2. User's last known room via room_context_log
         if user_id:
             try:
                 row = conn.execute(
-                    "SELECT satellite_id FROM room_context_log "
-                    "ORDER BY created_at DESC LIMIT 1",
+                    "SELECT r.satellite_id FROM room_context_log r "
+                    "JOIN interactions i ON i.id=r.interaction_id WHERE i.user_id=? "
+                    "ORDER BY r.created_at DESC,r.id DESC LIMIT 1", (user_id,),
                 ).fetchone()
                 if row and row["satellite_id"]:
                     sat = conn.execute(
@@ -90,7 +100,9 @@ class SatelliteChannel(NotificationChannel):
                     if sat:
                         return [sat["id"]]
             except Exception:
-                pass
+                logger.exception("User notification room lookup failed")
+                raise
+            return []
 
         # 3. Broadcast to all connected satellites
         rows = conn.execute(
@@ -104,9 +116,9 @@ class SatelliteChannel(NotificationChannel):
             try:
                 return await self._tts_callback(satellite_id, text)
             except Exception:
-                logger.debug("TTS delivery failed for %s", satellite_id, exc_info=True)
+                logger.warning("TTS delivery failed for %s", satellite_id, exc_info=True)
                 return False
-        logger.debug("No TTS delivery callback registered for satellite %s", satellite_id)
+        logger.warning("No TTS delivery callback registered for satellite %s", satellite_id)
         return False
 
 

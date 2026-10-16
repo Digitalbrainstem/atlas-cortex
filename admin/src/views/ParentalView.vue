@@ -11,19 +11,20 @@ const users = ref([])
 const selectedUserId = ref(null)
 const controls = ref(null)
 const loadingControls = ref(false)
+const controlsLoadFailed = ref(false)
 
 const form = ref({
   parent_user_id: '',
   content_filter_level: 'moderate',
-  allowed_hours_start: 8,
-  allowed_hours_end: 20,
+  allowed_hours_start: '08:00',
+  allowed_hours_end: '20:00',
 })
 
 const restrictedActions = ref([])
 const newAction = ref('')
 
 const userColumns = [
-  { key: 'id', label: 'ID' },
+  { key: 'user_id', label: 'ID' },
   { key: 'display_name', label: 'Name' },
   { key: 'age_group', label: 'Age Group' },
   { key: 'has_parental_controls', label: 'Controls' },
@@ -43,33 +44,42 @@ onMounted(async () => {
 watch(selectedUserId, async (id) => {
   if (!id) return
   loadingControls.value = true
+  controlsLoadFailed.value = false
   error.value = ''
   try {
-    const data = await api.get(`/admin/users/${id}/parental`)
+    const response = await api.get(`/admin/users/${id}/parental`)
+    if (id !== selectedUserId.value) return
+    const data = response.controls
     controls.value = data
     form.value = {
-      parent_user_id: data.parent_user_id || '',
-      content_filter_level: data.content_filter_level || 'moderate',
-      allowed_hours_start: data.allowed_hours_start ?? 8,
-      allowed_hours_end: data.allowed_hours_end ?? 20,
+      parent_user_id: data?.parent_user_id || '',
+      content_filter_level: data?.content_filter_level || 'moderate',
+      allowed_hours_start: data?.allowed_hours_start ?? '08:00',
+      allowed_hours_end: data?.allowed_hours_end ?? '20:00',
     }
-    restrictedActions.value = data.restricted_actions || []
+    restrictedActions.value = data?.restricted_actions || []
   } catch (e) {
+    if (id !== selectedUserId.value) return
     controls.value = null
+    if (e.status !== 404) {
+      error.value = e.message
+      controlsLoadFailed.value = true
+      return
+    }
     form.value = {
       parent_user_id: '',
       content_filter_level: 'moderate',
-      allowed_hours_start: 8,
-      allowed_hours_end: 20,
+      allowed_hours_start: '08:00',
+      allowed_hours_end: '20:00',
     }
     restrictedActions.value = []
   } finally {
-    loadingControls.value = false
+    if (id === selectedUserId.value) loadingControls.value = false
   }
 })
 
 function selectUser(row) {
-  selectedUserId.value = row.id
+  selectedUserId.value = row.user_id
 }
 
 function addAction() {
@@ -90,11 +100,10 @@ async function saveControls() {
   try {
     await api.post(`/admin/users/${selectedUserId.value}/parental`, {
       ...form.value,
-      allowed_hours_start: parseInt(form.value.allowed_hours_start),
-      allowed_hours_end: parseInt(form.value.allowed_hours_end),
       restricted_actions: restrictedActions.value,
     })
     success.value = 'Parental controls saved'
+    controls.value = { ...form.value, restricted_actions: [...restrictedActions.value] }
   } catch (e) {
     error.value = e.message
   }
@@ -111,8 +120,8 @@ async function deleteControls() {
     form.value = {
       parent_user_id: '',
       content_filter_level: 'moderate',
-      allowed_hours_start: 8,
-      allowed_hours_end: 20,
+      allowed_hours_start: '08:00',
+      allowed_hours_end: '20:00',
     }
     restrictedActions.value = []
   } catch (e) {
@@ -145,6 +154,9 @@ async function deleteControls() {
         <template v-else-if="loadingControls">
           <p class="loading-text">Loading controls…</p>
         </template>
+        <template v-else-if="controlsLoadFailed">
+          <p>Unable to load controls. Select another user and try again.</p>
+        </template>
         <template v-else>
           <h3>Controls for User {{ selectedUserId }}</h3>
           <div class="form-grid">
@@ -162,11 +174,11 @@ async function deleteControls() {
             </div>
             <div class="form-group">
               <label class="form-label">Allowed Hours Start</label>
-              <input v-model="form.allowed_hours_start" class="form-input" type="number" min="0" max="23" />
+              <input v-model="form.allowed_hours_start" class="form-input" type="time" />
             </div>
             <div class="form-group">
               <label class="form-label">Allowed Hours End</label>
-              <input v-model="form.allowed_hours_end" class="form-input" type="number" min="0" max="23" />
+              <input v-model="form.allowed_hours_end" class="form-input" type="time" />
             </div>
           </div>
 

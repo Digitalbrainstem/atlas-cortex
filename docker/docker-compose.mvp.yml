@@ -1,0 +1,24 @@
+# Standalone minimal Cortex deployment; inference/voice providers are explicit external services.
+# Do not combine with the all-services docker-compose.yml.
+services:
+  atlas-cortex:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: atlas-cortex:mvp-candidate
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ${ATLAS_ENV_FILE:?Set ATLAS_ENV_FILE to an absolute private cortex.env path}
+    environment:
+      CORTEX_DATA_DIR: /data
+      CORTEX_CONFIG_DIR: /config
+      LLM_PROVIDER: openai_compatible
+      CORTEX_TURN_MAX_ACTIVE: "1"
+      CORTEX_TURN_PREFETCH: "8"
+    volumes:
+      - ${ATLAS_DATA_DIR_HOST:?Set ATLAS_DATA_DIR_HOST to an absolute data path}:/data
+      - ${ATLAS_ENV_FILE}:/config/cortex.env:ro
+      - atlas-model-cache:/root/.cache/huggingface
+volumes:
+  atlas-model-cache:

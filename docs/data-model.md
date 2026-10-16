@@ -19,6 +19,71 @@
 
 ## Schema
 
+### Durable operational turn ledger
+
+`pending_turns` is separate from `conversation_sessions`/`conversation_turns`
+history. It records finalized accepted work, not raw audio or an inferred promise
+that a user heard a generated answer.
+
+- Identity: stable `turn_id`, user/conversation scope, source/device/room,
+  per-conversation sequence, revision and optional idempotency key.
+- Input/context: validated transcript and opaque JSON execution context.
+- Processing: accepted/routing/fast-path/LLM states, worker lease, attempts,
+  relation/related turn, cancellation/supersession and error/recovery state.
+- External effects: `none`, `pending`, `succeeded`, `failed`, `uncertain`.
+  A committed intent without a committed outcome is uncertain after a crash.
+- Result/delivery: separately validated result, ready/delivering/delivered/paused/
+  interrupted/confirmation-required state and playback checkpoint.
+- Capacity: tracked payload bytes and creation/update timestamps.
+
+Unique constraints protect turn IDs, scoped idempotency keys and scoped sequence
+numbers. Indexed queries return bounded dispatch IDs rather than loading all
+pending transcripts. `pending_turn_sequences` preserves monotonic sequence values
+through terminal cleanup; `pending_turn_usage` and insert/update/delete triggers
+maintain an atomic payload budget.
+
+Schema creation is additive/idempotent. Turn writes use short `BEGIN IMMEDIATE`
+transactions and reject nesting; no transaction spans provider calls or async
+playback. Scoped revision/lease checks reject duplicate claims and obsolete
+results. Idempotent retry returns the original record while it is retained; after
+terminal retention expires, a key no longer provides a replay guarantee.
+
+Pending and unheard work is never deleted to make room for a new request.
+Restart/expired-claim recovery invalidates old revisions and requires explicit
+confirmation; uncertain external effects are not automatically retried. User
+deletion includes ledger and sequence rows. SQLite-safe backups include these
+tables in the existing database; operational transcripts can contain necessary
+personal command operands, so backup privacy remains important.
+
+See [configuration](configuration.md#durable-finalized-turns-mvp-foundation) for
+limits and the current queue integration boundary.
+
+### HA structured command context
+
+`ha_command_context` journals structured HA intent independently of model work.
+Each execution has its own ID and optional pipeline turn ID, scoped user,
+conversation, source, device, room and speaker, JSON service/target/arguments,
+outcome and timestamp. It contains no raw audio or transcript. An indexed latest
+record supports deterministic corrections; updating an older action outcome
+does not make it the latest intent again.
+
+Intent is committed as `queued` before a service call. `running` is committed at
+the effect boundary, followed by `succeeded`, `failed` or `uncertain`.
+A queued target replacement inserts the new intent and marks the old one
+`superseded` in one transaction. Clarification-only intent is recorded separately.
+After restart, a persisted in-progress record without a live owner is treated
+as uncertain, never replayed. Implicit correction additionally requires a live
+registry scope marker, so restarting or evicting context cannot resurrect a
+stale device target.
+
+Recent resolution expires after 120 seconds. On writes, terminal/clarification
+records older than seven days are removed; unresolved queued/running/uncertain
+records are retained. This journal is **not** the finalized-turn backlog, does
+not consume the `pending_turn_usage` logical budget and does not schedule work.
+SQLite write failures remain explicit and prevent new effects when intent cannot
+be saved. User deletion removes all matching journal rows; normal SQLite backups
+include them and require the same access/deletion protections.
+
 ### ha_devices
 
 Device registry synced from Home Assistant nightly.

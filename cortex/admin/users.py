@@ -136,10 +136,43 @@ async def set_user_age(user_id: str, req: SetAgeRequest, _: dict = Depends(requi
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, _: dict = Depends(require_admin)):
     conn = _h._db()
-    conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
-    conn.execute("DELETE FROM emotional_profiles WHERE user_id = ?", (user_id,))
-    conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
-    conn.commit()
+    parent = conn.execute(
+        "SELECT 1 FROM user_profiles WHERE parent_user_id=? AND user_id!=? "
+        "UNION ALL SELECT 1 FROM parental_controls WHERE parent_user_id=? AND child_user_id!=? LIMIT 1",
+        (user_id, user_id, user_id, user_id),
+    ).fetchone()
+    if parent:
+        raise HTTPException(status_code=409, detail="Reassign child profiles before deleting their parent")
+    from cortex.memory.controller import get_memory_system
+    memory = get_memory_system()
+    if memory is not None:
+        try:
+            memory.forget_user(user_id)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception("User memory deletion failed")
+            raise HTTPException(status_code=503, detail="Memory deletion failed; user deletion was not completed") from exc
+    from cortex.plugins import get_registry
+    from cortex.plugins.games import STEMGamesPlugin
+    for plugin in get_registry().list_plugins():
+        if isinstance(plugin, STEMGamesPlugin):
+            plugin.forget_user(user_id)
+    with conn:
+        conn.execute("DELETE FROM memory_fts WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM room_context_log WHERE interaction_id IN (SELECT id FROM interactions WHERE user_id=?)", (user_id,))
+        conn.execute("DELETE FROM interactions WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM learning_sessions WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM learning_progress WHERE user_id=?", (user_id,))
+        conn.execute("DELETE FROM pending_turns WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM pending_turn_sequences WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM ha_command_context WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_auth WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM speaker_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
+        conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM emotional_profiles WHERE user_id = ?", (user_id,))
+    from cortex.auth_user import get_user_auth
+    get_user_auth().forget_user(user_id)
     return {"ok": True}
 
 
@@ -256,10 +289,14 @@ async def set_user_auth(
     if not user:
         # Bootstrap from user_profiles
         row = conn.execute(
-            "SELECT display_name FROM user_profiles WHERE user_id = ?", (user_id,)
+            "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
         display_name = row["display_name"] if row else user_id
-        user = UserAuthConfig(user_id=user_id, display_name=display_name)
+        from cortex.safety import resolve_content_tier
+        user = UserAuthConfig(
+            user_id=user_id, display_name=display_name,
+            content_tier=resolve_content_tier(dict(row) if row else {}),
+        )
         mgr._users[user_id] = user
 
     if body.method == "pin":

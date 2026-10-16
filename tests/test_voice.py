@@ -541,6 +541,7 @@ class TestSpeechEndpoint:
         with patch("cortex.server.get_tts_provider") as mock_factory:
             mock_prov = MagicMock()
             mock_prov.synthesize = _fake_synthesize
+            mock_prov.sample_rate = 24000
             mock_prov.get_emotion_format.return_value = "tags"
             mock_factory.return_value = mock_prov
 
@@ -562,11 +563,12 @@ class TestSpeechEndpoint:
 
         async def _fake_synthesize(text, voice=None, emotion=None, speed=1.0, stream=True, **kw):
             captured["text"] = text
-            yield b"\x00"
+            yield b"\x00\x00"
 
         with patch("cortex.server.get_tts_provider") as mock_factory:
             mock_prov = MagicMock()
             mock_prov.synthesize = _fake_synthesize
+            mock_prov.sample_rate = 24000
             mock_prov.get_emotion_format.return_value = "tags"
             mock_factory.return_value = mock_prov
 
@@ -583,12 +585,13 @@ class TestSpeechEndpoint:
         from cortex.server import app
 
         async def _fake_synthesize(text, voice=None, emotion=None, speed=1.0, stream=True, **kw):
-            yield b"\x00"
+            yield b"\x00\x00"
 
         with patch("cortex.server.get_tts_provider") as mock_factory:
             mock_prov = MagicMock()
             mock_prov.synthesize = _fake_synthesize
             mock_prov.get_emotion_format.return_value = None
+            mock_prov.sample_rate = 24000
             mock_factory.side_effect = [ValueError("Unknown"), mock_prov]
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -598,3 +601,23 @@ class TestSpeechEndpoint:
                 )
 
         assert resp.status_code == 200
+
+    async def test_create_speech_wav_has_real_pcm_header(self):
+        import io
+        import wave
+        from cortex.server import app
+
+        async def synthesize(**kwargs):
+            yield b"\x00\x01" * 100
+
+        provider = MagicMock()
+        provider.sample_rate = 24000
+        provider.synthesize = synthesize
+        with patch("cortex.server.get_tts_provider", return_value=provider):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post("/v1/audio/speech", json={"input": "Hi"})
+        assert response.status_code == 200
+        with wave.open(io.BytesIO(response.content)) as audio:
+            assert audio.getframerate() == 24000
+            assert audio.getnframes() == 100
+            assert audio.getnchannels() == 1

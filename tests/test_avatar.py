@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from cortex.avatar import (
     EXPRESSIONS,
     VISEME_CATEGORIES,
@@ -527,12 +529,22 @@ class TestExpressionsJson:
                 assert "eyes" in expr, f"{name}: replace_eyes=true but no eyes definition"
                 assert "shape" in expr["eyes"], f"{name}: eyes missing shape"
 
-    def test_replace_eyes_true_has_eyebrows_definition(self):
+    def test_brow_free_library_does_not_add_eyebrows(self):
         lib = self._load()
+        assert lib["version"] == 3
         for name, expr in lib["expressions"].items():
-            if expr.get("replace_eyes"):
-                assert "eyebrows" in expr, f"{name}: replace_eyes=true but no eyebrows"
-                assert "shape" in expr["eyebrows"], f"{name}: eyebrows missing shape"
+            assert "eyebrows" not in expr, f"{name}: brow-free design has eyebrows"
+
+    @pytest.mark.parametrize("skin", ["default.svg", "nick.svg"])
+    def test_regeneration_preserves_brow_free_design(self, tmp_path, skin):
+        from cortex.avatar.skins.generate_expressions import SKINS_DIR, inject_expressions
+        target = tmp_path / skin
+        target.write_bytes((SKINS_DIR / skin).read_bytes())
+        inject_expressions(target)
+        root = ET.parse(target).getroot()
+        brows = root.find(".//*[@id='eyebrows-base']")
+        assert brows is not None
+        assert len(brows) == 0
 
     def test_neutral_and_listening_no_replace(self):
         lib = self._load()

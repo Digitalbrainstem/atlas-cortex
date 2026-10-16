@@ -6,6 +6,8 @@ from __future__ import annotations
 class TTSProvider:
     """Abstract interface for any TTS backend."""
 
+    sample_rate: int = 24000
+
     def __init__(self, config: dict | None = None):
         pass
 

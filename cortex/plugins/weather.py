@@ -172,6 +172,7 @@ class WeatherPlugin(CortexPlugin):
                 success=False,
                 response="",
                 metadata={"no_api_key": True},
+                handled=False,
             )
 
         try:

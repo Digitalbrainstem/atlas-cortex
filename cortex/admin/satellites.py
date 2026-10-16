@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -44,17 +45,17 @@ class SatelliteUpdateRequest(BaseModel):
     display_name: str | None = None
     room: str | None = None
     wake_word: str | None = None
-    volume: float | None = None
-    mic_gain: float | None = None
-    vad_sensitivity: float | None = None
+    volume: float | None = Field(default=None, ge=0, le=1)
+    mic_gain: float | None = Field(default=None, ge=0, le=1)
+    vad_sensitivity: float | None = Field(default=None, ge=0, le=1)
     features: dict | None = None
     filler_enabled: bool | None = None
     filler_threshold_ms: int | None = None
     tts_voice: str | None = None
     vad_enabled: bool | None = None
-    led_brightness: float | None = None
+    led_brightness: float | None = Field(default=None, ge=0, le=1)
     audio_device_out: str | None = None
-    button_mode: str | None = None  # toggle | press | hold
+    button_mode: Literal["toggle", "press", "hold"] | None = None
 
 
 @router.get("/satellites")

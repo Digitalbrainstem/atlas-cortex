@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import AppLayout from '../components/AppLayout.vue'
 import DataTable from '../components/DataTable.vue'
+import TurnStatusPanel from '../components/TurnStatusPanel.vue'
 import { api } from '../api.js'
 
 const error = ref('')
@@ -221,6 +222,7 @@ function formatBytes(bytes) {
     <h2 class="page-title">System</h2>
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="success" class="success-banner">{{ success }}</div>
+    <TurnStatusPanel />
 
     <!-- Voice Settings -->
     <div class="section">

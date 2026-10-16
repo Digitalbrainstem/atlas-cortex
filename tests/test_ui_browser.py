@@ -14,8 +14,6 @@ from __future__ import annotations
 import base64
 import json
 import math
-import os
-import subprocess
 import struct
 import time
 from pathlib import Path
@@ -33,14 +31,6 @@ import httpx  # noqa: E402
 # Every test in this module gets the ``browser`` marker automatically.
 pytestmark = pytest.mark.browser
 
-SCREENSHOTS_DIR = Path(__file__).parent / "screenshots"
-SCREENSHOTS_DIR.mkdir(exist_ok=True)
-
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 15100
-BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 def _generate_silence_pcm(duration_ms: int = 200, sample_rate: int = 24000) -> str:
@@ -50,52 +40,11 @@ def _generate_silence_pcm(duration_ms: int = 200, sample_rate: int = 24000) -> s
     return base64.b64encode(raw).decode()
 
 
-def _wait_for_server(base_url: str, *, retries: int = 30, delay: float = 0.5) -> bool:
-    """Poll the /health endpoint synchronously."""
-    for _ in range(retries):
-        try:
-            resp = httpx.get(f"{base_url}/health", timeout=1)
-            if resp.status_code == 200:
-                return True
-        except Exception:
-            pass
-        time.sleep(delay)
-    return False
-
-
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def server():
-    """Start the cortex server in a subprocess for browser tests."""
-    env = os.environ.copy()
-    env["CORTEX_DB_PATH"] = ":memory:"
-    env["CORTEX_HOST"] = SERVER_HOST
-    env["CORTEX_PORT"] = str(SERVER_PORT)
-    env["LLM_PROVIDER"] = "ollama"
-    env["OLLAMA_BASE_URL"] = "http://127.0.0.1:1"
-    env["TTS_PROVIDER"] = "none"
-
-    proc = subprocess.Popen(
-        ["python3", "-m", "cortex.server"],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    if not _wait_for_server(BASE_URL):
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.skip("Cortex server failed to start — skipping browser tests")
-
-    yield BASE_URL
-
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=3)
+def server(browser_server):
+    return browser_server
 
 
 @pytest.fixture(scope="module")
@@ -109,7 +58,7 @@ def pw_browser():
 
 
 @pytest.fixture()
-def page(server: str, pw_browser: Browser, request):
+def page(server: str, pw_browser: Browser, request, tmp_path):
     """Provide a fresh browser page.  Takes a screenshot on failure."""
     context = pw_browser.new_context(viewport={"width": 1280, "height": 720})
     pg = context.new_page()
@@ -118,7 +67,7 @@ def page(server: str, pw_browser: Browser, request):
     # Screenshot on failure
     if hasattr(request.node, "rep_call") and request.node.rep_call.failed:
         safe_name = request.node.name.replace("/", "_").replace(":", "_")
-        pg.screenshot(path=str(SCREENSHOTS_DIR / f"{safe_name}.png"))
+        pg.screenshot(path=str(tmp_path / f"{safe_name}.png"))
 
     context.close()
 
@@ -810,8 +759,10 @@ class TestMicButton:
             f"status: {status_text!r}, console: {console_msgs[:5]}"
         )
 
-    def test_mic_button_hidden_without_satellite_hash(self, page: Page, server: str):
-        """Without #satellite hash, satellite mic button must NOT exist but mic-hint should."""
+    @pytest.mark.parametrize("show_mic", [False, True])
+    def test_mic_hint_obeys_configuration_without_satellite_hash(self, page: Page, server: str, show_mic):
+        """Clean display mode hides the hint unless its feature flag is enabled."""
+        page.route("**/api/avatar/config*", lambda route: route.fulfill(json={"show_mic": show_mic}))
         page.goto(f"{server}/avatar", wait_until="domcontentloaded")
         page.locator("#avatar-svg-wrap svg").wait_for(state="attached", timeout=5000)
         page.wait_for_timeout(2000)
@@ -827,14 +778,11 @@ class TestMicButton:
             "Satellite overlay found without #satellite hash"
         )
 
-        # The mic-hint discoverability button should be visible
         mic_hint = page.locator("#mic-hint")
         assert mic_hint.count() == 1, (
             "Mic-hint button should be present without #satellite hash"
         )
-        assert mic_hint.is_visible(), (
-            "Mic-hint button should be visible without #satellite hash"
-        )
+        assert mic_hint.is_visible() is show_mic
 
 
 # ══════════════════════════════════════════════════════════════════════════

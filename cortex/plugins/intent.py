@@ -12,6 +12,37 @@ Design goal: < 1 ms, zero external dependencies.
 from __future__ import annotations
 
 import re
+from typing import Any
+
+
+def command_scope(context: dict[str, Any]) -> tuple[str, ...] | None:
+    """Never infer a shared-device speaker from an anonymous user identifier."""
+    identity = context.get("turn_identity")
+    if identity is None:
+        return None
+    if (identity.device_id and not context.get("speaker_id")
+            and identity.user_id in ("default", "unknown", "anonymous")):
+        return None
+    return (
+        identity.user_id, identity.conversation_id, identity.source,
+        identity.device_id or "", context.get("room") or "", context.get("speaker_id") or "",
+    )
+
+
+def correction_fragment(message: str) -> str | None:
+    match = re.fullmatch(
+        r"\s*(?:no|actually|sorry|i meant)[,\s]+(.+?)\s*[.!]?\s*",
+        message, re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    text = match.group(1)
+    if re.match(
+        r"^(?:why|what|how|when|where|who|explain|tell|describe|compare|"
+        r"can|could|is|are|do|does)\b", text, re.IGNORECASE,
+    ):
+        return None
+    return text
 
 # ── Pattern banks ────────────────────────────────────────────────
 

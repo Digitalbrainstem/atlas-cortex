@@ -26,7 +26,7 @@
 
 | Container | Image | Port | GPU | Status |
 |-----------|-------|------|-----|--------|
-| `ollama` | ollama/ollama:rocm | 11434 | RX 7900 XT | ✅ Running |
+| `atlas-llm` | llama.cpp (GGUF) | 8080 | RX 7900 XT | ✅ Running |
 | `open-webui` | ghcr.io/open-webui/open-webui:main | 8080 | — | ✅ Running |
 | `searxng` | searxng/searxng | 8888 | — | ✅ Running |
 | `faster-whisper` | faster-whisper | 10300 | — | ✅ Running |
@@ -45,25 +45,31 @@
 | Storage | 450GB cache + 7.4TB fast pool + NVMe boot |
 | OS | Unraid 7.1.4 |
 
-## Models on Ollama
+## Models (llama.cpp / GGUF)
 
 | Model | Size | Speed | Used By |
 |-------|------|-------|---------|
-| `qwen3:30b-a3b` | 18.6GB | 75 tok/s | Atlas, Atlas Deep Thought |
-| `huihui_ai/qwen2.5-abliterate:14b` | 9.0GB | 55 tok/s | Atlas Turbo |
-| `qwen3-nothink:30b-a3b` | 18.6GB | 75 tok/s | *(deprecated, can delete)* |
+| `qwen3.5-4b-q4.gguf` | 2.7GB | ~100 tok/s | Atlas Cortex (default) |
+| `qwen3.5-9b-q4.gguf` | ~5.5GB | ~60 tok/s | Atlas Cortex (MODEL_FAST) |
+| `qwen3.5-27b-q4.gguf` | ~16GB | ~25 tok/s | Atlas Cortex (MODEL_THINKING) |
+
+> **Note:** Ollama is deprecated. The LLM backend is now llama.cpp (`atlas-llm` container)
+> serving GGUF-quantized Qwen3.5 models via an OpenAI-compatible API.
 
 **After Cortex deployment:**
 - Atlas Turbo / Atlas / Atlas Deep Thought → replaced by Atlas Cortex
-- Cortex auto-selects between qwen2.5 (fast) and qwen3 (thinking) internally
+- Cortex auto-selects between fast and thinking models internally
 
-## Open WebUI Custom Models (current)
+## Open WebUI Custom Models (legacy)
+
+> **Note:** These Open WebUI models are deprecated. Atlas Cortex is now the single model
+> entry point, running via llama.cpp with Qwen3.5 GGUF models.
 
 | Model | Base | Temperature | Context | Role |
 |-------|------|-------------|---------|------|
-| Atlas Turbo | qwen2.5-abliterate:14b | 0.7 | 8K | Quick answers (default) |
-| Atlas | qwen3:30b-a3b | 0.2 | 8K | Complex questions |
-| Atlas Deep Thought | qwen3:30b-a3b | 0.6 | 8K | Hard reasoning |
+| ~~Atlas Turbo~~ | ~~qwen2.5-abliterate:14b~~ | 0.7 | 8K | Replaced by Atlas Cortex |
+| ~~Atlas~~ | ~~qwen3:30b-a3b~~ | 0.2 | 8K | Replaced by Atlas Cortex |
+| ~~Atlas Deep Thought~~ | ~~qwen3:30b-a3b~~ | 0.6 | 8K | Replaced by Atlas Cortex |
 
 **After Cortex:** Single "Atlas Cortex" model replaces all three.
 
@@ -102,9 +108,13 @@ The Cortex server runs as a Docker stack on Overwatch. Critical config:
 | Container | Port | GPU | Notes |
 |-----------|------|-----|-------|
 | `atlas-cortex` | 5100 | — | FastAPI server, pipeline, admin API |
-| `atlas-ollama` | 11434 | Intel Arc B580 | LLM (qwen2.5:7b) |
-| `atlas-whisper` | — | Intel Arc B580 (Vulkan) | faster-whisper STT |
-| `atlas-piper` | — | — | Piper TTS (CPU fallback) |
+| `atlas-llm` | 8080 | RX 7900 XT | llama.cpp server (Qwen3.5 GGUF) |
+| `atlas-qwen-tts` | 7860 | RTX 4060 | Qwen3-TTS (primary voice) |
+| `atlas-fish-tts` | 8860 | RTX 4060 | Fish Audio S2 (story character voices) |
+| `atlas-orpheus` | 5005 | GPU | Orpheus TTS (backup) |
+| `atlas-kokoro` | 8880 | — | Kokoro TTS (CPU fallback) |
+| `atlas-whisper` | 10300 | Intel Arc B580 (Vulkan) | whisper.cpp STT |
+| `atlas-piper` | 10200 | — | Piper TTS (fast CPU fallback) |
 
 **CRITICAL:** The `.env` file at the Docker compose directory must contain:
 ```

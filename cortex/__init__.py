@@ -8,7 +8,7 @@ Quickstart::
     from cortex.pipeline import run_pipeline
 
     provider = get_provider()   # reads LLM_PROVIDER from env (default: ollama)
-    async for chunk in await run_pipeline("What time is it?", provider):
+    async for chunk in run_pipeline("What time is it?", provider):
         print(chunk, end="", flush=True)
 """
 

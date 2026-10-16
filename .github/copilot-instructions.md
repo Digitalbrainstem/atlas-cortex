@@ -126,7 +126,7 @@ Layer 2 plugins extend `CortexPlugin` (in `cortex/plugins/base.py`) and register
 
 ### LLM Providers (`cortex/providers/`)
 
-`LLMProvider` is the abstract base class. Concrete implementations: `TransformersProvider` (default), `OllamaProvider` (legacy fallback), `OpenAICompatibleProvider`. Use `get_provider()` factory which reads `LLM_PROVIDER` env var (default: `transformers`). Transformers provider uses `CAG_MODEL` env var (default: `Qwen/Qwen3-4B`). Embeddings use sentence-transformers via `EMBED_MODEL` (default: `all-MiniLM-L6-v2`). Ollama/OpenAI providers use `MODEL_FAST` and `MODEL_THINKING` env vars.
+`LLMProvider` is the abstract base class. Concrete implementations: `OpenAICompatibleProvider` (default — llama.cpp, vLLM, etc.), `TransformersProvider` (HuggingFace), `OllamaProvider` (deprecated). Use `get_provider()` factory which reads `LLM_PROVIDER` env var (default: `openai_compatible`). Tokenizer uses `CAG_MODEL` env var (default: `Qwen/Qwen3.5-4B`). Embeddings use sentence-transformers via `EMBED_MODEL` (default: `all-MiniLM-L6-v2`). OpenAI-compatible provider uses `MODEL_FAST` and `MODEL_THINKING` env vars.
 
 ### Safety (`cortex/safety/`)
 
@@ -168,7 +168,7 @@ The `/chat` endpoint serves a public-facing chat SPA (from `admin/dist/chat.html
 
 The full Docker stack (`docker/docker-compose.yml`) includes:
 - `atlas-cortex` — Main server + admin UI (port 5100, host networking, HF cache volume)
-- `atlas-ollama` — LLM inference (port 11434, optional — commented out by default)
+- `atlas-llm` — llama.cpp server for LLM inference (port 8080, Qwen3.5 GGUF models)
 - `atlas-qwen-tts` — Primary TTS via Qwen3-TTS (port 7860, NVIDIA GPU)
 - `atlas-fish-tts` — Story character voices via Fish Audio S2 (port 8860, NVIDIA GPU)
 - `atlas-orpheus` — Backup TTS (port 5005, NVIDIA GPU)
@@ -197,3 +197,31 @@ GPU-free development with realistic timing. `python -m mocks.run` starts mock LL
 - Environment variables drive configuration — see `CORTEX_*`, `LLM_PROVIDER`, `CAG_MODEL`, `EMBED_MODEL`, `HA_URL`, `HA_TOKEN` in the README.
 - The admin panel (`admin/`) is a separate Vue 3 + Vite + Pinia SPA with 20 views. Its build output goes to `admin/dist/` and is served as static files by the FastAPI server.
 - Branch protection on `main` — all changes must go through pull requests.
+
+## Atlas Memory (MCP)
+
+This machine has two MCP servers providing persistent memory across sessions:
+
+### Usage — Do this EVERY session:
+1. **Start of session**: Call `atlas_brief()` to see current research state, open questions, and recent activity
+2. **When you discover something important**: Call `atlas_remember(content, category, project)` to store it
+3. **When exploring an idea**: Call `atlas_think(idea)` to check for connections to existing knowledge
+4. **When making a decision**: Call `atlas_decide(decision, rationale, alternatives)` to record it
+5. **When researching**: Call `atlas_research("update", thread_name, finding)` to track progress
+
+### Available Tools:
+- `atlas_remember` — Store facts, decisions, insights (auto-deduplicates)
+- `atlas_recall` — Search memory (full-text + LIKE fallback)
+- `atlas_think` — Process ideas through curiosity engine (finds connections, gaps)
+- `atlas_research` — Track research threads (new/update/status/close)
+- `atlas_decide` — Record decisions with rationale
+- `atlas_brief` — Get personalized briefing (recent activity, open questions, stale threads)
+- `atlas_reflect` — Get proactive insights (cross-memory connections)
+- `atlas_pattern` — Detect or record patterns
+- `atlas_log` — Log timeline events
+- `atlas_stats` — Memory statistics
+
+### Memory Tiers:
+- **L1** (critical): Always relevant — key findings, conventions, preferences
+- **L2** (important): Load on demand — research progress, decisions, measurements
+- **L3** (archive): Historical — session logs, old checkpoints, raw data

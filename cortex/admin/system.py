@@ -1,14 +1,124 @@
-"""Evolution, system info, and settings endpoints."""
+"""Evolution, system info, settings, and self-recovery endpoints."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from cortex.db import get_db
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
 
 router = APIRouter()
+
+
+def _turn_store(request: Request):
+    store = getattr(request.app.state, "turn_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Durable turn store is not initialized")
+    return store
+
+
+@router.get("/system/turns")
+async def get_turn_store_status(request: Request, _: dict = Depends(require_admin)):
+    """Effective limits and aggregate state; no household transcript bodies."""
+    from cortex.orchestrator.turn_store import TurnStoreError
+    try:
+        return _turn_store(request).status()
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/system/turns/recovery")
+async def get_recoverable_turns(
+    request: Request, user_id: str = Query(min_length=1),
+    limit: int = Query(1, ge=1), _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    store = _turn_store(request)
+    try:
+        ids = store.recovery_ids(user_id, limit=limit)
+        turns = [store.get(turn_id, user_id) for turn_id in ids]
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"turns": [
+        {"turn_id": turn.identity.turn_id, "revision": turn.identity.revision,
+         "state": turn.state, "action_outcome": turn.action_outcome,
+         "delivery_state": turn.delivery_state}
+        for turn in turns
+    ]}
+
+
+class TurnRecoveryRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    revision: int = Field(ge=1, strict=True)
+    retry_uncertain: bool = False
+
+
+@router.get("/system/turns/user")
+async def get_user_turn_status(
+    request: Request, user_id: str = Query(min_length=1), limit: int = Query(1, ge=1),
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    try:
+        turns = _turn_store(request).user_turns(user_id, limit=limit)
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"turns": [
+        {"turn_id": turn.identity.turn_id, "revision": turn.identity.revision,
+         "sequence": turn.sequence, "state": turn.state, "delivery_state": turn.delivery_state,
+         "action_outcome": turn.action_outcome, "error_code": turn.error_code,
+         "can_retry": isinstance(turn.context.get("generation_options"), dict)}
+        for turn in turns
+    ]}
+
+
+@router.post("/system/turns/{turn_id}/cancel")
+async def cancel_user_turn(
+    turn_id: str, body: TurnRecoveryRequest, request: Request,
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    coordinator = getattr(request.app.state, "conversation_coordinator", None)
+    try:
+        if coordinator is None:
+            _turn_store(request).cancel(turn_id, body.user_id, body.revision)
+        else:
+            coordinator.cancel(turn_id, body.user_id, body.revision)
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@router.post("/system/turns/{turn_id}/recover")
+async def confirm_turn_recovery(
+    turn_id: str, body: TurnRecoveryRequest, request: Request,
+    _: dict = Depends(require_admin),
+):
+    from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+    try:
+        store = _turn_store(request)
+        turn = store.get(turn_id, body.user_id)
+        if not isinstance(turn.context.get("generation_options"), dict):
+            raise HTTPException(
+                status_code=409,
+                detail="This action requires manual verification before reissuing it; automatic retry is unavailable",
+            )
+        store.confirm_recovery(
+            turn_id, body.user_id, body.revision, retry_uncertain=body.retry_uncertain,
+        )
+    except TurnConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TurnStoreError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 # ── Evolution ─────────────────────────────────────────────────────
@@ -171,3 +281,78 @@ async def set_system_setting(key: str, body: dict, admin: dict = Depends(require
     )
     db.commit()
     return {"key": key, "value": value}
+
+
+# ── Self-Recovery ─────────────────────────────────────────────────
+
+
+@router.get("/system/resources")
+async def get_resources(request: Request, _: dict = Depends(require_admin)):
+    """Return current resource levels and monitor state."""
+    monitor = getattr(request.app.state, "resource_monitor", None)
+    if monitor is None:
+        raise HTTPException(503, "Resource monitor not running")
+    return monitor.get_status()
+
+
+@router.put("/system/resources/thresholds")
+async def update_thresholds(request: Request, body: dict, _: dict = Depends(require_admin)):
+    """Update resource warning/critical thresholds."""
+    monitor = getattr(request.app.state, "resource_monitor", None)
+    if monitor is None:
+        raise HTTPException(503, "Resource monitor not running")
+    return monitor.update_thresholds(**body)
+
+
+@router.get("/system/snapshots")
+async def list_snapshots(request: Request, _: dict = Depends(require_admin)):
+    """List available state snapshots."""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    snapshots = snapshotter.list_snapshots()
+    return {
+        "snapshots": [
+            {"timestamp": s.timestamp, "path": s.path, "size_bytes": s.size_bytes}
+            for s in snapshots
+        ],
+        "latest_age_seconds": snapshotter.get_latest_snapshot_age(),
+    }
+
+
+@router.post("/system/snapshots")
+async def take_snapshot(request: Request, _: dict = Depends(require_admin)):
+    """Take a manual state snapshot now."""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    info = await snapshotter.take_snapshot()
+    return {"timestamp": info.timestamp, "path": info.path, "size_bytes": info.size_bytes}
+
+
+@router.post("/system/snapshots/restore")
+async def restore_snapshot(request: Request, body: dict, _: dict = Depends(require_admin)):
+    """Restore from a specific snapshot. Body: {\"path\": \"...\"}"""
+    snapshotter = getattr(request.app.state, "snapshotter", None)
+    if snapshotter is None:
+        raise HTTPException(503, "Snapshot system not running")
+    path = body.get("path", "")
+    if not path:
+        raise HTTPException(400, "path is required")
+    raise HTTPException(
+        409, "Live restore is disabled. Stop Cortex and use python -m cortex.backup restore PATH.",
+    )
+
+
+@router.get("/system/recovery")
+async def get_recovery_status(request: Request, _: dict = Depends(require_admin)):
+    """Return the last startup recovery result."""
+    recovery_result = getattr(request.app.state, "recovery_result", None)
+    if recovery_result is None:
+        return {"recovered": False, "issue": "", "details": "", "steps": []}
+    return {
+        "recovered": recovery_result.recovered,
+        "issue": recovery_result.issue,
+        "details": recovery_result.details,
+        "steps": recovery_result.steps,
+    }

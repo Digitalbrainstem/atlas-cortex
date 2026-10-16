@@ -8,6 +8,47 @@ The admin panel is a dark-themed Vue 3 SPA that gives you full control over Atla
 
 ## Getting Started
 
+### Household notifications
+
+Scheduling expiry callbacks are connected before persisted timers are restored.
+The server registers satellite notification delivery into the durable voice queue.
+An announcement being **queued** is not proof it was heard: delivery completes
+only after the satellite confirms playback. Scoped notifications never fall back
+to another room when their target is unavailable. Proactive TTS reports failure
+if no satellite accepts it; database logging alone is not an audio-delivery success.
+
+### Durable text and reconnects
+
+Fast-path effects are claimed in the same durable ledger before execution.
+Retries with the same user/conversation/idempotency key return the retained result
+instead of repeating an action; conflicting payloads are rejected. Interrupted
+external actions require manual verification, not automatic retry.
+
+HTTP delivery is recorded after the response transport completes; Pipe delivery
+is recorded after its consumer exhausts the result iterator. Browser delivery
+requires a revision-checked client receipt. These receipts make terminal text
+eligible for configured retention; generation alone never counts as delivery.
+Public chat preserves the pending identity in tab session storage and retrieves
+the policy-rechecked answer after reconnect/reload without resubmitting the action.
+
+### Voice identity and admission
+
+Use **Voice Enrollments** to upload a consenting user's speech and associate it
+with an existing household user ID. Recognition is local CPU inference; raw
+enrollment audio is not retained. Unknown or ambiguous speakers remain
+anonymous/child-safe and do not use personalized long-term memory.
+
+Voice admission persists transcripts before action execution. A single preparation
+worker per device reads queued transcripts from SQLite, independently of its STT
+worker. Stop/resume controls bypass slow preparation; cancelling an already
+in-progress external action reports that its effect may need manual verification.
+Reconnect resume discovers interrupted playback but requires explicit confirmation
+(`resume the previous response`) and rechecks current output policy.
+
+Known-user LLM turns recall scoped memory before generation and enqueue their
+validated response to the cold writer once, including disconnected voice turns.
+Fast-path answers also use the cold writer. Idempotent replay does not write again.
+
 ### 1. Build the Admin Panel
 
 ```bash
@@ -40,6 +81,27 @@ Navigate to **`http://localhost:5100/admin/`** in your browser.
 ---
 
 ## Dashboard
+
+### Durable conversation operations
+
+The System page shows admission availability, coordinator readiness, active and
+waiting counts, retained-state counts and effective resource settings. Settings
+are read-only here: change the documented environment configuration and restart.
+Enter a user ID to load a bounded page of that user's turn IDs, revisions,
+execution and delivery states. Transcript bodies are never returned by this view.
+
+Pending work can be cancelled at its current revision. Recovery requires an
+explicit confirmation; uncertain external actions warn that retry can duplicate
+an operation. Old audio requires confirmation on its original device, not
+automatic playback from the admin panel. A conflict means refresh before acting.
+External actions without a registered replay worker require manual verification
+and a new request; the panel does not claim to retry those actions.
+Unavailable storage is an error, not an empty successful queue.
+
+Public chat displays submission, connection and scoped durable status. Requests
+carry stable turn/conversation IDs across reconnects. Disconnection does not
+automatically retry household actions or imply that accepted work was cancelled.
+Browser microphones require HTTPS or localhost and explicit microphone permission.
 
 After logging in, you land on the **Dashboard** — your at-a-glance overview of the entire system.
 

@@ -51,9 +51,6 @@ def on_barge_in(callback) -> None:
 _connected_satellites: dict[str, SatelliteConnection] = {}
 
 
-_MAX_PHRASE_QUEUE_SIZE = 5  # prevent memory issues from run-away queuing
-
-
 class SatelliteConnection:
     """Tracks a connected satellite's WebSocket and metadata."""
 
@@ -66,10 +63,14 @@ class SatelliteConnection:
         self.audio_buffer: bytearray = bytearray()
         self.audio_format: dict = {}
         self.has_wake_word: bool = False  # True if satellite has local wake word detection
-        self.pipeline_task: asyncio.Task | None = None  # in-progress voice pipeline
-        # CE-2: per-connection phrase queue for multi-question support
-        self.phrase_queue: asyncio.Queue = asyncio.Queue(maxsize=_MAX_PHRASE_QUEUE_SIZE)
-        self._queue_worker_task: asyncio.Task | None = None
+        self.room: str | None = None
+        self.capabilities: list[str] = []
+        self.capture_id: str | None = None
+        self.capture_active = False
+        self.activated = False
+        self.voice_session = None
+        self.delivery_metadata: dict[str, Any] = {}
+        self.readiness: dict[str, Any] = {}
 
         # CE-4: Pause buffer for conversational pause & pivot
         self.paused_response: str | None = None  # Full text that was being spoken
@@ -181,17 +182,27 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
         conn.session_id = session_id
 
         # Register connection
+        previous = _connected_satellites.get(satellite_id)
         _connected_satellites[satellite_id] = conn
+        if previous is not None and previous is not conn:
+            if previous.voice_session is not None:
+                await previous.voice_session.close()
+            await previous.websocket.close(code=1000, reason="Replaced by a new device connection")
+        if _connected_satellites.get(satellite_id) is not conn:
+            return
 
         # Extract client IP and metadata from ANNOUNCE
         client_ip = websocket.client.host if websocket.client else None
         capabilities = raw.get("capabilities") or []
+        conn.capabilities = capabilities
+        saved_config = _saved_config(satellite_id)
+        conn.room = saved_config.get("room", raw.get("room")) or None
         conn.has_wake_word = "wake_word" in capabilities
         _update_satellite_status(
             satellite_id, "online",
             ip_address=client_ip,
             hostname=raw.get("hostname"),
-            room=raw.get("room"),
+            room=conn.room,
             capabilities=capabilities,
             hardware_info=raw.get("hw_info"),
         )
@@ -204,9 +215,13 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
         })
 
         logger.info("Satellite connected: %s (session %s)", satellite_id, session_id)
+        if saved_config:
+            await send_config(satellite_id, saved_config)
 
         # Message loop
         async for raw_msg in websocket.iter_json():
+            if _connected_satellites.get(satellite_id) is not conn:
+                break
             msg_type = raw_msg.get("type", "")
 
             if msg_type == "HEARTBEAT":
@@ -232,6 +247,9 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
 
             elif msg_type == "BARGE_IN":
                 await _handle_barge_in(conn, raw_msg)
+            elif msg_type == "PLAYBACK_ACK":
+                if conn.voice_session is not None:
+                    conn.voice_session.acknowledge(raw_msg)
 
             elif msg_type == "CMD_ACK":
                 await _handle_cmd_ack(conn, raw_msg)
@@ -251,9 +269,9 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
     except Exception:
         logger.exception("Error in satellite WebSocket for %s", satellite_id)
     finally:
-        # CE-2: Stop the queue worker on disconnect
-        _stop_queue_worker(conn)
-        if satellite_id:
+        if conn.voice_session is not None:
+            await conn.voice_session.close()
+        if satellite_id and _connected_satellites.get(satellite_id) is conn:
             _connected_satellites.pop(satellite_id, None)
             _update_satellite_status(satellite_id, "offline")
 
@@ -264,6 +282,8 @@ async def satellite_ws_handler(websocket: WebSocket) -> None:
 async def _handle_heartbeat(conn: SatelliteConnection, msg: dict) -> None:
     """Update satellite status from heartbeat."""
     conn.last_heartbeat = time.time()
+    if isinstance(msg.get("readiness"), dict):
+        conn.readiness = msg["readiness"]
     try:
         db = get_db()
         db.execute(
@@ -293,6 +313,7 @@ async def _handle_wake(conn: SatelliteConnection, msg: dict) -> None:
     # Create an audio session
     session_id = f"audio-{uuid.uuid4().hex[:8]}"
     conn.session_id = session_id
+    conn.activated = True
     try:
         db = get_db()
         db.execute(
@@ -308,14 +329,41 @@ async def _handle_audio_start(conn: SatelliteConnection, msg: dict) -> None:
     """Audio streaming has started from the satellite."""
     conn.audio_buffer = bytearray()
     conn.audio_format = msg.get("format_info", {"rate": 16000, "width": 2, "channels": 1})
+    conn.capture_id = msg.get("capture_id", uuid.uuid4().hex)
+    if (not isinstance(conn.capture_id, str) or not 1 <= len(conn.capture_id) <= 128
+            or conn.capture_id.strip() != conn.capture_id or not conn.capture_id.isprintable()):
+        conn.capture_active = False
+        await conn.send({"type": "PIPELINE_ERROR", "detail": "Invalid capture identity"})
+        return
+    expected = {"rate": 16000, "width": 2, "channels": 1}
+    conn.capture_active = (
+        isinstance(conn.audio_format, dict) and conn.audio_format == expected
+        and all(type(value) is int for value in conn.audio_format.values())
+    )
+    if not conn.capture_active or msg.get("format", "pcm_16k_16bit_mono") != "pcm_16k_16bit_mono":
+        conn.capture_active = False
+        await conn.send({"type": "PIPELINE_ERROR", "detail": "Only mono PCM16 at 16000 Hz is supported"})
     logger.debug("Audio start from %s (format: %s)", conn.satellite_id, msg.get("format"))
 
 
 async def _handle_audio_chunk(conn: SatelliteConnection, msg: dict) -> None:
     """Receive an audio chunk from the satellite and buffer it."""
     audio_b64 = msg.get("audio", "")
-    if audio_b64:
-        conn.audio_buffer.extend(base64.b64decode(audio_b64))
+    if not conn.capture_active:
+        return
+    from cortex.orchestrator.voice_turns import MAX_CAPTURE_BYTES, MAX_CHUNK_BYTES
+    try:
+        if not isinstance(audio_b64, str) or len(audio_b64) > ((MAX_CHUNK_BYTES + 2) // 3) * 4:
+            raise ValueError("Audio chunk exceeds the capture allocation")
+        audio = base64.b64decode(audio_b64, validate=True)
+        if len(audio) % 2 or len(conn.audio_buffer) + len(audio) > MAX_CAPTURE_BYTES:
+            raise ValueError("Invalid PCM frame or recording limit exceeded; audio was not accepted")
+        conn.audio_buffer.extend(audio)
+    except (ValueError, TypeError) as exc:
+        logger.warning("Invalid capture from %s: %s", conn.satellite_id, exc)
+        conn.capture_active = False
+        conn.audio_buffer.clear()
+        await conn.send({"type": "PIPELINE_ERROR", "detail": str(exc)})
 
 
 async def _handle_audio_phrase_end(conn: SatelliteConnection, msg: dict) -> None:
@@ -324,126 +372,39 @@ async def _handle_audio_phrase_end(conn: SatelliteConnection, msg: dict) -> None
     CE-2: Each phrase is queued independently so multiple questions
     spoken in sequence are processed one by one.
     """
-    audio_data = bytes(conn.audio_buffer)
-    conn.audio_buffer = bytearray()
-
-    if len(audio_data) < 1600:
-        logger.debug("Phrase too short (%d bytes), discarding", len(audio_data))
-        return
-
-    logger.info(
-        "Phrase boundary from %s — queuing %d bytes (%d already queued)",
-        conn.satellite_id, len(audio_data), conn.phrase_queue.qsize(),
-    )
-
-    try:
-        conn.phrase_queue.put_nowait(audio_data)
-    except asyncio.QueueFull:
-        logger.warning("Phrase queue full for %s, dropping oldest phrase", conn.satellite_id)
-        try:
-            conn.phrase_queue.get_nowait()
-            conn.phrase_queue.task_done()
-        except asyncio.QueueEmpty:
-            pass
-        conn.phrase_queue.put_nowait(audio_data)
-
-    _ensure_queue_worker(conn)
+    # A short acoustic pause is not a complete command. Retain the full
+    # bounded capture until AUDIO_END; no tail is submitted twice.
 
 
 async def _handle_audio_end(conn: SatelliteConnection, msg: dict) -> None:
     """Audio streaming has ended — queue final phrase for processing."""
+    from cortex.orchestrator.voice_turns import Capture, get_voice_service
+    if not conn.capture_active:
+        return
+    conn.capture_active = False
+    audio = bytes(conn.audio_buffer)
+    conn.audio_buffer.clear()
     reason = msg.get("reason", "vad_silence")
-    audio_data = bytes(conn.audio_buffer)
-    conn.audio_buffer = bytearray()
-
-    logger.info(
-        "Audio end from %s (reason: %s, %d bytes)",
-        conn.satellite_id, reason, len(audio_data),
-    )
-
-    # Auto-listen timeout means no one spoke — discard silently
-    if reason == "auto_listen_timeout":
-        logger.info("Auto-listen timeout from %s — no speech, discarding", conn.satellite_id)
+    if reason in ("auto_listen_timeout", "cancelled") or not audio:
+        conn.activated = False
         return
-
-    # Update session
-    if conn.session_id:
-        try:
-            db = get_db()
-            db.execute(
-                "UPDATE satellite_audio_sessions SET ended_at = ? WHERE id = ?",
-                (datetime.now(timezone.utc).isoformat(), conn.session_id),
-            )
-            db.commit()
-        except Exception:
-            pass
-
-    if len(audio_data) < 1600:
-        # Too short to be meaningful speech (~50ms)
-        # If no phrases were queued either, nothing to do
-        if conn.phrase_queue.empty():
-            logger.debug("Audio too short (%d bytes) and queue empty, ignoring", len(audio_data))
-            return
-        # Phrases already queued — just ensure the worker is running
-        _ensure_queue_worker(conn)
+    service = get_voice_service()
+    if service is None:
+        logger.error("Voice admission service is unavailable")
+        await conn.send({"type": "PIPELINE_ERROR", "detail": "Voice admission service is unavailable"})
         return
-
-    # Cap audio at ~15 seconds (480000 bytes at 16kHz 16-bit mono) to prevent
-    # VAD runaway and whisper hallucination on very long recordings.
-    MAX_AUDIO_BYTES = 480000  # 15 seconds
-    if len(audio_data) > MAX_AUDIO_BYTES:
-        logger.warning(
-            "Audio from %s too long (%d bytes / %.1fs), truncating to last %.0fs",
-            conn.satellite_id, len(audio_data),
-            len(audio_data) / 32000, MAX_AUDIO_BYTES / 32000,
-        )
-        audio_data = audio_data[-MAX_AUDIO_BYTES:]
-
-    # CE-2: Enqueue the final phrase for processing
-    try:
-        conn.phrase_queue.put_nowait(audio_data)
-    except asyncio.QueueFull:
-        logger.warning("Phrase queue full for %s on AUDIO_END, dropping oldest", conn.satellite_id)
-        try:
-            conn.phrase_queue.get_nowait()
-            conn.phrase_queue.task_done()
-        except asyncio.QueueEmpty:
-            pass
-        conn.phrase_queue.put_nowait(audio_data)
-
-    _ensure_queue_worker(conn)
+    await service.session(conn).submit(Capture(
+        audio, conn.capture_id, conn.activated, reason,
+    ))
+    conn.activated = False
 
 
 async def _handle_barge_in(conn: SatelliteConnection, msg: dict) -> None:
     """User interrupted during TTS playback — save state and cancel pipeline."""
     logger.info("Barge-in from %s", conn.satellite_id)
 
-    # CE-4: Capture paused response before cancelling.  The response text and
-    # approximate playback position are sent by the satellite in the BARGE_IN
-    # message, or were stored on conn by the voice pipeline as it streamed.
-    barge_text = msg.get("response_text") or getattr(conn, "_current_response", None)
-    barge_pos = msg.get("char_position", 0) or getattr(conn, "_spoken_chars", 0)
-    if barge_text:
-        conn.paused_response = barge_text
-        conn.paused_position = barge_pos
-        conn.paused_at = time.monotonic()
-        logger.info(
-            "Saved paused response for %s (pos=%d, len=%d)",
-            conn.satellite_id, barge_pos, len(barge_text),
-        )
-
-    # Cancel any in-progress pipeline task
-    task = getattr(conn, "pipeline_task", None)
-    if task and not task.done():
-        task.cancel()
-        logger.info("Cancelled in-progress pipeline for %s", conn.satellite_id)
-    conn.pipeline_task = None
-
-    # CE-2: Drain the phrase queue — discard pending phrases on barge-in
-    _drain_phrase_queue(conn)
-
-    # Clear any buffered audio from a previous turn
-    conn.audio_buffer = bytearray()
+    if conn.voice_session is not None:
+        await conn.voice_session.pause(msg)
 
     # Notify registered callbacks (avatar broadcast, etc.)
     try:
@@ -466,82 +427,6 @@ async def _handle_status(conn: SatelliteConnection, msg: dict) -> None:
     """Update satellite status (idle, listening, speaking)."""
     status = msg.get("status", "idle")
     logger.debug("Satellite %s status: %s", conn.satellite_id, status)
-
-
-# ── CE-2: Phrase queue worker ─────────────────────────────────────
-
-
-def _ensure_queue_worker(conn: SatelliteConnection) -> None:
-    """Start the phrase queue worker if not already running."""
-    task = conn._queue_worker_task
-    if task is not None and not task.done():
-        return
-    conn._queue_worker_task = asyncio.create_task(
-        _phrase_queue_worker(conn),
-        name=f"phrase-worker-{conn.satellite_id}",
-    )
-
-
-def _stop_queue_worker(conn: SatelliteConnection) -> None:
-    """Cancel the queue worker and drain remaining phrases."""
-    task = conn._queue_worker_task
-    if task and not task.done():
-        task.cancel()
-    conn._queue_worker_task = None
-    _drain_phrase_queue(conn)
-
-
-def _drain_phrase_queue(conn: SatelliteConnection) -> None:
-    """Discard all pending phrases from the queue."""
-    drained = 0
-    while True:
-        try:
-            conn.phrase_queue.get_nowait()
-            conn.phrase_queue.task_done()
-            drained += 1
-        except asyncio.QueueEmpty:
-            break
-    if drained:
-        logger.info("Drained %d pending phrases from %s queue", drained, conn.satellite_id)
-
-
-async def _phrase_queue_worker(conn: SatelliteConnection) -> None:
-    """Process queued phrase audio one at a time: STT → Pipeline → TTS.
-
-    Runs as a background task per connection.  Each phrase is handed off
-    to ``process_voice_pipeline``.  The ``more_pending`` flag is set on
-    the connection so the voice pipeline can include it in TTS_END messages.
-    """
-    from cortex.orchestrator.voice import process_voice_pipeline
-
-    satellite_id = conn.satellite_id
-    logger.info("Phrase queue worker started for %s", satellite_id)
-
-    try:
-        while True:
-            phrase_audio = await conn.phrase_queue.get()
-            try:
-                # Signal whether more phrases follow this one
-                conn._more_phrases_pending = not conn.phrase_queue.empty()
-                task = asyncio.create_task(process_voice_pipeline(conn, phrase_audio))
-                conn.pipeline_task = task
-                await task
-            except asyncio.CancelledError:
-                logger.info("Phrase queue worker cancelled for %s", satellite_id)
-                raise
-            except Exception:
-                logger.exception(
-                    "Error processing queued phrase for %s — continuing to next",
-                    satellite_id,
-                )
-            finally:
-                conn._more_phrases_pending = False
-                conn.pipeline_task = None
-                conn.phrase_queue.task_done()
-    except asyncio.CancelledError:
-        pass
-    finally:
-        logger.info("Phrase queue worker stopped for %s", satellite_id)
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -610,11 +495,41 @@ async def send_command(satellite_id: str, action: str, params: dict | None = Non
     return False
 
 
+def _saved_config(satellite_id: str) -> dict:
+    cursor = get_db().execute("SELECT * FROM satellites WHERE id=?", (satellite_id,))
+    row = cursor.fetchone()
+    if row is None:
+        return {}
+    stored = dict(zip((column[0] for column in cursor.description), row))
+    fields = ("room", "wake_word", "volume", "mic_gain", "vad_sensitivity", "filler_enabled",
+              "vad_enabled", "led_brightness", "button_mode", "audio_device_out")
+    config = {key: stored[key] for key in fields if stored.get(key) is not None}
+    if stored.get("features") is not None:
+        config["features"] = json.loads(stored["features"])
+    return config
+
+
 async def send_config(satellite_id: str, config: dict) -> bool:
     """Push configuration to a connected satellite."""
     conn = _connected_satellites.get(satellite_id)
     if conn:
-        await conn.send({"type": "CONFIG", **config})
+        payload = dict(config)
+        if "vad_sensitivity" in payload:
+            payload["vad_sensitivity"] = round(float(payload["vad_sensitivity"]) * 3)
+        for key in ("filler_enabled", "vad_enabled"):
+            if key in payload:
+                payload[key] = bool(payload[key])
+        if "room" in payload and (payload["room"] or None) != conn.room:
+            playback = dict(conn.delivery_metadata)
+            if conn.voice_session is not None:
+                await conn.voice_session.close()
+                conn.voice_session = None
+            conn.capture_active = False
+            conn.audio_buffer.clear()
+            conn.activated = False
+            await conn.send({"type": "COMMAND", "action": "stop", "params": playback})
+            conn.room = payload["room"] or None
+        await conn.send({"type": "CONFIG", **payload})
         return True
     return False
 

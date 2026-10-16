@@ -99,6 +99,13 @@ class VoiceActivityDetector:
         self._use_energy_mode = False
         self._frame_count = 0
 
+    def set_aggressiveness(self, value: int) -> None:
+        if type(value) is not int or not 0 <= value <= 3:
+            raise ValueError("VAD aggressiveness must be an integer from 0 to 3")
+        if self._vad is not None:
+            self._vad.set_mode(value)
+        self.reset()
+
     def _calibrate(self, rms: float) -> None:
         """Collect initial frames to establish ambient baseline."""
         self._calibration_frames.append(rms)
@@ -186,6 +193,10 @@ class VoiceActivityDetector:
                         "Max speech duration reached (%d frames), forcing end",
                         self._speech_frame_total,
                     )
+                    if self.utterance_silence_threshold > 0:
+                        self._speech_frame_total = 0
+                        self._phrase_fired = True
+                        return "phrase_end"
                     self._reset_state()
                     return "speech_end"
                 return "speech"
@@ -223,7 +234,7 @@ class VoiceActivityDetector:
                     return "phrase_end"
 
                 # Sliding window (uses long threshold for speech_end)
-                if len(self._window) >= self.window_size:
+                if not use_phrase and len(self._window) >= self.window_size:
                     n_silence = sum(1 for v in self._window if not v)
                     ratio = n_silence / len(self._window)
                     if ratio >= self.silence_ratio:

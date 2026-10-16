@@ -60,6 +60,84 @@ def init_db(path: str | Path | None = None) -> None:
 
 
 _SCHEMA_SQL = """
+-- Durable operational turns are separate from conversation history.
+CREATE TABLE IF NOT EXISTS pending_turn_sequences (
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    last_llm_dispatch REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, conversation_id)
+);
+CREATE TABLE IF NOT EXISTS pending_turns (
+    turn_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    device_id TEXT,
+    room TEXT,
+    sequence INTEGER NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+    idempotency_key TEXT,
+    transcript TEXT NOT NULL,
+    context_json TEXT NOT NULL DEFAULT '{}',
+    input_validated INTEGER NOT NULL CHECK (input_validated = 1),
+    state TEXT NOT NULL DEFAULT 'accepted' CHECK (state IN (
+        'accepted', 'routing', 'fastpath_running', 'llm_pending', 'llm_running',
+        'completed', 'failed', 'cancelled', 'superseded', 'recovery_pending', 'uncertain'
+    )),
+    route_status TEXT,
+    relation TEXT NOT NULL DEFAULT 'independent' CHECK (relation IN (
+        'independent', 'clarification', 'correction', 'replacement', 'cancellation'
+    )),
+    related_turn_id TEXT REFERENCES pending_turns(turn_id) ON DELETE SET NULL,
+    action_outcome TEXT NOT NULL DEFAULT 'none' CHECK (action_outcome IN (
+        'none', 'pending', 'succeeded', 'failed', 'uncertain'
+    )),
+    result TEXT,
+    output_validated INTEGER NOT NULL DEFAULT 0 CHECK (output_validated IN (0, 1)),
+    delivery_state TEXT NOT NULL DEFAULT 'not_ready' CHECK (delivery_state IN (
+        'not_ready', 'ready', 'delivering', 'delivered', 'paused',
+        'interrupted', 'awaiting_confirmation'
+    )),
+    playback_position INTEGER NOT NULL DEFAULT 0 CHECK (playback_position >= 0),
+    lease_owner TEXT,
+    lease_until REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error_code TEXT,
+    error_message TEXT,
+    recovery_reason TEXT,
+    stored_bytes INTEGER NOT NULL CHECK (stored_bytes >= 0),
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (user_id, conversation_id, sequence),
+    UNIQUE (user_id, conversation_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_dispatch
+    ON pending_turns(state, created_at, turn_id);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_user
+    ON pending_turns(user_id, conversation_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_pending_turns_lease ON pending_turns(lease_until)
+    WHERE lease_owner IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pending_turn_usage (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    payload_bytes INTEGER NOT NULL CHECK (payload_bytes >= 0)
+);
+INSERT OR IGNORE INTO pending_turn_usage (id, payload_bytes)
+    SELECT 1, COALESCE(SUM(stored_bytes), 0) FROM pending_turns;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_insert AFTER INSERT ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes + NEW.stored_bytes WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_update AFTER UPDATE OF stored_bytes ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes + NEW.stored_bytes - OLD.stored_bytes WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS pending_turn_usage_delete AFTER DELETE ON pending_turns
+BEGIN
+    UPDATE pending_turn_usage SET payload_bytes = payload_bytes - OLD.stored_bytes WHERE id = 1;
+END;
+
 -- ───────── Devices & Patterns ─────────
 
 CREATE TABLE IF NOT EXISTS ha_devices (
@@ -91,6 +169,24 @@ CREATE TABLE IF NOT EXISTS device_capabilities (
     PRIMARY KEY (entity_id, capability),
     FOREIGN KEY (entity_id) REFERENCES ha_devices(entity_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS ha_command_context (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    room TEXT NOT NULL,
+    speaker_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL UNIQUE,
+    turn_id TEXT,
+    command_json TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ha_command_context_age ON ha_command_context(updated_at);
+CREATE INDEX IF NOT EXISTS idx_ha_command_context_scope
+    ON ha_command_context(user_id, conversation_id, source, device_id, room, speaker_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS command_patterns (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -704,6 +800,8 @@ CREATE TABLE IF NOT EXISTS satellites (
     tts_voice       TEXT DEFAULT '',
     vad_enabled     BOOLEAN DEFAULT TRUE,
     led_brightness  REAL DEFAULT 1.0,
+    button_mode     TEXT NOT NULL DEFAULT 'toggle',
+    audio_device_out TEXT DEFAULT 'default',
     is_active       BOOLEAN DEFAULT TRUE,
     last_seen       TIMESTAMP,
     last_audio      TIMESTAMP,
@@ -1193,12 +1291,73 @@ CREATE TABLE IF NOT EXISTS cag_usage_log (
     latency_ms  REAL DEFAULT 0,
     created_at  REAL DEFAULT 0
 );
+
+-- Session Memory: conversation persistence & crash recovery
+CREATE TABLE IF NOT EXISTS conversation_sessions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    room        TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',
+    crash_count INTEGER NOT NULL DEFAULT 0,
+    created_at  REAL NOT NULL,
+    updated_at  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cs_user_status
+    ON conversation_sessions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_cs_updated
+    ON conversation_sessions(updated_at);
+
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    turn_index  INTEGER NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    model_used  TEXT,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    timestamp   REAL NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES conversation_sessions(id)
+);
+CREATE INDEX IF NOT EXISTS idx_ct_session
+    ON conversation_turns(session_id, turn_index);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_turn_fts USING fts5(
+    session_id, role, content,
+    tokenize='porter unicode61'
+);
+
+-- ───────── Knowledge Tree ─────────
+
+CREATE TABLE IF NOT EXISTS knowledge_nodes (
+    id          TEXT PRIMARY KEY,
+    parent_id   TEXT,
+    title       TEXT NOT NULL,
+    summary     TEXT,
+    content     TEXT,
+    token_count INTEGER DEFAULT 0,
+    level       INTEGER DEFAULT 0,
+    keywords    TEXT,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (parent_id) REFERENCES knowledge_nodes(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_parent ON knowledge_nodes(parent_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_level  ON knowledge_nodes(level);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_node_fts USING fts5(
+    title, summary, content, keywords,
+    content=knowledge_nodes,
+    content_rowid=rowid,
+    tokenize='porter unicode61'
+);
 """
 
 
 def _create_schema(conn: sqlite3.Connection) -> None:
     """Execute all CREATE TABLE / INDEX statements in one transaction."""
     conn.executescript(_SCHEMA_SQL)
+    _add_column_if_missing(conn, "pending_turn_sequences", "last_llm_dispatch", "REAL NOT NULL DEFAULT 0")
     # Incremental migrations: add columns that may not exist in older DBs.
     # ALTER TABLE ADD COLUMN is idempotent — we just ignore the error if the
     # column is already present.
@@ -1207,6 +1366,8 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "satellites", "tts_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "satellites", "vad_enabled", "BOOLEAN DEFAULT 1")
     _add_column_if_missing(conn, "satellites", "led_brightness", "REAL DEFAULT 1.0")
+    _add_column_if_missing(conn, "satellites", "button_mode", "TEXT NOT NULL DEFAULT 'toggle'")
+    _add_column_if_missing(conn, "satellites", "audio_device_out", "TEXT DEFAULT 'default'")
     _add_column_if_missing(conn, "user_profiles", "preferred_voice", "TEXT DEFAULT ''")
     _add_column_if_missing(conn, "jailbreak_patterns", "active", "BOOLEAN DEFAULT TRUE")
     _add_column_if_missing(conn, "satellites", "ssh_password", "TEXT")

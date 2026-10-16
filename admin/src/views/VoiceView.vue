@@ -9,6 +9,45 @@ const success = ref('')
 const speakers = ref([])
 const editingId = ref(null)
 const editThreshold = ref(0)
+const enrollmentUser = ref('')
+const enrollmentFile = ref(null)
+const enrolling = ref(false)
+
+async function enroll() {
+  error.value = ''
+  success.value = ''
+  enrolling.value = true
+  try {
+    const file = enrollmentFile.value
+    if (!file || file.size > 5 * 1024 * 1024) throw new Error('Choose an audio file smaller than 5 MiB.')
+    const decoder = new OfflineAudioContext(1, 1, 16000)
+    const audio = await decoder.decodeAudioData(await file.arrayBuffer())
+    if (audio.duration < 1 || audio.duration > 15) throw new Error('Use 1-15 seconds of speech; 10-15 seconds is recommended.')
+    const renderer = new OfflineAudioContext(1, Math.floor(audio.duration * 16000), 16000)
+    const source = renderer.createBufferSource()
+    source.buffer = audio
+    source.connect(renderer.destination)
+    source.start()
+    const rendered = await renderer.startRendering()
+    const samples = rendered.getChannelData(0)
+    const pcm = new Uint8Array(samples.length * 2)
+    const view = new DataView(pcm.buffer)
+    for (let i = 0; i < samples.length; i++) {
+      view.setInt16(i * 2, Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), true)
+    }
+    let binary = ''
+    for (let i = 0; i < pcm.length; i += 8192) binary += String.fromCharCode(...pcm.subarray(i, i + 8192))
+    await api.post('/admin/voice/speakers/enroll', {
+      user_id: enrollmentUser.value.trim(), audio_base64: btoa(binary), sample_rate: 16000,
+    })
+    await fetchSpeakers()
+    success.value = 'Voice enrolled. Recognition personalizes responses; it does not authorize privileged actions.'
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    enrolling.value = false
+  }
+}
 
 onMounted(async () => {
   await fetchSpeakers()
@@ -71,6 +110,15 @@ async function deleteSpeaker(speaker) {
     <div v-if="error" class="error-banner">{{ error }}</div>
     <div v-if="success" class="success-banner">{{ success }}</div>
 
+    <form class="section" @submit.prevent="enroll">
+      <h3>Enroll a household member</h3>
+      <p>Upload 10-15 seconds of their speech, with their consent. Only the voice embedding is stored.</p>
+      <input v-model="enrollmentUser" class="form-input" required placeholder="Household user ID" aria-label="Household user ID" />
+      <input type="file" accept="audio/*" required aria-label="Voice sample" @change="enrollmentFile = $event.target.files[0]" />
+      <button class="btn btn-primary" :disabled="enrolling || !enrollmentUser.trim() || !enrollmentFile">
+        {{ enrolling ? 'Enrolling...' : 'Enroll voice' }}
+      </button>
+    </form>
     <div class="section">
       <div v-if="loading" class="loading-text">Loading speakers…</div>
       <table v-else class="table">
@@ -103,7 +151,7 @@ async function deleteSpeaker(speaker) {
                     class="form-input form-input-sm"
                     type="number"
                     step="0.01"
-                    min="0"
+                    min="0.85"
                     max="1"
                   />
                   <button class="btn btn-sm btn-primary" @click="saveThreshold(speaker)">✓</button>

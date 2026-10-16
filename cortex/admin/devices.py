@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from cortex.admin import helpers as _h
 from cortex.admin.helpers import require_admin
@@ -14,6 +14,43 @@ router = APIRouter()
 
 
 # ── Voice / Speakers ──────────────────────────────────────────────
+
+
+class VoiceEnrollmentRequest(BaseModel):
+    user_id: str
+    audio_base64: str = Field(min_length=1, max_length=640000)
+    sample_rate: Literal[16000] = 16000
+
+
+@router.post("/voice/speakers/enroll")
+async def enroll_speaker(body: VoiceEnrollmentRequest, _: dict = Depends(require_admin)):
+    import base64
+    import logging
+    import uuid
+    from cortex.speech.recognition import audio_embedding
+    conn = _h._db()
+    profile = conn.execute("SELECT display_name FROM user_profiles WHERE user_id=?", (body.user_id,)).fetchone()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Household profile not found")
+    try:
+        audio = base64.b64decode(body.audio_base64, validate=True)
+        if len(audio) < 32000:
+            raise ValueError("Enrollment requires at least one second of speech; 10-15 seconds is recommended")
+        embedding = await audio_embedding(audio)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (ImportError, OSError, RuntimeError) as exc:
+        logging.getLogger(__name__).exception("Speaker enrollment backend unavailable")
+        raise HTTPException(status_code=503, detail="Speaker recognition is unavailable") from exc
+    if conn.execute("SELECT 1 FROM user_profiles WHERE user_id=?", (body.user_id,)).fetchone() is None:
+        raise HTTPException(status_code=409, detail="Household profile was deleted during enrollment")
+    speaker_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO speaker_profiles(id,user_id,display_name,embedding) VALUES(?,?,?,?)",
+        (speaker_id, body.user_id, profile["display_name"], embedding),
+    )
+    conn.commit()
+    return {"ok": True, "speaker_id": speaker_id}
 
 
 @router.get("/voice/speakers")
@@ -41,6 +78,10 @@ async def update_speaker(
     _: dict = Depends(require_admin),
 ):
     conn = _h._db()
+    if "confidence_threshold" in update:
+        threshold = update["confidence_threshold"]
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0.85 <= threshold <= 1:
+            raise HTTPException(status_code=400, detail="Recognition threshold must be between 0.85 and 1")
     # Map allowed input field names to fixed SQL assignment fragments
     allowed_fields = {
         "display_name": "display_name = ?",

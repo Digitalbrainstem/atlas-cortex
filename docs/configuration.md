@@ -18,19 +18,82 @@ All configuration is via environment variables. Set them in your shell, a `.env`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `transformers` | Backend type: `transformers`, `ollama`, `openai_compatible` |
-| `CAG_MODEL` | `Qwen/Qwen3-4B` | HuggingFace model for inference (Transformers provider) |
+| `LLM_PROVIDER` | `openai_compatible` | Backend type: `openai_compatible`, `transformers`, `ollama` (deprecated) |
+| `CAG_MODEL` | `Qwen/Qwen3.5-4B` | Model identifier for tokenizer / Transformers inference |
 | `CAG_DEVICE` | `auto` | Device for model inference (`auto`, `cuda`, `cpu`) |
 | `CAG_DTYPE` | `auto` | Model dtype (`auto`, `float16`, `bfloat16`) |
 | `EMBED_MODEL` | `all-MiniLM-L6-v2` | Sentence-transformers embedding model |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (legacy fallback) |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL (deprecated — use llama.cpp) |
 | `LLM_URL` | — | Override URL for any LLM backend |
 | `LLM_API_KEY` | — | API key (required for OpenAI-compatible) |
 | `OPENAI_BASE_URL` | — | Custom OpenAI-compatible endpoint |
 | `OPENAI_API_KEY` | — | API key for OpenAI-compatible backends |
-| `MODEL_FAST` | `qwen2.5:14b` | Model for quick factual answers (Ollama/OpenAI providers) |
-| `MODEL_THINKING` | `qwen3:30b-a3b` | Model for complex reasoning (Ollama/OpenAI providers) |
+| `MODEL_FAST` | `qwen3.5:9b` | Model for quick factual answers (OpenAI-compatible provider) |
+| `MODEL_THINKING` | `qwen3.5:27b` | Model for complex reasoning (OpenAI-compatible provider) |
 | `MODEL_EMBEDDING` | — | Embedding model (legacy, Docker only) |
+
+## Durable Finalized Turns (MVP foundation)
+
+The operational turn ledger uses the existing SQLite database, not Redis or a
+second server. Pending work is disk-backed; only bounded pages of IDs and active
+work need memory. These are positive integer environment settings, read at startup;
+invalid values fail initialization. Changes require a restart.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORTEX_TURN_MAX_ACTIVE` | `1` | Maximum simultaneously claimed LLM turns; fast-path claims do not acquire these slots |
+| `CORTEX_TURN_PREFETCH` | `8` | Maximum IDs per dispatch/recovery page and rows per terminal cleanup batch |
+| `CORTEX_TURN_MAX_INPUT_BYTES` | `65536` | Combined UTF-8 transcript, serialized identity and JSON context admission limit |
+| `CORTEX_TURN_MAX_OUTPUT_BYTES` | `262144` | Maximum UTF-8 bytes per validated result (256 KiB); generation exceeding this limit fails explicitly without publishing partial text |
+| `CORTEX_TURN_MAX_STORE_BYTES` | `67108864` | Aggregate retained turn payload budget (64 MiB); not a fixed question-count cap or total database-file size limit |
+| `CORTEX_TURN_MIN_FREE_DISK_BYTES` | `16777216` | Minimum remaining filesystem space (16 MiB), plus the proposed write size |
+| `CORTEX_TURN_RETENTION_SECONDS` | `604800` | Minimum terminal-record retention (7 days); accepted/recovering/uncertain work and unheard results are not evicted |
+| `CORTEX_TURN_LEASE_SECONDS` | `120` | Active claim lease; workers must heartbeat before expiry |
+| `CORTEX_TURN_MAINTENANCE_SECONDS` | `30` | Expired-claim recovery and bounded terminal cleanup interval |
+
+Voice ingress additionally uses `CORTEX_STT_MAX_ACTIVE=2` and
+`CORTEX_STT_AUDIO_BUDGET_BYTES=4194304`. Active STT is independent of LLM slots.
+The shared raw-audio budget must fit at least one 480,000-byte capture; each
+connection also has a two-capture transient queue and a bounded current capture.
+Capacity errors reject new, unaccepted audio explicitly, never older accepted turns.
+
+The default profile uses one LLM claim and eight prefetched IDs for small systems.
+An operator may raise `MAX_ACTIVE` to actual provider capacity (for example four
+slots), without moving the disk backlog into memory. The isolated 10,000-turn
+fixture occupied approximately 6.8 MiB of payload and increased process RSS by
+approximately 1.1 MiB between 100 and 10,000 pending turns. This is foundation
+storage evidence, not a production model-memory or hardware latency benchmark.
+
+At a real payload/free-disk boundary, new acceptance fails explicitly; already
+accepted questions are preserved. Raw microphone audio is not retained in this
+ledger. Finalized operational transcripts and necessary command operands are
+retained verbatim after caller input validation, unlike redacted diagnostic logs;
+protect the data directory and its backups accordingly.
+
+On startup, pending/interrupted work requires confirmation. An interrupted
+external action is `uncertain`, not automatically retried. Completed audio awaiting
+delivery also requires confirmation instead of unexpectedly replaying after a
+restart. User deletion removes ledger rows and sequence state; older backups may
+still contain them and must follow the deployment's backup deletion policy.
+
+**Implementation boundary:** P00-P03 provides staged routing, the store,
+maintenance and recovery controls. P04 adds a separate HA action journal and
+deterministic corrections. P05 durably admits true LLM fallthrough on the server
+and standalone Pipe worker; only bounded conversation heads enter inference.
+Use stable conversation/turn IDs or idempotency keys for LLM request retries.
+This does not yet provide durable acceptance/idempotency for fast effects or
+early microphone audio itself. P06 adds durable finalized Pi transcripts and
+independent STT admission; raw audio is bounded and transient, not restart-persistent.
+P07 adds scoped cancellation and receipt-based sentence-boundary resume. P08
+software persists/applies button modes and reports actual wake/microphone/button
+readiness; two-Pi/ReSpeaker acoustic qualification remains pending. Missing wake
+models do not silently enable VAD-only activation. Explicitly set
+`wake_word_enabled=false` to opt into VAD-only mode, or use an available physical
+press/hold button. See [satellite qualification](satellite-system.md#p08-software-readiness-and-pending-hardware-qualification).
+LLM responses are buffered and validated before publication, not streamed raw.
+HA correction context uses a fixed conservative 120-second window; action
+journal retention and its distinction from this payload budget are described in
+the [data model](data-model.md#ha-structured-command-context).
 
 ## TTS (Text-to-Speech)
 
@@ -122,8 +185,8 @@ These are typically set in `docker-compose.yml`, not in application code:
 | `TZ` | `America/New_York` | Container timezone |
 | `PUID` / `PGID` | `99` / `100` | Container user/group IDs |
 | `HF_HOME` | `/hf_cache` | HuggingFace cache directory (volume-mounted) |
-| `OLLAMA_HOST` | `0.0.0.0` | Ollama bind address (legacy, if enabled) |
-| `OLLAMA_KEEP_ALIVE` | `0` | Model keep-alive duration (legacy, if enabled) |
+| `OLLAMA_HOST` | `0.0.0.0` | Ollama bind address (deprecated, if enabled) |
+| `OLLAMA_KEEP_ALIVE` | `0` | Model keep-alive duration (deprecated, if enabled) |
 | `WHISPER_MODEL` | `large-v3-turbo-q5_0` | Whisper model variant |
 | `WHISPER_BEAM` | `5` | Whisper beam search width |
 | `WHISPER_LANG` | `en` | Whisper language |
@@ -133,19 +196,19 @@ These are typically set in `docker-compose.yml`, not in application code:
 
 ## Minimal Configuration
 
-For a basic setup with HuggingFace Transformers, no environment variables are required — defaults work out of the box. Models download automatically on first use:
+For a basic setup with llama.cpp, point Atlas at your llama-server:
 
 ```bash
-python -m cortex.server
+LLM_PROVIDER=openai_compatible OPENAI_BASE_URL=http://localhost:8080/v1 python -m cortex.server
 ```
 
-To use a specific model:
+To use a specific model with the Transformers provider:
 
 ```bash
-CAG_MODEL=Qwen/Qwen3-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
+LLM_PROVIDER=transformers CAG_MODEL=Qwen/Qwen3.5-4B EMBED_MODEL=all-MiniLM-L6-v2 python -m cortex.server
 ```
 
-To use Ollama as a legacy fallback:
+To use Ollama (deprecated — llama.cpp is faster):
 
 ```bash
 LLM_PROVIDER=ollama OLLAMA_BASE_URL=http://localhost:11434 python -m cortex.server

@@ -16,25 +16,33 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
+import sqlite3
 import time
 import uuid
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Literal, Callable, Awaitable
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from aiohttp import ClientError
 
 from cortex.admin_api import router as admin_router
-from cortex.auth_user import get_user_auth
+from cortex.auth_user import ChatAuthenticationError, chat_request_actor, get_user_auth
 from cortex.db import get_db, init_db
 from cortex.pipeline import run_pipeline
+from cortex.pipeline.turns import (
+    ConversationConflictError, ConversationStorageError, PipelineGenerationError, TurnSupersededError,
+    sanitize_metadata,
+)
 from cortex.providers import get_provider
 from cortex.satellite.discovery import ServerAnnouncer
 from cortex.satellite.websocket import satellite_ws_handler, on_barge_in
@@ -67,10 +75,34 @@ _server_announcer = ServerAnnouncer(port=5100)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from cortex.backup.storage import data_lock
+    with data_lock(Path(os.environ.get("CORTEX_DATA_DIR", "./data"))):
+        async with _services_lifespan(app):
+            app.state.ready = True
+            try:
+                yield
+            finally:
+                app.state.ready = False
+
+
+@asynccontextmanager
+async def _services_lifespan(app: FastAPI):
     """Start/stop server-level services."""
     from cortex.scheduler import register_startup_task, register_service, start_all, stop_all
 
+    # ── Self-recovery startup checks ────────────────────────────────
+    from cortex.system.recovery import SelfRecovery
+    _recovery = SelfRecovery()
+    _recovery_result = _recovery.run_startup_checks()
     init_db()
+    get_user_auth().load_from_db(_get_db())
+    if _recovery_result.recovered:
+        logger.warning(
+            "Recovered from %s: %s (steps: %s)",
+            _recovery_result.issue,
+            _recovery_result.details,
+            _recovery_result.steps,
+        )
 
     # ── Integrity verification (blocking — Atlas won't start if this fails)
     from cortex.db import get_db
@@ -106,6 +138,25 @@ async def lifespan(app: FastAPI):
     _memory = MemorySystem(conn=get_db())
     set_memory_system(_memory)
     register_service("memory", _memory.start, _memory.stop)
+
+    from cortex.orchestrator.turn_store import TurnStore, TurnStoreService
+    _turn_store = TurnStore(get_db())
+    _turn_store.recover(startup=True)
+    _turn_service = TurnStoreService(_turn_store)
+    app.state.turn_store = _turn_store
+    register_service("durable-turns", _turn_service.start, _turn_service.stop)
+    from cortex.orchestrator.conversation import ConversationCoordinator
+    _conversation = ConversationCoordinator(_turn_store, _get_provider(), _safety_middleware)
+    app.state.conversation_coordinator = _conversation
+    register_service("conversation", _conversation.start, _conversation.stop)
+    from cortex.orchestrator.voice_turns import VoiceService
+    _voice_service = VoiceService(_turn_store, _conversation)
+    app.state.voice_service = _voice_service
+    register_service("voice-ingress", _voice_service.start, _voice_service.stop)
+    from cortex.notifications.satellite import register_satellite_channel
+    from cortex.notifications.channels import unregister_channel
+    _notification_channel = register_satellite_channel()
+    _notification_channel.set_tts_callback(_voice_service.announce)
 
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
@@ -177,9 +228,38 @@ async def lifespan(app: FastAPI):
     _eye_tracker = get_eye_tracker()
     register_service("eye-tracker", _eye_tracker.start, _eye_tracker.stop)
 
-    await start_all()
-    yield
-    await stop_all()
+    # ── Resource monitor + state snapshots ──────────────────────────
+    from cortex.system.resource_monitor import ResourceMonitor
+    from cortex.system.state_snapshot import StateSnapshot
+
+    async def _tts_announce(message: str) -> None:
+        try:
+            from cortex.avatar.broadcast import stream_tts_to_avatar
+            await stream_tts_to_avatar("default", message)
+        except Exception:
+            logger.debug("TTS announcement unavailable")
+
+    _resource_monitor = ResourceMonitor(announce_fn=_tts_announce)
+    register_service("resource-monitor", _resource_monitor.start, _resource_monitor.stop)
+
+    _snapshotter = StateSnapshot(state_fn=lambda: _resource_monitor.get_status())
+    _resource_monitor.set_snapshot_fn(_snapshotter.take_snapshot)
+    register_service("state-snapshots", _snapshotter.start, _snapshotter.stop)
+
+    # Store references for admin API
+    app.state.resource_monitor = _resource_monitor
+    app.state.snapshotter = _snapshotter
+    app.state.recovery_result = _recovery_result
+
+    try:
+        await start_all()
+        from cortex.pipeline.turns import get_conversation_coordinator
+        if get_conversation_coordinator() is not _conversation:
+            raise RuntimeError("Conversation coordination failed to start")
+        yield
+    finally:
+        unregister_channel(_notification_channel)
+        await stop_all()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -215,25 +295,199 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
     """Browser chat WebSocket — streams pipeline responses and voice I/O."""
     await websocket.accept()
     audio_buffer = bytearray()
+    audio_rejected = False
+    conversation_id = uuid.uuid4().hex
+    responses: set[asyncio.Task[None]] = set()
+    send_lock = asyncio.Lock()
+    tts_task: asyncio.Task[None] | None = None
+    tts_id: str | None = None
+
+    async def respond_tts(payload: dict[str, Any]) -> None:
+        from cortex.speech.tts import synthesize_speech
+        tags = {"playback_id": payload["playback_id"]} if payload.get("playback_id") else {}
+        error_text = "Speech synthesis is unavailable or blocked by household policy"
+        try:
+            user = get_user_auth().resolve_request_user(
+                payload.get("user_id", "web_user"), payload.get("chat_token", ""),
+            )
+            from cortex.safety.middleware import PipelineSafetyMiddleware
+            from cortex.safety import Severity
+            safety = _safety_middleware or PipelineSafetyMiddleware(_get_db())
+            checked = safety.check_output(payload["text"], user, metadata={})
+            if checked.severity >= Severity.SOFT_BLOCK:
+                raise ValueError("Speech was blocked by household policy")
+            pcm, sample_rate, provider_name = await synthesize_speech(
+                payload["text"], payload.get("voice", "af_bella"),
+            )
+            if not pcm:
+                error_text = "No TTS provider available"
+                raise RuntimeError("No TTS provider available")
+            get_user_auth().resolve_request_user(user, payload.get("chat_token", ""))
+            if safety.check_output(payload["text"], user, metadata={}).severity >= Severity.SOFT_BLOCK:
+                raise ValueError("Household policy changed before speech delivery")
+            async with send_lock:
+                await websocket.send_json({
+                    "type": "tts_audio", "data": base64.b64encode(pcm).decode(),
+                    "sample_rate": sample_rate, "provider": provider_name, **tags,
+                })
+        except Exception as exc:
+            logger.warning("TTS failed: %s", exc)
+            async with send_lock:
+                await websocket.send_json({"type": "tts_error", "text": error_text, **tags})
+
+    async def respond(payload: dict[str, Any]) -> None:
+        message = payload["message"]
+        try:
+            user_id = get_user_auth().resolve_request_user(
+                payload.get("user_id", "web_user"), payload.get("chat_token", ""),
+            )
+        except ChatAuthenticationError:
+            await websocket.send_json({"type": "error", "code": "authentication",
+                                       "text": "Sign in again to use this profile"})
+            return
+        metadata = sanitize_metadata(payload.get("metadata"))
+        metadata.setdefault("conversation_id", conversation_id)
+        metadata.setdefault("turn_id", uuid.uuid4().hex)
+        metadata["source"] = "browser"
+        turn_id = metadata["turn_id"]
+        async def authorized_pipeline():
+            with chat_request_actor(user_id, payload.get("chat_token", "")):
+                inner = run_pipeline(
+                    message=message, provider=_get_provider(), user_id=user_id,
+                    conversation_history=payload.get("history", []),
+                    metadata=metadata, db_conn=_get_db(),
+                )
+                try:
+                    async for chunk in inner:
+                        get_user_auth().resolve_request_user(user_id, payload.get("chat_token", ""))
+                        yield chunk
+                finally:
+                    await inner.aclose()
+        pipeline = authorized_pipeline()
+        try:
+            # Admission must not hold the output lock while waiting for inference.
+            first = await anext(pipeline, None)
+            async with send_lock:
+                await websocket.send_json({"type": "start", "turn_id": turn_id})
+                parts = []
+                if first is not None:
+                    parts.append(first)
+                    await websocket.send_json({"type": "token", "text": first, "turn_id": turn_id})
+                async for chunk in pipeline:
+                    parts.append(chunk)
+                    await websocket.send_json({"type": "token", "text": chunk, "turn_id": turn_id})
+                from cortex.pipeline.turns import get_conversation_coordinator, TurnIdentity
+                coordinator = get_conversation_coordinator()
+                turn = coordinator.store.find_existing(TurnIdentity.from_metadata(user_id, metadata)) if coordinator else None
+                await websocket.send_json({
+                    "type": "end", "full_text": "".join(parts), "turn_id": turn_id,
+                    "durable": turn is not None,
+                })
+        except (PipelineGenerationError, ValueError) as exc:
+            logger.warning("Chat turn failed: %s", exc)
+            async with send_lock:
+                await websocket.send_json({"type": "error", "text": str(exc), "turn_id": turn_id})
+        finally:
+            await pipeline.aclose()
+
+    def response_done(task: asyncio.Task[None]) -> None:
+        responses.discard(task)
+        if not task.cancelled():
+            error = task.exception()
+            if error is not None:
+                logger.error("Chat response delivery failed", exc_info=(type(error), error, error.__traceback__))
 
     try:
         while True:
             data = await websocket.receive_json()
+            if not isinstance(data, dict):
+                await websocket.send_json({"type": "error", "text": "Chat messages must be objects"})
+                continue
+            try:
+                get_user_auth().resolve_request_user(data.get("user_id", "web_user"), data.get("chat_token", ""))
+            except ChatAuthenticationError:
+                await websocket.send_json({"type": "error", "code": "authentication",
+                                           "text": "Sign in again to use this profile"})
+                continue
             msg_type = data.get("type", "chat")
+
+            if msg_type in ("turn_result", "turn_ack"):
+                from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+                store = getattr(app.state, "turn_store", None)
+                try:
+                    if store is None:
+                        raise ValueError("Durable chat is unavailable")
+                    turn = store.get(data.get("turn_id", ""), data.get("user_id", "web_user"))
+                    if (turn.identity.source != "browser"
+                            or turn.identity.conversation_id != data.get("conversation_id")):
+                        raise ValueError("Turn is not in this conversation")
+                    async with send_lock:
+                        if msg_type == "turn_ack":
+                            store.acknowledge_text(turn.identity.turn_id, turn.identity.user_id,
+                                                   data.get("revision"))
+                            await websocket.send_json({"type": "turn_ack", "turn_id": turn.identity.turn_id})
+                        else:
+                            if (not turn.output_validated or turn.result is None
+                                    or turn.state not in ("completed", "failed", "uncertain")):
+                                raise ValueError("Turn has no current validated answer")
+                            coordinator = app.state.conversation_coordinator
+                            text = coordinator._validated_output(turn.result, turn, "")
+                            await websocket.send_json({
+                                "type": "turn_result", "turn_id": turn.identity.turn_id,
+                                "revision": turn.identity.revision, "text": text,
+                            })
+                except (TurnStoreError, ValueError) as exc:
+                    logger.warning("Browser result/receipt rejected: %s", exc)
+                    await websocket.send_json({"type": "error", "turn_id": data.get("turn_id"), "text": str(exc)})
+                continue
+
+            if msg_type == "turn_status":
+                from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+                state = "not_available"
+                delivery = None
+                has_result = False
+                store = getattr(app.state, "turn_store", None)
+                if store is not None:
+                    try:
+                        turn = store.get(data.get("turn_id", ""), data.get("user_id", "web_user"))
+                        if (turn.identity.source == "browser"
+                                and turn.identity.conversation_id == data.get("conversation_id")):
+                            state, delivery = turn.state, turn.delivery_state
+                            has_result = turn.output_validated and turn.result is not None
+                    except TurnConflictError:
+                        logger.info("Browser requested unavailable scoped turn status")
+                    except TurnStoreError:
+                        logger.exception("Browser turn status is unavailable")
+                        state = "storage_unavailable"
+                async with send_lock:
+                    await websocket.send_json({"type": "turn_status", "turn_id": data.get("turn_id"),
+                                               "state": state, "delivery_state": delivery, "has_result": has_result})
+                continue
 
             # ── Voice input: STT ─────────────────────────────────
             if msg_type == "audio_start":
                 audio_buffer.clear()
+                audio_rejected = False
                 continue
 
             if msg_type == "audio_data":
+                if audio_rejected:
+                    continue
                 try:
-                    audio_buffer.extend(base64.b64decode(data.get("data", "")))
-                except Exception:
-                    pass
+                    chunk = base64.b64decode(data.get("data", ""), validate=True)
+                    if len(audio_buffer) + len(chunk) > 2 * 1024 * 1024:
+                        raise ValueError("Browser recording exceeds the audio limit")
+                    audio_buffer.extend(chunk)
+                except (ValueError, TypeError):
+                    audio_buffer.clear()
+                    audio_rejected = True
+                    await websocket.send_json({"type": "error", "text": "Invalid or oversized browser recording"})
                 continue
 
             if msg_type == "audio_end":
+                if audio_rejected:
+                    await websocket.send_json({"type": "error", "text": "Recording was rejected; start a new capture"})
+                    continue
                 transcript = ""
                 try:
                     from cortex.speech.stt import transcribe, is_hallucinated
@@ -253,34 +507,23 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 continue
 
             # ── Voice output: TTS ────────────────────────────────
+            if msg_type == "tts_cancel":
+                if tts_task is not None and data.get("playback_id") == tts_id:
+                    tts_task.cancel()
+                    await asyncio.gather(tts_task, return_exceptions=True)
+                continue
             if msg_type == "tts_request":
                 text = data.get("text", "")
-                if not text:
+                if not isinstance(text, str) or not 0 < len(text) <= 16000:
+                    await websocket.send_json({"type": "tts_error", "text": "Speech text must contain 1 to 16000 characters"})
                     continue
-                try:
-                    from cortex.speech.tts import synthesize_speech
-                    voice = data.get("voice", "af_bella")
-                    pcm, sample_rate, provider_name = await synthesize_speech(
-                        text, voice,
-                    )
-                    if pcm:
-                        await websocket.send_json({
-                            "type": "tts_audio",
-                            "data": base64.b64encode(pcm).decode(),
-                            "sample_rate": sample_rate,
-                            "provider": provider_name,
-                        })
-                    else:
-                        await websocket.send_json({
-                            "type": "tts_error",
-                            "text": "No TTS provider available",
-                        })
-                except Exception as exc:
-                    logger.warning("TTS failed: %s", exc)
-                    await websocket.send_json({
-                        "type": "tts_error",
-                        "text": str(exc),
-                    })
+                if tts_task is not None and not tts_task.done():
+                    tts_task.cancel()
+                    await asyncio.gather(tts_task, return_exceptions=True)
+                tts_id = data.get("playback_id")
+                tts_task = asyncio.create_task(respond_tts(dict(data)), name="browser-tts")
+                responses.add(tts_task)
+                tts_task.add_done_callback(response_done)
                 continue
 
             # ── Text chat (default) ──────────────────────────────
@@ -291,31 +534,25 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
             if not message:
                 await websocket.send_json({"type": "error", "text": "Empty message"})
                 continue
+            if (not isinstance(message, str)
+                    or not isinstance(data.get("metadata", {}), dict)
+                    or not isinstance(history, list)):
+                await websocket.send_json({"type": "error", "text": "Invalid chat message, metadata or history"})
+                continue
 
-            provider = _get_provider()
-            db_conn = _get_db()
-
-            await websocket.send_json({"type": "start"})
-
-            full_response = ""
-            async for chunk in run_pipeline(
-                message=message,
-                provider=provider,
-                user_id=user_id,
-                conversation_history=history,
-                db_conn=db_conn,
-            ):
-                full_response += chunk
-                await websocket.send_json({"type": "token", "text": chunk})
-
-            await websocket.send_json({
-                "type": "end",
-                "full_text": full_response,
-            })
+            task = asyncio.create_task(respond(dict(data)), name="browser-chat-turn")
+            responses.add(task)
+            task.add_done_callback(response_done)
     except WebSocketDisconnect:
         logger.info("Chat WebSocket client disconnected")
     except Exception:
         logger.exception("Chat WebSocket error")
+    finally:
+        tasks = list(responses)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 app.add_api_websocket_route("/ws/chat", chat_ws_handler)
@@ -406,6 +643,34 @@ async def health():
     return {"status": "ok" if healthy else "degraded", "provider_healthy": healthy}
 
 
+@app.get("/live")
+async def liveness():
+    """Process liveness must not depend on optional or failed providers."""
+    return {"status": "alive"}
+
+
+@app.get("/ready")
+async def readiness():
+    import httpx
+    checks = {"startup": bool(getattr(app.state, "ready", False)), "storage": False, "llm": False}
+    store = getattr(app.state, "turn_store", None)
+    if store is not None:
+        try:
+            checks["storage"] = store.conn.execute("SELECT 1 FROM pending_turns LIMIT 1") is not None
+        except sqlite3.Error:
+            logger.exception("Readiness storage check failed")
+    try:
+        checks["llm"] = await asyncio.wait_for(_get_provider().health(), timeout=3)
+    except (TimeoutError, httpx.HTTPError, ClientError, OSError, ValueError):
+        logger.warning("Readiness provider check failed", exc_info=True)
+    ready = all(checks.values())
+    return JSONResponse(status_code=200 if ready else 503, content={
+        "status": "ready" if ready else "degraded",
+        "checks": checks,
+        "optional": {"tts": "not_checked", "stt": "not_checked", "satellites": "not_checked"},
+    })
+
+
 @app.get("/v1/models")
 async def list_models():
     return {
@@ -446,7 +711,26 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     db_conn = _get_db()
 
     user_id = request.user or request.metadata.get("user_id", "default")
-    metadata = request.metadata
+    metadata = sanitize_metadata(request.metadata)
+    metadata["source"] = "http"
+    token = raw.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    auth_user = get_user_auth().get_user(user_id)
+    if not (auth_user and auth_user.auth_method != "none") and not get_user_auth().verify_session_token(token):
+        token = ""
+    try:
+        get_user_auth().resolve_request_user(user_id, token)
+    except ChatAuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if raw.headers.get("Idempotency-Key"):
+        metadata["idempotency_key"] = raw.headers["Idempotency-Key"]
+    from cortex.pipeline.turns import TurnIdentity, get_conversation_coordinator
+    identity = TurnIdentity.from_metadata(user_id, metadata)
+    metadata.update(turn_id=identity.turn_id, conversation_id=identity.conversation_id)
+
+    async def delivered():
+        coordinator = get_conversation_coordinator()
+        if coordinator is not None:
+            coordinator.acknowledge_text(identity)
 
     # ── Input guardrails (Principle II, IV — safety before pipeline) ──
     from cortex.safety import Severity
@@ -471,23 +755,37 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
     if _safety_middleware is not None:
         system_prompt = _safety_middleware.build_system_prompt(user_id, metadata)
 
-    pipeline = run_pipeline(
-        message=user_message,
-        provider=provider,
-        user_id=user_id,
-        conversation_history=conversation_history,
-        metadata=metadata,
-        db_conn=db_conn,
-        system_prompt=system_prompt,
-    )
+    async def authorized_pipeline():
+        with chat_request_actor(user_id, token):
+            inner = run_pipeline(
+                message=user_message, provider=provider, user_id=user_id,
+                conversation_history=conversation_history, metadata=metadata,
+                db_conn=db_conn, system_prompt=system_prompt,
+            )
+            try:
+                async for chunk in inner:
+                    get_user_auth().resolve_request_user(user_id, token)
+                    yield chunk
+            finally:
+                await inner.aclose()
+    pipeline = authorized_pipeline()
 
     if request.stream:
         return StreamingResponse(
-            _sse_stream(pipeline, request.model),
+            _sse_stream(pipeline, request.model, delivered),
             media_type="text/event-stream",
         )
     else:
-        full = "".join([chunk async for chunk in pipeline])
+        try:
+            full = "".join([chunk async for chunk in pipeline])
+        except (ConversationConflictError, TurnSupersededError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ConversationStorageError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except PipelineGenerationError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         # ── Output guardrails (Principle II, IV — safety after LLM) ──
         if _safety_middleware is not None:
             output_result = _safety_middleware.check_output(
@@ -498,32 +796,44 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
                     "I'm not able to provide that kind of content. "
                     "Is there something else I can help you with?"
                 )
-        return _json_response(full, request.model)
+        from starlette.background import BackgroundTask
+        response = _json_response(full, request.model)
+        response.background = BackgroundTask(delivered)
+        return response
 
 
 async def _sse_stream(
     gen: AsyncGenerator[str, None],
     model: str,
+    on_delivered: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Wrap token stream as Server-Sent Events (OpenAI SSE format)."""
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     created = int(time.time())
 
-    async for chunk in gen:
-        data = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {"role": "assistant", "content": chunk},
-                    "finish_reason": None,
-                }
-            ],
-        }
-        yield f"data: {json.dumps(data)}\n\n"
+    try:
+        async for chunk in gen:
+            data = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": chunk},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+    except (PipelineGenerationError, ValueError) as exc:
+        logger.warning("Streaming chat failed: %s", exc)
+        yield f"data: {json.dumps({'error': {'message': str(exc), 'type': type(exc).__name__}})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+    finally:
+        await gen.aclose()
 
     # Final chunk
     final = {
@@ -535,6 +845,8 @@ async def _sse_stream(
     }
     yield f"data: {json.dumps(final)}\n\n"
     yield "data: [DONE]\n\n"
+    if on_delivered is not None:
+        await on_delivered()
 
 
 def _json_response(content: str, model: str) -> JSONResponse:
@@ -560,11 +872,12 @@ def _json_response(content: str, model: str) -> JSONResponse:
 # ──────────────────────────────────────────────────────────────────
 
 class SpeechRequest(BaseModel):
-    model: str = "orpheus"
-    input: str
+    model: str | None = None
+    input: str = Field(min_length=1, max_length=16000)
+    user: str = "default"
     voice: str | None = None
     speed: float = 1.0
-    response_format: str = "wav"
+    response_format: Literal["wav", "pcm"] = "wav"
     emotion: str | None = None
 
 
@@ -578,10 +891,36 @@ async def list_voices():
 
 
 @app.post("/v1/audio/speech")
-async def create_speech(req: SpeechRequest):
+async def create_speech(req: SpeechRequest, raw: Request):
+    from cortex.safety import Severity
+    from cortex.safety.middleware import PipelineSafetyMiddleware
+    from cortex.profiles import check_parental_allowed
+    from datetime import datetime
+
+    manager = get_user_auth()
+    token = raw.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    user = manager.get_user(req.user)
+    if not (user and user.auth_method != "none") and not manager.verify_session_token(token):
+        token = ""
+    safety = _safety_middleware or PipelineSafetyMiddleware(_get_db())
+
+    def authorize(text: str) -> None:
+        try:
+            manager.resolve_request_user(req.user, token)
+        except ChatAuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        if (not check_parental_allowed(_get_db(), req.user, hour=datetime.now().hour)["allowed"]
+                or safety.check_output(text, req.user, metadata={}).severity >= Severity.SOFT_BLOCK):
+            logger.info("HTTP speech denied by household policy")
+            raise HTTPException(status_code=403, detail="Speech blocked by household policy")
+
+    if not req.input.strip():
+        raise HTTPException(status_code=422, detail="Speech input must be nonempty")
+    authorize(req.input)
     try:
-        provider = get_tts_provider(req.model)
+        provider = get_tts_provider({"TTS_PROVIDER": req.model}) if req.model else get_tts_provider()
     except (ValueError, KeyError):
+        logger.warning("Unknown speech model %s; using the configured provider", req.model)
         provider = get_tts_provider()
 
     # Prepend emotion tag for tag-based providers
@@ -589,7 +928,8 @@ async def create_speech(req: SpeechRequest):
     if req.emotion and provider.get_emotion_format() == "tags":
         text = f"{req.emotion}: {text}"
 
-    async def _stream():
+    try:
+        chunks: list[bytes] = []
         async for chunk in provider.synthesize(
             text=text,
             voice=req.voice,
@@ -597,13 +937,30 @@ async def create_speech(req: SpeechRequest):
             speed=req.speed,
             stream=True,
         ):
-            yield chunk
-
-    return StreamingResponse(
-        _stream(),
-        media_type="audio/wav",
-        headers={"Transfer-Encoding": "chunked"},
-    )
+            chunks.append(chunk)
+        audio = b"".join(chunks)
+        if not audio:
+            raise ValueError("Speech provider returned no audio")
+        authorize(text)
+        from cortex.speech.tts import extract_pcm
+        rate = getattr(provider, "sample_rate", 24000)
+        if isinstance(rate, bool) or not isinstance(rate, int) or rate <= 0:
+            raise ValueError("Speech provider sample rate must be a positive integer")
+        pcm, rate = extract_pcm(audio, default_rate=rate)
+        if req.response_format == "pcm":
+            return Response(pcm, media_type="audio/pcm")
+        if audio.startswith(b"RIFF"):
+            return Response(audio, media_type="audio/wav")
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(rate)
+            output.writeframes(pcm)
+        return Response(buffer.getvalue(), media_type="audio/wav")
+    except (ClientError, OSError, ValueError, RuntimeError, wave.Error) as exc:
+        logger.exception("Speech synthesis failed")
+        raise HTTPException(status_code=502, detail="Speech synthesis failed") from exc
 
 
 # ──────────────────────────────────────────────────────────────────

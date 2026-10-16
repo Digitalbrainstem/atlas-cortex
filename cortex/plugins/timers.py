@@ -171,6 +171,8 @@ class SchedulingPlugin(CortexPlugin):
         self.timer_engine = TimerEngine()
         self.alarm_engine = AlarmEngine()
         self.reminder_engine = ReminderEngine()
+        from cortex.notifications.satellite import wire_scheduling_callbacks
+        wire_scheduling_callbacks(self.timer_engine, self.alarm_engine, self.reminder_engine)
         # Start background loops
         await self.alarm_engine.start()
         await self.reminder_engine.start()
@@ -211,7 +213,10 @@ class SchedulingPlugin(CortexPlugin):
             handler = getattr(self, f"_handle_{intent}", None)
             if handler is None:
                 return CommandResult(success=False, response="I'm not sure how to do that.")
-            return await handler(message, user_id, room)
+            result = await handler(message, user_id, room)
+            if intent.startswith("list_"):
+                result.metadata["action_outcome"] = "none"
+            return result
         except Exception as exc:
             logger.exception("Scheduling handle error for intent=%s", intent)
             return CommandResult(success=False, response=f"Sorry, something went wrong: {exc}")
@@ -238,15 +243,33 @@ class SchedulingPlugin(CortexPlugin):
             metadata={"timer_id": tid, "duration_seconds": duration},
         )
 
+    def _timer_target(
+        self, timers: list[dict[str, Any]], message: str, room: str,
+    ) -> dict[str, Any] | CommandResult:
+        if room:
+            timers = [timer for timer in timers if timer.get("room") == room]
+        label = _extract_label(message)
+        if label:
+            timers = [timer for timer in timers if timer.get("label", "").casefold() == label.casefold()]
+        if len(timers) != 1:
+            return CommandResult(
+                False, "Which timer do you mean? Please name its label and use its room.",
+                clarification_required=True,
+            )
+        return timers[0]
+
     async def _handle_cancel_timer(self, message: str, user_id: str, room: str) -> CommandResult:
         assert self.timer_engine is not None
         timers = await self.timer_engine.list_timers(user_id=user_id)
         active = [t for t in timers if t["state"] in ("running", "paused")]
         if not active:
-            return CommandResult(success=True, response="You don't have any active timers.")
-        # Cancel the most recent active timer
-        target = active[-1]
-        await self.timer_engine.cancel_timer(target["id"])
+            return CommandResult(success=True, response="You don't have any active timers.",
+                                 metadata={"action_outcome": "none"})
+        target = self._timer_target(active, message, room)
+        if isinstance(target, CommandResult):
+            return target
+        if not await self.timer_engine.cancel_timer(target["id"]):
+            return CommandResult(False, "That timer could not be cancelled.")
         label = target.get("label", "")
         label_text = f" ({label})" if label else ""
         return CommandResult(success=True, response=f"Timer{label_text} cancelled.")
@@ -256,8 +279,11 @@ class SchedulingPlugin(CortexPlugin):
         timers = await self.timer_engine.list_timers(user_id=user_id)
         running = [t for t in timers if t["state"] == "running"]
         if not running:
-            return CommandResult(success=True, response="You don't have any running timers to pause.")
-        target = running[-1]
+            return CommandResult(success=True, response="You don't have any running timers to pause.",
+                                 metadata={"action_outcome": "none"})
+        target = self._timer_target(running, message, room)
+        if isinstance(target, CommandResult):
+            return target
         ok = await self.timer_engine.pause_timer(target["id"])
         if ok:
             return CommandResult(success=True, response="Timer paused.")
@@ -268,8 +294,11 @@ class SchedulingPlugin(CortexPlugin):
         timers = await self.timer_engine.list_timers(user_id=user_id)
         paused = [t for t in timers if t["state"] == "paused"]
         if not paused:
-            return CommandResult(success=True, response="You don't have any paused timers.")
-        target = paused[-1]
+            return CommandResult(success=True, response="You don't have any paused timers.",
+                                 metadata={"action_outcome": "none"})
+        target = self._timer_target(paused, message, room)
+        if isinstance(target, CommandResult):
+            return target
         ok = await self.timer_engine.resume_timer(target["id"])
         if ok:
             return CommandResult(success=True, response="Timer resumed.")

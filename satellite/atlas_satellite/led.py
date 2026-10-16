@@ -49,10 +49,12 @@ class LEDController(ABC):
 
     def _render_dual_state(self) -> None:
         """Render combined primary + activity state. Override in subclasses."""
+        primary = self._primary_state
         if self._activity_state:
             self.set_pattern(self._activity_state)
         else:
             self.set_pattern(self._primary_state)
+        self._primary_state = primary
 
     @abstractmethod
     def off(self) -> None:
@@ -75,6 +77,9 @@ class NullLED(LEDController):
     def off(self) -> None:
         pass
 
+    def _render_dual_state(self) -> None:
+        pass
+
 
 class ReSpeakerLED(LEDController):
     """ReSpeaker HAT APA102 RGB LEDs via SPI.
@@ -90,6 +95,7 @@ class ReSpeakerLED(LEDController):
         "processing": (255, 165, 0, 0.3),
         "speaking": (0, 200, 100, 0.4),
         "error": (255, 0, 0, 0.5),
+        "offline": (255, 165, 0, 0.2),
         "muted": (255, 0, 0, 0.1),
         "wakeword": (0, 200, 255, 0.6),
     }
@@ -266,7 +272,7 @@ class ReSpeakerLED(LEDController):
 
     def off(self) -> None:
         self._stop_pulse()
-        self._write_leds(0, 0, 0, 0)
+        self._write_leds_uniform(0, 0, 0, 0)
 
     def close(self) -> None:
         self.off()
@@ -282,6 +288,8 @@ class GPIOLED(LEDController):
         "idle": False,
         "listening": True,
         "thinking": True,
+        "processing": True,
+        "offline": True,
         "speaking": True,
         "error": True,
         "muted": False,

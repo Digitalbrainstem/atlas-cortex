@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,7 +39,7 @@ class SatelliteConfig:
     led_count: int = 3
 
     # Wake word
-    wake_word_enabled: bool = False  # disabled by default (VAD-only mode)
+    wake_word_enabled: bool = True  # enabled by default — uses openwakeword when available
     wake_word_threshold: float = 0.5
     wake_word_model: str = ""
 
@@ -84,6 +86,21 @@ class SatelliteConfig:
     # Features
     features: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.button_mode not in ("toggle", "press", "hold"):
+            raise ValueError("button_mode must be toggle, press, or hold")
+        if type(self.vad_sensitivity) is not int or not 0 <= self.vad_sensitivity <= 3:
+            raise ValueError("vad_sensitivity must be an integer from 0 to 3")
+        for name in ("volume", "mic_gain", "led_brightness", "wake_word_threshold"):
+            value = getattr(self, name)
+            if type(value) not in (int, float) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be between 0 and 1")
+        for name in ("wake_word_enabled", "button_enabled", "vad_enabled"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if not isinstance(self.features, dict):
+            raise ValueError("features must be an object")
+
     @classmethod
     def load(cls, path: str | Path) -> SatelliteConfig:
         path = Path(path)
@@ -102,8 +119,23 @@ class SatelliteConfig:
         data = {}
         for k, v in self.__dict__.items():
             data[k] = v
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
+        temporary: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as f:
+                temporary = f.name
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, path)
+            temporary = None
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                Path(temporary).unlink(missing_ok=True)
 
     @property
     def frame_size(self) -> int:

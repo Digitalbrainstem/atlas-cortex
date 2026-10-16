@@ -1,7 +1,7 @@
 """Wake word detection — optional, supports openwakeword backend.
 
-When disabled (default), the agent uses VAD-only mode: any detected
-speech triggers audio streaming to the server.
+VAD-only activation must be explicitly configured. A missing wake model
+must not silently activate on arbitrary speech.
 
 Supports both ONNX and TFLite inference frameworks, preferring ONNX
 which is available on 64-bit ARM (aarch64) and x86_64.
@@ -24,16 +24,30 @@ class WakeWordDetector:
         wake_word: str = "atlas",
         threshold: float = 0.5,
         model_path: str = "",
+        *,
+        initialize: bool = True,
     ):
         self.wake_word = wake_word
         self.threshold = threshold
         self._backend = "none"
         self._detector = None
         self._model_name = ""
-        self._init_backend(model_path)
+        self.status = "loading"
+        self.error = ""
+        self._model_path = model_path
+        if initialize:
+            self.initialize()
+
+    def initialize(self) -> None:
+        self._init_backend(self._model_path)
 
     def _init_backend(self, model_path: str) -> None:
         """Try to initialize openwakeword, fall back to none."""
+        if model_path and not os.path.isfile(model_path):
+            self.status = "model_missing"
+            self.error = "Configured wake model is missing"
+            logger.warning("%s: %s", self.error, model_path)
+            return
         try:
             from openwakeword.model import Model
 
@@ -42,8 +56,6 @@ class WakeWordDetector:
                 model_paths = [model_path]
                 self._model_name = os.path.splitext(os.path.basename(model_path))[0]
                 logger.info("Using custom wake word model: %s", model_path)
-            elif model_path:
-                logger.warning("Model not found at %s, using defaults", model_path)
 
             # v0.4.0 passes **kwargs to AudioFeatures, so only use named params
             try:
@@ -61,15 +73,24 @@ class WakeWordDetector:
                     self._detector = Model()
                     fw = "auto"
 
-            self._backend = "openwakeword"
             models = list(self._detector.models.keys())
+            target = self._model_name or self.wake_word.strip().replace(" ", "_")
+            if target not in models:
+                self.status = "model_missing"
+                self.error = f"No model matching configured wake word: {target}"
+                logger.warning(self.error)
+                return
+            self._model_name = target
+            self._backend = "openwakeword"
+            self.status = "warming"
             logger.info("Wake word backend: openwakeword (%s), models: %s", fw, models)
         except ImportError:
-            logger.info(
-                "openwakeword not installed — wake word detection disabled. "
-                "Using VAD-only mode."
-            )
+            self.status = "unavailable"
+            self.error = "openwakeword or its inference backend is not installed"
+            logger.warning(self.error)
         except Exception:
+            self.status = "error"
+            self.error = "Wake model initialization failed"
             logger.exception("Failed to initialize openwakeword")
 
     def process(self, audio_data: bytes) -> float:
@@ -88,15 +109,19 @@ class WakeWordDetector:
 
                 # Match against custom model name or configured wake word
                 target = self._model_name or self.wake_word
-                if target and target in predictions:
-                    score = predictions[target]
-                else:
-                    score = max(predictions.values())
+                if target not in predictions:
+                    return 0.0
+                score = float(predictions[target])
+                self.status = "ready"
 
                 if score > 0.2:
                     logger.info("Wake word candidate: %.4f", score)
                 return score
             except Exception:
+                self.status = "error"
+                self.error = "Wake model inference failed"
+                self._backend = "none"
+                logger.exception(self.error)
                 return 0.0
         return 0.0
 

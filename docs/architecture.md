@@ -2,7 +2,65 @@
 
 ## Overview
 
-Atlas Cortex is an Open WebUI **Pipe function** that intercepts all user messages and processes them through a multi-layer pipeline. Each layer is progressively more expensive — simple queries are answered instantly without touching the LLM, while complex queries get routed to the appropriate model with perceived-zero-latency filler streaming.
+Atlas Cortex exposes a standalone server and an Open WebUI **Pipe function** that
+share a multi-layer pipeline. Each layer is progressively more expensive:
+simple queries are answered without touching the LLM, while complex queries
+fall through to a configured model.
+
+### Staged turn processing
+
+`prepare_turn()` assembles L0 context and runs L1/L2 once, returning a typed
+`PreparedTurn`. Its route distinguishes handled requests, clarification, failure
+and true fallthrough. `run_prepared_pipeline_events()` renders that result or
+invokes L3 only for fallthrough; the public text/event generator wrappers retain
+their existing contracts. Typed events carry turn/conversation identity and
+revision for later orchestration and stale-result checks.
+
+The P03 operational `TurnStore` in `cortex/orchestrator/turn_store.py` owns durable
+finalized work and restart recovery, separately from the in-memory inference
+`RequestQueue` and playback. The store is initialized at server startup with
+bounded maintenance and authenticated administrative status/recovery controls.
+Input/output validation precedes acceptance/result publication through its API.
+
+P04 adds deterministic HA target corrections and explicit inverses, an indexed
+structured action journal, pre-effect intent commits and serialized conflicting
+effects. Already executed actions are reported truthfully, not implicitly undone.
+Plugins take precedence over learned informational templates, and unresolved
+device/list/timer targets ask for clarification rather than inventing success.
+
+P05 adds `ConversationCoordinator` for true LLM fallthrough only. Server lifespan
+registers one coordinator per event loop; standalone Pipe calls share a persistent
+worker loop. Both text/event pipeline renderers use it, including satellite
+generation on the server loop. Low-level library use without a coordinator retains
+direct generation. Fast answers and plugin effects do not acquire inference slots.
+
+Validated questions and generation options are accepted into SQLite before model
+dispatch. Only a bounded page of conversation-head IDs is fetched; active jobs use
+the existing `RequestQueue` and provider abstractions. Independent questions remain
+ordered within each user/conversation, while least-recently-dispatched conversation
+heads allow other rooms to proceed. Context is rebuilt from bounded, validated
+completed turns in the same user/conversation/source/device/room/speaker scope.
+Structured current-turn and relation context distinguishes replacements from history.
+
+An unambiguous pending-question correction atomically supersedes its predecessor;
+ambiguous corrections ask which question instead. Explicit relation metadata can
+identify the target and revision. Active obsolete work is cancelled and cannot commit
+or publish old output. Transport disconnect does not cancel accepted work. Restarted
+questions require recovery confirmation and input-policy revalidation before dispatch.
+
+**Streaming behavior change:** LLM output, including filler, is buffered within the
+configured output-byte limit, checked by output guardrails, and committed at the
+current revision before becoming visible. SSE/WebSocket frame formats remain
+compatible, but generated text is not exposed token-by-token before validation.
+Browser reception remains available while replies wait; response frames include
+`turn_id`. Generated/delivery-ready output is not proof the user heard it.
+
+P06 adds a lifecycle-owned `VoiceService` with bounded STT admission independent
+of inference and playback. Complete Pi captures become validated durable turns;
+short acoustic pauses retain fragments rather than dispatching incomplete commands.
+Per-device delivery scans bounded durable heads, not an in-memory question backlog.
+Actual playback receipts are distinct from generated or sent text. Raw audio remains
+transient; legacy ESP32 ingress and browser STT retain their protocol paths.
 
 ## Processing Pipeline
 
@@ -92,33 +150,29 @@ Runs as a cron container at 3 AM daily. Uses the existing Qwen3 30B model for in
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Speaker Identification Sidecar
+## Local Speaker Identification
 
-Lightweight CPU-based container using [resemblyzer](https://github.com/resemble-ai/Resemblyzer) for speaker embeddings.
+The implemented path uses [resemblyzer](https://github.com/resemble-ai/Resemblyzer)
+on CPU inside Cortex, not the previously proposed separate sidecar. This keeps
+enrollment, profile deletion and recognition on the existing `speaker_profiles`
+store without introducing a second identity database or mandatory service.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Speaker Identification Sidecar                  │
-│                                                                  │
-│  Container: atlas-speaker-id (CPU-based, ~200MB RAM)            │
-│  Library: resemblyzer (d-vector embeddings, 256-dim)            │
-│                                                                  │
-│  Enrollment Flow:                                               │
-│    User: "Hey Atlas, remember my voice"                         │
-│    Atlas: "Sure! Say a few sentences so I can learn your voice" │
-│    → Record 10-15 seconds → Generate embedding → Store          │
-│    Atlas: "Got it, Derek. I'll know it's you next time."        │
-│                                                                  │
-│  Identification Flow:                                           │
-│    Audio arrives → Extract embedding → Cosine similarity match  │
-│    Threshold > 0.85 → Identified (inject user context)          │
-│    Threshold < 0.85 → Unknown → "I don't recognize that voice.  │
-│                        What's your name?"                       │
-│                                                                  │
-│  API: POST /identify { audio_base64 } → { user_id, confidence }│
-│  API: POST /enroll   { audio_base64, user_id } → { success }   │
-└─────────────────────────────────────────────────────────────────┘
-```
+An administrator enrolls a consenting household member from **Voice Enrollments**
+by uploading 1-15 seconds of speech (10-15 recommended). The authenticated
+`POST /admin/voice/speakers/enroll` API accepts `user_id`, `audio_base64` (16 kHz,
+mono PCM16) and `sample_rate: 16000`. Only the 256-dimensional embedding is stored.
+The browser converts uploaded audio to that format.
+
+Each complete satellite capture is independently matched against current local
+profiles. The minimum similarity is 0.85 and the leading user must exceed the
+runner-up by 0.03. Missing models, unknown/ambiguous speakers and deleted profiles
+remain anonymous and child-safe; connection identity is never carried forward
+to a new speaker. Recognition personalizes policy, timers and memory, but is
+**not authentication for locks or other privileged actions**.
+
+The encoder is loaded lazily, and CPU inference runs outside the event loop.
+Real-room recognition accuracy and short-control utterances still require
+physical qualification; synthetic software checks do not establish those metrics.
 
 ## Spatial Awareness — Room/Area Context
 
@@ -267,9 +321,9 @@ Timeline:
   1ms    → No instant answer match, no HA command match
   2ms    → Select filler: "Good question — "
   3ms    → Start streaming filler tokens to user
-  50ms   → Background thread: POST /api/chat to Ollama
+  50ms   → Background thread: POST /v1/chat/completions to llama.cpp
   300ms  → Filler complete, user sees: "Good question — "
-  800ms  → First real token arrives from Ollama
+  800ms  → First real token arrives from llama.cpp
   801ms  → Continue streaming: "the sky appears blue because..."
   
 User perceives: continuous response from 3ms
@@ -347,9 +401,9 @@ The pipe auto-selects the LLM based on query analysis:
 
 | Signal | Model | Reasoning |
 |--------|-------|-----------|
-| Short question, factual | Qwen2.5 14B (Turbo) | Fast, no thinking overhead |
-| Code, explanation, multi-step | Qwen3 30B-A3B | Thinking mode beneficial |
-| "explain in detail", "analyze", "compare" | Qwen3 30B-A3B (Deep) | Full thinking budget |
+| Short question, factual | Qwen3.5 (MODEL_FAST) | Fast, no thinking overhead |
+| Code, explanation, multi-step | Qwen3.5 (MODEL_THINKING) | Thinking mode beneficial |
+| "explain in detail", "analyze", "compare" | Qwen3.5 (MODEL_THINKING) | Full thinking budget |
 
 Selection is rule-based (no LLM needed for routing):
 - Message length, keyword detection, conversation depth, explicit user cues
@@ -359,7 +413,7 @@ Selection is rule-based (no LLM needed for routing):
 | Component | Technology | Resource |
 |-----------|-----------|----------|
 | Core Pipe | Atlas Cortex server (Python) + optional Open WebUI Pipe | Standalone :5100 or embedded |
-| LLM Backend | **HuggingFace Transformers** (default), Ollama, vLLM, LocalAI, etc. | Via provider interface |
+| LLM Backend | **llama.cpp** (default, via OpenAI-compatible API), HuggingFace Transformers, vLLM, etc. | Via provider interface |
 | Sentiment | VADER (vaderSentiment) | CPU, <1ms |
 | Speaker ID | resemblyzer | CPU, ~50ms, ~200MB RAM |
 | Memory (vector) | ChromaDB (embedded mode) | CPU, ~50MB RAM, persistent SQLite |
