@@ -167,6 +167,7 @@ async def delete_user(user_id: str, _: dict = Depends(require_admin)):
         conn.execute("DELETE FROM pending_turn_sequences WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM ha_command_context WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM user_auth WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM speaker_profiles WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM parental_controls WHERE child_user_id = ?", (user_id,))
         conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM emotional_profiles WHERE user_id = ?", (user_id,))

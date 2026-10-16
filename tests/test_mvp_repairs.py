@@ -226,3 +226,47 @@ def test_browser_result_recovery_and_revision_receipt(db, monkeypatch):
         socket.send_json({"type": "turn_ack", **request, "revision": result["revision"]})
         assert socket.receive_json()["type"] == "turn_ack"
     assert store.get("reply", "alice").delivery_state == "delivered"
+
+
+async def test_real_pipeline_recalls_and_writes_scoped_memory_once(runtime, monkeypatch):
+    from unittest.mock import AsyncMock
+    from cortex.memory.controller import MemorySystem
+    from cortex.pipeline import run_pipeline
+    from cortex.plugins import PluginRegistry
+    store, coordinator, provider = runtime
+    monkeypatch.setattr("cortex.memory.controller._HAS_CHROMADB", False)
+    monkeypatch.setattr("cortex.memory.controller.get_embedding", AsyncMock(return_value=None))
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: PluginRegistry())
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins._try_learned_patterns", lambda _: (None, 0))
+    memory = MemorySystem(store.conn)
+    monkeypatch.setattr("cortex.memory.controller._memory_system", memory)
+    await memory.start()
+    try:
+        await memory.remember("My favorite telescope is the blue telescope.", "alice")
+        await memory.remember("My private telescope is the red telescope.", "bob")
+        await asyncio.wait_for(memory._writer._queue.join(), 3)
+        remember = AsyncMock(wraps=memory.remember)
+        monkeypatch.setattr(memory, "remember", remember)
+        prompts = []
+        async def chat(**kwargs):
+            prompts.append(kwargs["messages"])
+            async def tokens():
+                yield "Your favorite telescope is blue."
+            return tokens()
+        provider.chat = chat
+        metadata = {"turn_id": "memory", "conversation_id": "review"}
+        for _ in range(2):
+            answer = "".join([part async for part in run_pipeline(
+                "telescope", provider, user_id="alice", metadata=metadata,
+                db_conn=store.conn,
+            )])
+            assert "blue" in answer
+        assert len(prompts) == 1
+        assert "blue telescope" in str(prompts)
+        assert "red telescope" not in str(prompts)
+        remember.assert_awaited_once()
+        assert remember.await_args.kwargs["user_id"] == "alice"
+        await asyncio.wait_for(memory._writer._queue.join(), 3)
+        assert store.conn.execute("SELECT COUNT(*) FROM memory_fts WHERE user_id='alice'").fetchone()[0] == 2
+    finally:
+        await memory.stop()

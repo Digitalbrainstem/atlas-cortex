@@ -31,6 +31,24 @@ eligible for configured retention; generation alone never counts as delivery.
 Public chat preserves the pending identity in tab session storage and retrieves
 the policy-rechecked answer after reconnect/reload without resubmitting the action.
 
+### Voice identity and admission
+
+Use **Voice Enrollments** to upload a consenting user's speech and associate it
+with an existing household user ID. Recognition is local CPU inference; raw
+enrollment audio is not retained. Unknown or ambiguous speakers remain
+anonymous/child-safe and do not use personalized long-term memory.
+
+Voice admission persists transcripts before action execution. A single preparation
+worker per device reads queued transcripts from SQLite, independently of its STT
+worker. Stop/resume controls bypass slow preparation; cancelling an already
+in-progress external action reports that its effect may need manual verification.
+Reconnect resume discovers interrupted playback but requires explicit confirmation
+(`resume the previous response`) and rechecks current output policy.
+
+Known-user LLM turns recall scoped memory before generation and enqueue their
+validated response to the cold writer once, including disconnected voice turns.
+Fast-path answers also use the cold writer. Idempotent replay does not write again.
+
 ### 1. Build the Admin Panel
 
 ```bash

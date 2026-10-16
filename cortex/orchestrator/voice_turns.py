@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from cortex.orchestrator.conversation import ConversationCoordinator, GenerationOptions
-from cortex.orchestrator.turn_store import TurnStore
+from cortex.orchestrator.turn_store import TurnStore, StoredTurn
 from cortex.orchestrator.interrupt import classify_interrupt
 from cortex.pipeline import prepare_turn
 from cortex.pipeline.turns import DispatchResult, RouteStatus, TurnIdentity
@@ -100,7 +100,10 @@ class VoiceSession:
         self.service = service
         self.conn = conn
         self.captures: asyncio.Queue[Capture] = asyncio.Queue(maxsize=2)
+        self.preparing_turn: str | None = None
+        self.preparing: asyncio.Task[None] | None = None
         self.ingestion = asyncio.create_task(self._ingest(), name=f"stt-{conn.satellite_id}")
+        self.preparation = asyncio.create_task(self._prepare_loop(), name=f"prepare-{conn.satellite_id}")
         self.delivery = asyncio.create_task(self._deliver(), name=f"delivery-{conn.satellite_id}")
         self.played = asyncio.Event()
         self.playback_id: str | None = None
@@ -112,7 +115,7 @@ class VoiceSession:
         self.processing: bool | None = None
 
     async def submit(self, capture: Capture) -> None:
-        if self.closed or self.ingestion.done() or self.delivery.done():
+        if self.closed or self.ingestion.done() or self.delivery.done() or self.preparation.done():
             raise RuntimeError("Voice connection is unavailable; please reconnect")
         if self.captures.full() or self.service.audio_bytes + len(capture.audio) > self.service.max_audio_bytes:
             logger.warning("STT audio budget reached for %s", self.conn.satellite_id)
@@ -124,7 +127,7 @@ class VoiceSession:
 
     async def close(self) -> None:
         self.closed = True
-        tasks = (self.ingestion, self.delivery)
+        tasks = (self.ingestion, self.delivery, self.preparation)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -154,8 +157,10 @@ class VoiceSession:
                 # Acoustic boundaries are not semantic boundaries. Split only
                 # explicit question punctuation after the full capture is transcribed.
                 questions = [part.strip() for part in re.split(r"(?<=\?)\s+(?=\S)", transcript) if part.strip()]
+                from cortex.speech.recognition import identify_audio
+                user, speaker = await identify_audio(capture.audio, self.service.store.conn)
                 for index, question in enumerate(questions):
-                    await self._accept(question, capture, index)
+                    await self._accept(question, capture, index, user=user, speaker=speaker)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -166,9 +171,11 @@ class VoiceSession:
                 self.captures.task_done()
                 del capture
 
-    async def _accept(self, transcript: str, capture: Capture, index: int) -> None:
+    async def _accept(
+        self, transcript: str, capture: Capture, index: int, *,
+        user: str = "anonymous", speaker: str | None = None,
+    ) -> None:
         store, coordinator = self.service.store, self.service.conversation
-        user = getattr(self.conn, "user_id", "anonymous")
         identity = TurnIdentity(
             f"voice:{self.conn.satellite_id}:{capture.capture_id}:{index}",
             f"voice:{self.conn.satellite_id}", user,
@@ -191,17 +198,67 @@ class VoiceSession:
             await self.conn.send({"type": "TURN_ACCEPTED", "turn_id": identity.turn_id,
                                   "revision": existing.identity.revision, "sequence": existing.sequence})
             return
-        turn = store.accept(identity, transcript, input_validated=True, context={"voice_ingress": True})
+        immediate = classify_interrupt(transcript) in ("stop", "resume")
+        turn = store.accept(identity, transcript, input_validated=True, context={
+            "voice_ingress": True, "metadata": metadata, "capture_reason": capture.reason,
+            "speaker_id": speaker, "voice_control": immediate,
+        })
+        await self.conn.send({"type": "TURN_ACCEPTED", "turn_id": identity.turn_id,
+                              "revision": 1, "sequence": turn.sequence})
+        if immediate:
+            await self._prepare(turn)
+        elif self.paused_turn and capture.reason != "capture_limit":
+            await self._control(transcript, identity)
+        await self._publish_processing()
+
+    async def _prepare_loop(self) -> None:
+        while True:
+            turn = self.service.store.voice_preparation_head(self.conn.satellite_id, self.conn.room)
+            if turn is None:
+                await asyncio.sleep(0.02)
+                continue
+            self.preparing_turn = turn.identity.turn_id
+            self.preparing = asyncio.create_task(self._prepare(turn))
+            try:
+                await self.preparing
+            except asyncio.CancelledError:
+                if self.closed:
+                    raise
+            except Exception as exc:
+                logger.exception("Voice preparation failed")
+                await self.conn.send({"type": "PIPELINE_ERROR", "code": "preparation_failed", "detail": str(exc)})
+            finally:
+                self.preparing = None
+                self.preparing_turn = None
+
+    async def _prepare(self, turn: StoredTurn) -> None:
+        store, coordinator = self.service.store, self.service.conversation
+        identity, transcript = turn.identity, turn.transcript
+        user = identity.user_id
+        metadata = turn.context["metadata"]
+        reason = turn.context.get("capture_reason")
         owner = f"voice-prepare:{identity.turn_id}"
         store.claim(identity.turn_id, user, owner)
         store.begin_action(identity.turn_id, user, owner, 1)
+
+        async def renew():
+            while True:
+                await asyncio.sleep(store.policy.lease_seconds / 3)
+                store.heartbeat(identity.turn_id, user, owner, 1)
+
+        lease = asyncio.create_task(renew())
         try:
             prepared = None
-            control = await self._control(transcript, identity) if capture.reason != "capture_limit" else None
-            if capture.reason != "capture_limit" and control is None:
+            control = (await self._control(transcript, identity)
+                       if reason != "capture_limit" and turn.context.get("voice_control") else None)
+            if reason != "capture_limit" and control is None:
+                speaker_args = {"speaker_id": turn.context["speaker_id"]} if turn.context.get("speaker_id") else {}
                 prepared = await prepare_turn(
                     transcript, user_id=user, satellite_id=self.conn.satellite_id, metadata=metadata,
+                    **speaker_args,
                 )
+            if lease.done():
+                lease.result()
             store.finish_voice_preparation(identity, owner)
             if prepared is not None and prepared.dispatch.status == RouteStatus.NOT_MATCHED:
                 coordinator.admit_prepared(prepared, GenerationOptions(
@@ -222,14 +279,17 @@ class VoiceSession:
                                DispatchResult(result.status, response, layer=result.layer,
                                               action_outcome=result.action_outcome),
                                output_validated=True)
+                if prepared is not None and result.status == RouteStatus.HANDLED:
+                    from cortex.memory.conversation import remember_response
+                    await remember_response(transcript, response, user)
         except BaseException:
             current = store.get(identity.turn_id, user)
             if current.lease_owner == owner:
                 store.fail(identity.turn_id, user, owner, 1, "voice_preparation_failed")
             raise
-        await self.conn.send({"type": "TURN_ACCEPTED", "turn_id": identity.turn_id,
-                              "revision": 1, "sequence": turn.sequence})
-        await self._publish_processing()
+        finally:
+            lease.cancel()
+            await asyncio.gather(lease, return_exceptions=True)
 
     async def pause(self, msg: dict[str, Any]) -> None:
         target = self.current_turn
@@ -272,6 +332,8 @@ class VoiceSession:
                     store.interrupt_delivery(*key)
                 else:
                     self.service.conversation.cancel(*key)
+                    if self.preparing_turn == key[0] and self.preparing is not None:
+                        self.preparing.cancel()
                 self.paused_turn = None
             from cortex.plugins import get_registry
             context = {"user_id": identity.user_id, "satellite_id": identity.device_id, "room": identity.room}
@@ -280,9 +342,12 @@ class VoiceSession:
                     match = await plugin.match(text, context)
                     if match.matched and match.intent in ("stop_game", "expired_game"):
                         return None
-            return DispatchResult(RouteStatus.HANDLED, "Stopped.")
+            uncertain = target is not None and target.action_outcome == "pending"
+            return DispatchResult(RouteStatus.HANDLED,
+                                  "Stopped waiting. An action may already have happened; please verify it."
+                                  if uncertain else "Stopped.")
         if intent == "resume" and (self.paused_turn or any(
-            turn.delivery_state == "awaiting_confirmation" for turn in targets
+            turn.delivery_state in ("paused", "interrupted", "awaiting_confirmation") for turn in targets
         )):
             target = next((turn for turn in targets if self.paused_turn and turn.identity.turn_id == self.paused_turn[0]),
                           targets[0] if len(targets) == 1 else None)

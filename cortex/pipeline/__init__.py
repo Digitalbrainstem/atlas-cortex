@@ -235,6 +235,9 @@ async def prepare_turn(
         t2 = time.monotonic()
         result = await dispatch_plugins(message, context)
         times["L2"] = (time.monotonic() - t2) * 1000
+    if result.status == RouteStatus.NOT_MATCHED:
+        from cortex.memory.conversation import recall_context
+        context["memory_context"] = await recall_context(message, user_id)
     return PreparedTurn(identity, message, context, result, start_ms, times)
 
 
@@ -274,6 +277,7 @@ async def run_prepared_pipeline_events(
     )
 
     result = prepared.dispatch
+    memory_context = memory_context or context.get("memory_context", "")
     safety, _ = _pipeline_safety(db_conn)
     safety_prompt = safety.build_system_prompt(user_id, context.get("metadata", {}))
     if safety_prompt and safety_prompt not in system_prompt:
@@ -332,6 +336,10 @@ async def run_prepared_pipeline_events(
             entities_used=result.entities,
             response_time_ms=total_ms,
         )
+        from cortex.pipeline.turns import get_conversation_coordinator
+        if get_conversation_coordinator() is None and result.status == RouteStatus.HANDLED:
+            from cortex.memory.conversation import remember_response
+            await remember_response(message, response, user_id)
         return
 
     # ── Layer 3: Filler + LLM ────────────────────────────────
@@ -444,6 +452,9 @@ async def run_prepared_pipeline_events(
         confidence=0.0,
         response_time_ms=total_ms,
     )
+    if coordinator is None:
+        from cortex.memory.conversation import remember_response
+        await remember_response(message, full_response, user_id)
 
 
 def _log_interaction(

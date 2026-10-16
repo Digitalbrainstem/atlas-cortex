@@ -213,6 +213,9 @@ class ConversationCoordinator:
                     self.store.complete(identity.turn_id, identity.user_id, owner, identity.revision,
                                         result, output_validated=True)
                     prepared.dispatch = result
+                    if result.status == RouteStatus.HANDLED:
+                        from cortex.memory.conversation import remember_response
+                        await remember_response(message, result.response or "", identity.user_id)
                 return prepared
             except BaseException:
                 current = self.store.get(identity.turn_id, identity.user_id)
@@ -499,7 +502,8 @@ class ConversationCoordinator:
                 size = 0
                 generation = stream_llm_response(
                     turn.transcript, context, _QueuedProvider(self.queue, self.provider, turn),
-                    options.model_fast, options.model_thinking, options.memory_context, prompt,
+                    options.model_fast, options.model_thinking,
+                    options.memory_context or context.get("memory_context", ""), prompt,
                 )
                 try:
                     async for chunk in generation:
@@ -518,6 +522,9 @@ class ConversationCoordinator:
                 identity.turn_id, identity.user_id, owner, identity.revision,
                 DispatchResult(status, response, layer="llm"), output_validated=True,
             )
+            if status == RouteStatus.HANDLED:
+                from cortex.memory.conversation import remember_response
+                await remember_response(turn.transcript, response, identity.user_id)
         except asyncio.CancelledError:
             raise
         except TurnConflictError:

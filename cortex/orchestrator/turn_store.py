@@ -396,6 +396,18 @@ class TurnStore:
                 logger.exception("Voice activity lookup failed")
                 raise TurnStoreError("Voice activity lookup failed") from exc
 
+    def voice_preparation_head(self, device_id: str, room: str | None) -> StoredTurn | None:
+        """Read one accepted capture; queued transcripts stay on disk."""
+        with self._lock:
+            row = self.conn.execute(
+                """SELECT * FROM pending_turns WHERE source='satellite' AND device_id=? AND room IS ?
+                   AND state='accepted' AND json_extract(context_json,'$.voice_ingress')=1
+                   AND COALESCE(json_extract(context_json,'$.voice_control'),0)=0
+                   AND json_type(context_json,'$.generation_options') IS NULL
+                   ORDER BY created_at,sequence LIMIT 1""", (device_id, room),
+            ).fetchone()
+            return self._stored(row) if row else None
+
     def find_existing(self, identity: TurnIdentity) -> StoredTurn | None:
         with self._lock:
             try:

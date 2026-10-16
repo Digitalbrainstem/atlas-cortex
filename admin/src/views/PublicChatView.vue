@@ -375,6 +375,7 @@ function logout() {
       <button class="btn-logout" @click="logout()">Switch User</button>
     </div>
     <p role="status">{{ connectionState }} <span v-if="turnState">| {{ turnState }}</span></p>
+    <button v-if="pending && !streaming" @click="clearPending()">Dismiss status (work may continue)</button>
 
     <div class="chat-messages" ref="messagesEl">
       <div v-if="messages.length === 0" class="empty-state">
@@ -396,7 +397,7 @@ function logout() {
         @keydown.enter="sendMessage()"
         autofocus
       >
-      <button @click="sendMessage()" :disabled="!inputText.trim() || streaming">Send</button>
+      <button @click="sendMessage()" :disabled="!inputText.trim() || streaming || !!pending">Send</button>
     </div>
   </div>
 </template>

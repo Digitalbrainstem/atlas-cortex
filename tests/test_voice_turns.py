@@ -95,6 +95,7 @@ async def submit(env, text, number):
     env.transcripts.put_nowait(text)
     await env.service.session(env.device).submit(Capture(b"\x01\x00", str(number), True, "vad_silence"))
     await until(lambda: sum(frame["type"] == "TURN_ACCEPTED" for frame in env.frames) >= number)
+    await until(lambda: env.store.get(f"voice:{env.device.satellite_id}:{number}:0", "anonymous").state != "accepted")
 
 
 async def test_announcements_use_durable_playback_receipts(voice_env, monkeypatch):
@@ -106,6 +107,72 @@ async def test_announcements_use_durable_playback_receipts(voice_env, monkeypatc
     assert env.store.get(receipt["turn_id"], "anonymous").delivery_state == "delivering"
     env.device.voice_session.acknowledge(receipt)
     await until(lambda: env.store.get(receipt["turn_id"], "anonymous").delivery_state == "delivered")
+
+
+async def test_slow_plugin_does_not_block_next_transcript_or_stop(voice_env, monkeypatch):
+    env = voice_env
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+    async def slow(*args, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+    monkeypatch.setattr("cortex.orchestrator.voice_turns.prepare_turn", slow)
+    env.transcripts.put_nowait("Synthetic slow action")
+    session = env.service.session(env.device)
+    await session.submit(Capture(b"\0\0", "slow", True, "vad_silence"))
+    await asyncio.wait_for(entered.wait(), 3)
+    env.transcripts.put_nowait("stop")
+    await session.submit(Capture(b"\0\0", "stop", True, "vad_silence"))
+    await asyncio.wait_for(cancelled.wait(), 3)
+    assert env.transcribe.await_count == 2
+    await until(lambda: env.store.get("voice:pi-one:stop:0", "anonymous").state == "completed")
+    assert env.store.get("voice:pi-one:slow:0", "anonymous").state == "uncertain"
+    assert "verify" in env.store.get("voice:pi-one:stop:0", "anonymous").result
+
+
+async def test_reconnect_resume_discovers_interrupted_sentence(voice_env):
+    env = voice_env
+    await submit(env, "first", 1)
+    receipt = await next_audio(env, 1)
+    await env.device.voice_session.close()
+    assert env.store.get(receipt["turn_id"], "anonymous").delivery_state == "interrupted"
+    env.device.voice_session = None
+    await submit(env, "resume the previous response", 2)
+    control = await next_audio(env, 2)
+    env.device.voice_session.acknowledge(control)
+    await until(lambda: sum(f["type"] == "TTS_START" and f["turn_id"] == receipt["turn_id"]
+                           for f in env.frames) == 2)
+
+
+async def test_voice_identity_is_resolved_per_capture_not_connection(voice_env, monkeypatch):
+    env = voice_env
+    from cortex.pipeline import prepare_turn
+    from cortex.plugins import PluginRegistry
+    from cortex.plugins.timers import SchedulingPlugin
+    from cortex.scheduling.timers import TimerEngine
+    # The scheduling plugin and coordinator share the same database in production.
+    monkeypatch.setattr("cortex.scheduling.timers.get_db", lambda: env.store.conn)
+    plugin = SchedulingPlugin()
+    plugin.timer_engine = TimerEngine()
+    registry = PluginRegistry()
+    registry.register(plugin)
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: registry)
+    monkeypatch.setattr("cortex.orchestrator.voice_turns.prepare_turn", prepare_turn)
+    identify = AsyncMock(side_effect=[("alice", "speaker-a"), ("bob", "speaker-b")])
+    monkeypatch.setattr("cortex.speech.recognition.identify_audio", identify)
+    try:
+        for number in (1, 2):
+            env.transcripts.put_nowait("set a timer for 5 minutes")
+            await env.service.session(env.device).submit(Capture(b"\0\0", str(number), True, "vad_silence"))
+        await until(lambda: env.store.conn.execute("SELECT COUNT(*) FROM timers").fetchone()[0] == 2)
+        assert [r[0] for r in env.store.conn.execute("SELECT user_id FROM timers ORDER BY id")] == ["alice", "bob"]
+        assert env.store.get("voice:pi-one:1:0", "alice").context["speaker_id"] == "speaker-a"
+        assert env.store.get("voice:pi-one:2:0", "bob").context["speaker_id"] == "speaker-b"
+    finally:
+        for timer in list(plugin.timer_engine._tasks):
+            await plugin.timer_engine.cancel_timer(timer)
 
 
 async def test_voice_stop_finishes_scoped_game_through_real_preparation(voice_env, tmp_path, monkeypatch):
@@ -222,7 +289,7 @@ async def test_preparation_failure_remains_durable_and_uncertain(voice_env, monk
     await env.service.session(env.device).submit(Capture(b"\x01\x00", "failed", True, "vad_silence"))
     await until(lambda: any(frame["type"] == "PIPELINE_ERROR" for frame in env.frames))
     assert env.store.get("voice:pi-one:failed:0", "anonymous").state == "uncertain"
-    assert not any(frame["type"] == "TURN_ACCEPTED" for frame in env.frames)
+    assert any(frame["type"] == "TURN_ACCEPTED" for frame in env.frames)
     assert env.service.audio_bytes == 0
 
 

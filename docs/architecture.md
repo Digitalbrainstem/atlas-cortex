@@ -150,33 +150,29 @@ Runs as a cron container at 3 AM daily. Uses the existing Qwen3 30B model for in
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Speaker Identification Sidecar
+## Local Speaker Identification
 
-Lightweight CPU-based container using [resemblyzer](https://github.com/resemble-ai/Resemblyzer) for speaker embeddings.
+The implemented path uses [resemblyzer](https://github.com/resemble-ai/Resemblyzer)
+on CPU inside Cortex, not the previously proposed separate sidecar. This keeps
+enrollment, profile deletion and recognition on the existing `speaker_profiles`
+store without introducing a second identity database or mandatory service.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Speaker Identification Sidecar                  │
-│                                                                  │
-│  Container: atlas-speaker-id (CPU-based, ~200MB RAM)            │
-│  Library: resemblyzer (d-vector embeddings, 256-dim)            │
-│                                                                  │
-│  Enrollment Flow:                                               │
-│    User: "Hey Atlas, remember my voice"                         │
-│    Atlas: "Sure! Say a few sentences so I can learn your voice" │
-│    → Record 10-15 seconds → Generate embedding → Store          │
-│    Atlas: "Got it, Derek. I'll know it's you next time."        │
-│                                                                  │
-│  Identification Flow:                                           │
-│    Audio arrives → Extract embedding → Cosine similarity match  │
-│    Threshold > 0.85 → Identified (inject user context)          │
-│    Threshold < 0.85 → Unknown → "I don't recognize that voice.  │
-│                        What's your name?"                       │
-│                                                                  │
-│  API: POST /identify { audio_base64 } → { user_id, confidence }│
-│  API: POST /enroll   { audio_base64, user_id } → { success }   │
-└─────────────────────────────────────────────────────────────────┘
-```
+An administrator enrolls a consenting household member from **Voice Enrollments**
+by uploading 1-15 seconds of speech (10-15 recommended). The authenticated
+`POST /admin/voice/speakers/enroll` API accepts `user_id`, `audio_base64` (16 kHz,
+mono PCM16) and `sample_rate: 16000`. Only the 256-dimensional embedding is stored.
+The browser converts uploaded audio to that format.
+
+Each complete satellite capture is independently matched against current local
+profiles. The minimum similarity is 0.85 and the leading user must exceed the
+runner-up by 0.03. Missing models, unknown/ambiguous speakers and deleted profiles
+remain anonymous and child-safe; connection identity is never carried forward
+to a new speaker. Recognition personalizes policy, timers and memory, but is
+**not authentication for locks or other privileged actions**.
+
+The encoder is loaded lazily, and CPU inference runs outside the event loop.
+Real-room recognition accuracy and short-control utterances still require
+physical qualification; synthetic software checks do not establish those metrics.
 
 ## Spatial Awareness — Room/Area Context
 
