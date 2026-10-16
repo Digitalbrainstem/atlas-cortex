@@ -288,10 +288,14 @@ async def set_user_auth(
     if not user:
         # Bootstrap from user_profiles
         row = conn.execute(
-            "SELECT display_name FROM user_profiles WHERE user_id = ?", (user_id,)
+            "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
         display_name = row["display_name"] if row else user_id
-        user = UserAuthConfig(user_id=user_id, display_name=display_name)
+        from cortex.safety import resolve_content_tier
+        user = UserAuthConfig(
+            user_id=user_id, display_name=display_name,
+            content_tier=resolve_content_tier(dict(row) if row else {}),
+        )
         mgr._users[user_id] = user
 
     if body.method == "pin":

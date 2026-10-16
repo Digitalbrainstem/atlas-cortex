@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI):
     from cortex.scheduler import register_startup_task, register_service, start_all, stop_all
 
     init_db()
+    get_user_auth().load_from_db(_get_db())
 
     # ── Self-recovery startup checks ────────────────────────────────
     from cortex.system.recovery import SelfRecovery
@@ -777,7 +778,8 @@ def _json_response(content: str, model: str) -> JSONResponse:
 
 class SpeechRequest(BaseModel):
     model: str | None = None
-    input: str
+    input: str = Field(min_length=1, max_length=16000)
+    user: str = "default"
     voice: str | None = None
     speed: float = 1.0
     response_format: Literal["wav", "pcm"] = "wav"
@@ -794,7 +796,32 @@ async def list_voices():
 
 
 @app.post("/v1/audio/speech")
-async def create_speech(req: SpeechRequest):
+async def create_speech(req: SpeechRequest, raw: Request):
+    from cortex.safety import Severity
+    from cortex.safety.middleware import PipelineSafetyMiddleware
+    from cortex.profiles import check_parental_allowed
+    from datetime import datetime
+
+    manager = get_user_auth()
+    token = raw.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    user = manager.get_user(req.user)
+    if not (user and user.auth_method != "none") and not manager.verify_session_token(token):
+        token = ""
+    safety = _safety_middleware or PipelineSafetyMiddleware(_get_db())
+
+    def authorize(text: str) -> None:
+        try:
+            manager.resolve_request_user(req.user, token)
+        except ChatAuthenticationError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        if (not check_parental_allowed(_get_db(), req.user, hour=datetime.now().hour)["allowed"]
+                or safety.check_output(text, req.user, metadata={}).severity >= Severity.SOFT_BLOCK):
+            logger.info("HTTP speech denied by household policy")
+            raise HTTPException(status_code=403, detail="Speech blocked by household policy")
+
+    if not req.input.strip():
+        raise HTTPException(status_code=422, detail="Speech input must be nonempty")
+    authorize(req.input)
     try:
         provider = get_tts_provider({"TTS_PROVIDER": req.model}) if req.model else get_tts_provider()
     except (ValueError, KeyError):
@@ -819,6 +846,7 @@ async def create_speech(req: SpeechRequest):
         audio = b"".join(chunks)
         if not audio:
             raise ValueError("Speech provider returned no audio")
+        authorize(text)
         from cortex.speech.tts import extract_pcm
         rate = getattr(provider, "sample_rate", 24000)
         if isinstance(rate, bool) or not isinstance(rate, int) or rate <= 0:

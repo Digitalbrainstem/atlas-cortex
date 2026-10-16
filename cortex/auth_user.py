@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import secrets
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from contextlib import contextmanager
@@ -96,11 +97,12 @@ class UserAuthManager:
     def load_from_db(self, conn: Any) -> None:
         """Load user auth configs from the database."""
         try:
+            users: dict[str, UserAuthConfig] = {}
             rows = conn.execute("SELECT * FROM user_auth").fetchall()
             cols = [d[0] for d in conn.execute("SELECT * FROM user_auth LIMIT 0").description or []]
             for row in rows:
                 data = dict(zip(cols, row)) if not isinstance(row, dict) else dict(row)
-                self._users[data["user_id"]] = UserAuthConfig(
+                users[data["user_id"]] = UserAuthConfig(
                     user_id=data["user_id"],
                     display_name=data["display_name"],
                     auth_method=data.get("auth_method", "none"),
@@ -113,8 +115,10 @@ class UserAuthManager:
                     trusted_devices=json.loads(data.get("trusted_devices", "[]") or "[]"),
                     avatar_url=data.get("avatar_url", "") or "",
                 )
-        except Exception as e:
-            logger.debug("Failed to load user auth: %s", e)
+            self._users = users
+        except (sqlite3.Error, ValueError, TypeError):
+            logger.exception("Failed to load persisted household authentication")
+            raise
 
     def save_to_db(self, conn: Any, user: UserAuthConfig) -> None:
         """Save a user auth config to the database."""
@@ -266,7 +270,10 @@ def get_user_auth() -> UserAuthManager:
     """Return the global UserAuthManager singleton."""
     global _manager
     if _manager is None:
-        _manager = UserAuthManager()
+        from cortex.db import get_db
+        manager = UserAuthManager()
+        manager.load_from_db(get_db())
+        _manager = manager
     return _manager
 
 

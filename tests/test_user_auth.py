@@ -298,18 +298,24 @@ class TestDatabasePersistence:
         mgr.load_from_db(mem_db)
         assert mgr.list_users() == []
 
-    def test_load_graceful_on_missing_table(self):
+    def test_load_fails_closed_on_missing_table(self):
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         mgr = UserAuthManager()
-        mgr.load_from_db(conn)  # Should not raise
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            mgr.load_from_db(conn)
         assert mgr.list_users() == []
+        conn.close()
 
 
 # ── Singleton ─────────────────────────────────────────────────────
 
 
 class TestSingleton:
+    @pytest.fixture(autouse=True)
+    def persisted_store(self, mem_db, monkeypatch):
+        monkeypatch.setattr("cortex.db.get_db", lambda: mem_db)
+
     def test_get_user_auth_returns_same_instance(self):
         a = get_user_auth()
         b = get_user_auth()

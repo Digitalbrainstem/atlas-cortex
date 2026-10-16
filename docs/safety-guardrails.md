@@ -18,6 +18,8 @@ This deliberately preserves safety rather than streaming unvalidated prefixes.
 
 Content tiers come from current server-side profiles, chat-auth configuration and
 parental controls, not caller metadata. Strict parental controls take precedence.
+Adding authentication cannot relax an existing age-based tier. Persisted profile
+authentication loads before requests are served; load failures fail closed.
 Allowed hours and restricted plugin/intent actions are checked before dispatch.
 Home Assistant rechecks current settings immediately before execution; a
 non-empty parental device allowlist restricts the permitted device targets.
@@ -32,6 +34,11 @@ Guest/no-auth profiles remain deliberately unprotected; legacy OpenAI placeholde
 keys are not authentication and remain compatible for unprotected identities.
 Keep the server on its intended trusted household network rather than exposing
 unprotected API/profile access to the Internet.
+
+HTTP speech (`/v1/audio/speech`) accepts an optional `user` identity and uses the
+same Bearer chat token for protected profiles. Output policy and allowed hours
+are checked before synthesis and again before audio is returned. Input is limited
+to 16,000 characters; empty input and denied requests return explicit errors.
 
 Recovery rechecks current input/parental policy before generation. Old/resumed
 voice output is revalidated before synthesis and again before delivery; changed
