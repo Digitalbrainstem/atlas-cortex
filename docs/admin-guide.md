@@ -8,6 +8,15 @@ The admin panel is a dark-themed Vue 3 SPA that gives you full control over Atla
 
 ## Getting Started
 
+### Household notifications
+
+Scheduling expiry callbacks are connected before persisted timers are restored.
+The server registers satellite notification delivery into the durable voice queue.
+An announcement being **queued** is not proof it was heard: delivery completes
+only after the satellite confirms playback. Scoped notifications never fall back
+to another room when their target is unavailable. Proactive TTS reports failure
+if no satellite accepts it; database logging alone is not an audio-delivery success.
+
 ### 1. Build the Admin Panel
 
 ```bash

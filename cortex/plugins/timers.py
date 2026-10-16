@@ -171,6 +171,8 @@ class SchedulingPlugin(CortexPlugin):
         self.timer_engine = TimerEngine()
         self.alarm_engine = AlarmEngine()
         self.reminder_engine = ReminderEngine()
+        from cortex.notifications.satellite import wire_scheduling_callbacks
+        wire_scheduling_callbacks(self.timer_engine, self.alarm_engine, self.reminder_engine)
         # Start background loops
         await self.alarm_engine.start()
         await self.reminder_engine.start()

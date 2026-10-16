@@ -39,7 +39,16 @@ class SatelliteChannel(NotificationChannel):
         user_id = meta.get("user_id", "")
         tts_text = notification.message
 
-        targets = await self._resolve_targets(room, user_id)
+        satellite_id = meta.get("satellite_id")
+        if satellite_id:
+            from cortex.db import get_db
+            row = get_db().execute(
+                "SELECT id FROM satellites WHERE id=? AND status='online' AND (?='' OR room=?)",
+                (satellite_id, room, room),
+            ).fetchone()
+            targets = [row["id"]] if row else []
+        else:
+            targets = await self._resolve_targets(room, user_id)
         if not targets:
             logger.info(
                 "No satellite targets for notification '%s', logged only",
@@ -54,7 +63,7 @@ class SatelliteChannel(NotificationChannel):
                 if ok:
                     delivered = True
             except Exception:
-                logger.debug("Failed to deliver to satellite %s", sat_id, exc_info=True)
+                logger.warning("Failed to deliver to satellite %s", sat_id, exc_info=True)
 
         return delivered
 
@@ -107,9 +116,9 @@ class SatelliteChannel(NotificationChannel):
             try:
                 return await self._tts_callback(satellite_id, text)
             except Exception:
-                logger.debug("TTS delivery failed for %s", satellite_id, exc_info=True)
+                logger.warning("TTS delivery failed for %s", satellite_id, exc_info=True)
                 return False
-        logger.debug("No TTS delivery callback registered for satellite %s", satellite_id)
+        logger.warning("No TTS delivery callback registered for satellite %s", satellite_id)
         return False
 
 

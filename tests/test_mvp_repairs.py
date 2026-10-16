@@ -81,3 +81,45 @@ def test_auth_load_failure_does_not_publish_empty_manager(db, monkeypatch):
         get_user_auth()
     import cortex.auth_user
     assert cortex.auth_user._manager is None
+
+
+async def test_scheduler_expiry_uses_registered_room_delivery(db, monkeypatch):
+    from cortex.notifications import channels
+    from cortex.notifications.satellite import register_satellite_channel
+    from cortex.plugins.timers import SchedulingPlugin
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(channels, "_channels", [])
+    monkeypatch.setattr(channels, "_initialized", False)
+    db.execute("INSERT INTO satellites(id,display_name,room,status) VALUES('pi','Pi','kitchen','online')")
+    db.commit()
+    channel = register_satellite_channel()
+    deliver = AsyncMock(return_value=True)
+    channel.set_tts_callback(deliver)
+    plugin = SchedulingPlugin()
+    await plugin.setup({})
+    try:
+        timer = await plugin.timer_engine.start_timer(0, label="review", user_id="alice", room="kitchen")
+        await plugin.timer_engine._tasks[timer]
+        deliver.assert_awaited_once_with("pi", "Your timer for review has finished!")
+        assert db.execute("SELECT COUNT(*) FROM notification_log WHERE source='scheduling.timer'").fetchone()[0] == 1
+    finally:
+        await plugin.alarm_engine.stop()
+        await plugin.reminder_engine.stop()
+
+
+async def test_proactive_actions_use_real_notification_contracts(db, monkeypatch):
+    from cortex.notifications import channels
+    from cortex.notifications.satellite import register_satellite_channel
+    from cortex.proactive.engine import RuleEngine
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(channels, "_channels", [])
+    monkeypatch.setattr(channels, "_initialized", False)
+    rule = {"id": 1, "name": "Synthetic", "priority": "normal"}
+    assert (await RuleEngine._action_notify(rule, {}, {"message": "Reminder"})).startswith("notified:")
+    assert await RuleEngine._action_tts(rule, {}, {"message": "Reminder"}) == "tts_failed"
+    db.execute("INSERT INTO satellites(id,display_name,room,status) VALUES('pi','Pi','kitchen','online')")
+    db.commit()
+    deliver = AsyncMock(return_value=True)
+    register_satellite_channel().set_tts_callback(deliver)
+    assert (await RuleEngine._action_tts(rule, {}, {"message": "Reminder", "satellite_id": "pi"})).startswith("tts_queued:")
+    deliver.assert_awaited_once_with("pi", "Reminder")

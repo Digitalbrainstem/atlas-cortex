@@ -69,6 +69,31 @@ class VoiceService:
             self.sessions.add(current)
         return current
 
+    async def announce(self, satellite_id: str, text: str) -> bool:
+        """Queue a policy-checked announcement; playback still needs a receipt."""
+        from cortex.satellite.websocket import get_connection
+        conn = get_connection(satellite_id)
+        if conn is None:
+            logger.warning("Announcement target %s is disconnected", satellite_id)
+            return False
+        user = getattr(conn, "user_id", None) or "anonymous"
+        if self.conversation.safety.check_output(text, user, "", "", {}).severity >= Severity.SOFT_BLOCK:
+            logger.warning("Announcement blocked by household policy")
+            return False
+        identity = TurnIdentity(
+            uuid.uuid4().hex, f"notifications:{satellite_id}", user, source="satellite",
+            device_id=satellite_id, room=conn.room,
+        )
+        turn = self.store.accept(identity, text, input_validated=True, context={"notification": True})
+        owner = f"notification:{identity.turn_id}"
+        self.store.claim(identity.turn_id, user, owner)
+        self.store.complete(
+            identity.turn_id, user, owner, turn.identity.revision,
+            DispatchResult(RouteStatus.HANDLED, text), output_validated=True,
+        )
+        self.session(conn)
+        return True
+
 
 class VoiceSession:
     def __init__(self, service: VoiceService, conn: Any) -> None:

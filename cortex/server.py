@@ -141,6 +141,10 @@ async def lifespan(app: FastAPI):
     _voice_service = VoiceService(_turn_store, _conversation)
     app.state.voice_service = _voice_service
     register_service("voice-ingress", _voice_service.start, _voice_service.stop)
+    from cortex.notifications.satellite import register_satellite_channel
+    from cortex.notifications.channels import unregister_channel
+    _notification_channel = register_satellite_channel()
+    _notification_channel.set_tts_callback(_voice_service.announce)
 
     # Register filler cache warm-up as non-blocking background task
     async def _warm_filler_cache() -> None:
@@ -242,6 +246,7 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Conversation coordination failed to start")
         yield
     finally:
+        unregister_channel(_notification_channel)
         await stop_all()
 
 

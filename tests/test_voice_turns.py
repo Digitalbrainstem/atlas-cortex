@@ -97,6 +97,17 @@ async def submit(env, text, number):
     await until(lambda: sum(frame["type"] == "TURN_ACCEPTED" for frame in env.frames) >= number)
 
 
+async def test_announcements_use_durable_playback_receipts(voice_env, monkeypatch):
+    env = voice_env
+    monkeypatch.setattr("cortex.satellite.websocket.get_connection", lambda _: env.device)
+    assert await env.service.announce("pi-one", "Synthetic timer finished.")
+    await until(lambda: any(frame["type"] == "TTS_END" for frame in env.frames))
+    receipt = next(frame for frame in env.frames if frame["type"] == "TTS_END")
+    assert env.store.get(receipt["turn_id"], "anonymous").delivery_state == "delivering"
+    env.device.voice_session.acknowledge(receipt)
+    await until(lambda: env.store.get(receipt["turn_id"], "anonymous").delivery_state == "delivered")
+
+
 async def test_voice_stop_finishes_scoped_game_through_real_preparation(voice_env, tmp_path, monkeypatch):
     from cortex.db import init_db, set_db_path
     from cortex.pipeline import prepare_turn

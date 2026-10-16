@@ -415,7 +415,13 @@ class RuleEngine:
                 source="proactive",
                 metadata={"rule_id": rule["id"], "event_data": event_data},
             )
-            await send_notification(notif)
+            await send_notification(
+                level=notif.level, title=notif.title, message=notif.message,
+                source=notif.source, metadata={
+                    **notif.metadata, "user_id": rule.get("user_id", ""),
+                    "room": config.get("room", ""),
+                },
+            )
             return f"notified: {msg}"
         except Exception:
             logger.exception("Notify action failed for rule %d", rule["id"])
@@ -433,17 +439,20 @@ class RuleEngine:
 
             msg = config.get("message", f"Alert: {rule['name']}")
             satellite_id = config.get("satellite_id", "")
-            channel = SatelliteChannel(satellite_id=satellite_id)
-            from cortex.notifications.channels import Notification
+            from cortex.notifications.channels import send_notification
 
-            notif = Notification(
+            queued = await send_notification(
                 level="warning",
                 title=rule["name"],
                 message=msg,
                 source="proactive",
+                metadata={"satellite_id": satellite_id, "user_id": rule.get("user_id", ""),
+                          "room": config.get("room", "")},
+                channel_type=SatelliteChannel,
             )
-            await channel.send(notif)
-            return f"tts_announced: {msg}"
+            if not queued:
+                raise RuntimeError("No satellite accepted the announcement")
+            return f"tts_queued: {msg}"
         except Exception:
             logger.exception("TTS action failed for rule %d", rule["id"])
             return "tts_failed"
