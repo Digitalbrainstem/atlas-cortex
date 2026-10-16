@@ -54,20 +54,24 @@ python -m pytest tests/test_pipeline.py -v
 python -m pytest tests/test_pipeline.py -k "test_instant_answer" -v
 ```
 
-Current evidence at software candidate `ad7d036f3`:
-- 240 final targeted checks passed; production Vite build and focused Chromium
-  reload/enrollment/lifecycle checks passed.
-- 10,000 durable turns: 1 MiB incremental RSS, one active inference, prefetch eight.
-- Broad clean-source evidence: 4,719 passed, four baseline failures, two skipped,
-  27 deselected and one collection error. That run continued after collection
-  errors for diagnosis; the standard CI command remains blocked.
-- The collection error is tracked coding code importing untracked
-  `cortex/tools/codex_pipeline.py`. Preserve the unrelated experimental work;
-  do not silently include it in household release commits.
-- Baseline failures: missing ownership header in `cortex/system/__init__.py`,
-  expression JSON eyebrows, and default/nick SVG eyebrows.
-- Docker execution, Python 3.11, legacy browser-suite requalification and physical
-  Pi/ReSpeaker/provider/NAS gates remain pending. Do not label the MVP complete.
+Current evidence at clean integrated software candidate `954ca43ac`:
+- Full clean-source non-browser run: 5,405 passed, one informational schema-
+  inventory skip, 118 browser tests deselected; no failures or collection errors.
+- All three browser suites: 150 passed, no skips. Production Vite build and
+  Chromium reload/enrollment/voice/provider-lifecycle smoke checks passed.
+- 10,000 durable turns: 1,097,728 bytes incremental RSS (32 MiB limit), one active
+  inference, prefetch eight.
+- User explicitly authorized integrating, fixing, testing and committing all
+  pending workspace work. Coding/memory/routing modules and tests are now tracked;
+  their former clean-source import, Git fixture and asyncio test blockers are fixed.
+- Ownership and brow-free avatar generation/tests are fixed. Parental controls
+  now use correct user IDs, response wrappers and HH:MM fields, with persisted
+  save/reload and explicit load-error browser coverage.
+- Non-failing deprecation/subprocess-teardown warnings remain. Docker execution,
+  Python 3.11 and physical Pi/ReSpeaker/provider/NAS/paired-image rollback gates
+  remain pending. No remote CI success or household MVP completion is claimed.
+- Versioned GPU research scripts were not executed; the Nexus Academy document
+  remains a separate design, not an implemented household feature.
 
 See `docs/mvp-release.md` for exact commands, scope and acceptance thresholds;
 `docs/mvp-recovery.md` documents offline-only restore and compatible rollback.

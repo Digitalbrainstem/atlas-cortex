@@ -2,21 +2,23 @@
 
 ## Household candidate release gates
 
-At software candidate `ad7d036f3`, 240 final targeted checks and the focused
-production browser/lifecycle harness pass. The broader clean-source run is
-**not green**: 4,719 pass, four baseline assertions fail and one module cannot
-collect. See [MVP handoff](mvp-release.md) for reproduction and evidence scope.
+At clean integrated candidate `954ca43ac`, **5,405 non-browser tests pass** with
+one informational schema-inventory skip, and **all 150 browser tests pass**
+without skips. Production UI, bounded-resource and browser/voice lifecycle
+checks also pass. The prior collection, ownership, avatar and async-loop blockers
+are fixed; authorized experimental modules are now tracked. Parental-control
+selection, loading and persisted HH:MM settings are repaired and browser-tested.
+See [MVP handoff](mvp-release.md) for reproduction and evidence scope.
 
 | Gate | Current issue |
 |---|---|
-| Clean-source CI collection | Tracked coding pipeline imports untracked `cortex/tools/codex_pipeline.py`; keep experimental subsystem ownership separate |
-| Module ownership test | Missing header in unrelated `cortex/system/__init__.py` |
-| Avatar regressions | Expressions JSON plus default/nick SVG eyebrow assertions |
-| Platform validation | Docker execution and Python 3.11 not available locally; legacy browser suite not requalified |
+| Platform validation | Docker execution and Python 3.11 not available locally; no remote CI result claimed |
+| Test diagnostics | Informational extra-table inventory skip and non-failing deprecation/subprocess-teardown warnings remain |
 | Household acceptance | Two-Pi/ReSpeaker wake/acoustic metrics, real services/NAS, paired-image rollback and operator approval pending |
 
 No failures were hidden with xfails and no hardware success was inferred from
 mock transport. Restore is now offline-only; see [implemented recovery commands](mvp-recovery.md).
+Research scripts were included as source, not qualified on GPUs or real models.
 
 ## Historical adversarial inventory
 

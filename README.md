@@ -20,8 +20,9 @@
 Atlas Cortex transforms a local LLM into an intelligent home assistant that understands who's speaking, adapts to each family member, controls your smart home, and gets smarter every day — all running on **your hardware**, with **zero cloud dependencies**.
 
 > **Household MVP candidate, not a qualified release.** Available P00-P14 software
-> work and targeted checks are recorded in the [phase/status handoff](docs/mvp-release.md).
-> Hardware, Docker/Python-matrix and recorded CI blockers remain open.
+> work, 5,405 passing Python tests and 150 passing browser tests are recorded in
+> the [phase/status handoff](docs/mvp-release.md). Known local test blockers are fixed;
+> hardware, Docker/Python 3.11 and operator qualification remain open.
 > Use the [current recovery guide](docs/mvp-recovery.md), not historical live-restore examples.
 
 ## ✨ Key Features

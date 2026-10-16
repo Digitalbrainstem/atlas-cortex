@@ -11,8 +11,8 @@ This document outlines planned future features organized by implementation part.
 ## Implemented Component Inventory
 
 These historical component labels are not P00-P14 household acceptance results.
-Available software work is implemented and targeted checks pass; the full
-release still has recorded CI/platform and physical/operator gates.
+Available software work is implemented and the full local Python/browser checks
+pass; the release still has unrun platform and physical/operator gates.
 
 ### Part 1: Core Engine
 Part 1 modules are implemented. Only the configurations and evidence recorded in

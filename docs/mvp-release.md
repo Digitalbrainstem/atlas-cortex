@@ -2,14 +2,16 @@
 
 This is the authoritative execution status for the household MVP, superseding
 historical "complete" labels in design documents. It is **not a production
-release or a claim of physical household qualification**. Nexus Academy and the
-untracked experimental agent/model work are outside this release.
+release or a claim of physical household qualification**. The user-authorized
+workspace integration now includes the coding, memory, routing, prompt and
+research files. Nexus Academy remains a design document, not a delivered
+household feature; GPU research scripts are versioned but were not run here.
 
 ## Phase status
 
 | Phase | Scope | Status |
 |---|---|---|
-| P00 | Baseline, ownership and acceptance contract | Implemented; baseline regressions remain recorded |
+| P00 | Baseline, ownership and acceptance contract | Implemented; known local test blockers resolved |
 | P01 | Stage-aware dispatch contracts | Implemented and regression-tested |
 | P02 | Fast paths before scarce LLM work | Implemented; integrated measurements below |
 | P03 | Durable SQLite turn admission and bounded pending work | Implemented and persistence-tested |
@@ -22,16 +24,17 @@ untracked experimental agent/model work are outside this release.
 | P10 | Admin/public chat, durable result recovery and receipts | Implemented; production browser checks passed in repair batch |
 | P11 | Policy, identity, privacy and deletion | Implemented; persisted auth, child tier, speech and deletion repaired |
 | P12 | Packaging, lifecycle, upgrade and recovery | Available software checks passed; Docker image execution pending |
-| P13 | Integrated software qualification | Fixed software gates passed; full release gate blocked as detailed below |
+| P13 | Integrated software qualification | Full local Python/browser checks passed; platform/physical qualification pending |
 | P14 | Truthful release handoff | Delivered; operator approval, scoped PR and release publication pending |
 
 Repair baseline: `cd0b3dd70`, following `c48345ddc`, `8f6d0de73`,
 `1520c3f84`, and `0f8c63640`. No remote push, release tag, household deployment,
 or hardware sign-off is implied by these local commits.
 
-Packaging/recovery is committed as `4c6e04590`; the final executable software
-candidate and qualification harnesses are `ad7d036f3`. Subsequent handoff changes
-are documentation-only. Keep these source revisions separate from the image
+Packaging/recovery is committed as `4c6e04590`; qualification harnesses were added
+in `ad7d036f3`. The **clean integrated testing candidate is `954ca43ac`**,
+including all explicitly authorized pending workspace changes and blocker fixes.
+Subsequent handoff changes are documentation-only. Keep the source revision separate from the image
 digest and provider/model versions that still need recording on the actual host.
 
 ## Qualification evidence
@@ -42,10 +45,10 @@ timeouts. This does **not** qualify physical-disk power loss or acoustic latency
 
 | Gate | Result |
 |---|---|
-| Final directly affected regression batch | **240 passed**, including recovery, restore, conversation, voice and core tool imports |
-| A01/A02: 100 instant + 100 action requests during one blocked LLM generation | p95 **1.25 ms / 1.12 ms**, versus <=500 ms; no extra LLM calls; 100 action effects |
+| Targeted blocker checks | 293 avatar/ownership/coding checks and 229 admin/auth/Git regressions passed |
+| A01/A02: 100 instant + 100 action requests during one blocked LLM generation | <=500 ms p95 gate passed; no extra LLM calls; 100 action effects (earlier measured reference: 1.25 ms / 1.12 ms) |
 | A03: retained acceptance/reopen | 100 turns preserved; restore requires confirmation, not automatic replay |
-| A04/A05: 10,000 durable turns | **1,048,576 bytes** incremental RSS, versus <=33,554,432; prefetch 8; second active claim rejected |
+| A04/A05: 10,000 durable turns | **1,097,728 bytes** incremental RSS, versus <=33,554,432; prefetch 8; second active claim rejected |
 | A06/A07/A14/A16: corrections, uncertainty, backend/resource failures and recovery | Existing focused regression scenarios passed; external effects are not blindly retried |
 | A08/A10: queued captures, pause/resume and reconnect | Mock transport/regression checks passed; real acoustics pending |
 | A09: local cancellation/stale output | 100 cycles on one synthetic satellite agent; zero stale buffered audio; audible <=250 ms gate pending |
@@ -55,28 +58,31 @@ timeouts. This does **not** qualify physical-disk power loss or acoustic latency
 | A19: packaging/recovery | Clean tracked-source server startup/shutdown twice; WAL-safe isolated restore; pre-ledger schema upgrade/repeat/database rollback; live restore refused |
 | Provider lifecycle | Real mock HTTP outage produced `/ready` 503 while `/live` stayed 200; restart restored readiness |
 | Production UI | Vite build passed (Node 18.19.1) |
-| A20: broad clean-source suite | **4,719 passed, 4 failed, 2 skipped, 27 deselected, 1 collection error**; intentionally not a green CI claim |
+| A20: full clean-source non-browser suite | **5,405 passed, 1 informational skip, 118 browser tests deselected; zero failures or collection errors** |
+| A20: all three browser suites | **150 passed, zero failures or skips**; parental selection, persisted hours/filter, reload and explicit load failure verified |
 | A11/A12, Docker, Python 3.11, physical devices, real model/HA/media/NAS, operator approval | **Not qualified here** |
 
-The full run exposed the pre-existing failures below. The final 240-test scoped
-rerun additionally covers the final empty-backup rejection and lazy-import
-guards. Counts from the earlier dirty-worktree suite are not directly comparable:
-that workspace contained hundreds of untracked experimental tests/modules.
+The former four baseline failures and missing coding dependency are resolved.
+All authorized modules/tests are committed rather than borrowed from untracked
+files. The avatar tests now enforce the intentional version-3 brow-free design;
+the generator no longer adds unwanted base eyebrows. Git tests create their own
+repositories. Browser fixtures own isolated data/ports, do not block on unread
+pipes, and fail rather than silently skipping a server-start failure.
 
-### Release blockers, not waived
+Full browser coverage also uncovered and fixed parental controls: `user_id`
+selection, the API's `{controls: ...}` response, HH:MM hour fields, stale-load
+suppression, and visible load failures. Tests now persist/reload actual controls
+instead of skipping a broken form. Dashboard and evolution tests use the actual
+routes and tabs. All three browser suites are included in CI.
 
-- Clean checkout: `tests/test_coding_pipeline.py` cannot collect because tracked
-  `cortex/coding/pipeline.py` imports untracked `cortex/tools/codex_pipeline.py`.
-  The experimental coding subsystem is not part of household scope. Resolve its
-  ownership separately; do not silently copy the untracked module into a release.
-- `test_ownership_headers_present`: the unrelated `cortex/system/__init__.py`
-  ownership header remains missing.
-- Three avatar assertions: expressions JSON and the default/nick SVG eyebrow
-  definitions. These remain visible failures, not xfails or exclusions.
-- The standard non-browser CI invocation stops on that collection error. The
-  broad evidence run added `--continue-on-collection-errors` to observe the rest,
-  **not** to turn the run green. The legacy browser suite was not requalified;
-  the focused real-browser harness passed.
+The one non-browser skip is the existing informational schema-inventory test:
+it reports additional legitimate tables. It is not an unmet feature dependency.
+Non-failing deprecation and legacy subprocess-teardown warnings remain in the
+Python output. No xfails or failure-continuation flags were used for the final
+successful run. The standard command completed normally.
+
+### Remaining environment and operator gates
+
 - Python 3.11 and Docker are unavailable in this environment. The supported CI
   matrix still requests 3.11/3.12; only 3.12.3 was exercised locally. Docker YAML
   parsing and source/build checks are not an image-build result.
@@ -85,7 +91,7 @@ that workspace contained hundreds of untracked experimental tests/modules.
 
 ### Reproduce the software checks
 
-Use a clean checkout of `ad7d036f3` or the subsequent documentation-only handoff.
+Use a clean checkout of `954ca43ac` or the subsequent documentation-only handoff.
 Install the declared dependencies in a virtual environment and build the UI.
 For timed tests on Linux, create a private tmpfs directory and point both
 `TMPDIR` and `CORTEX_DATA_DIR` there. Keep a separate persistent-disk test for the
@@ -102,9 +108,11 @@ cd admin && npm ci && npm run build && cd ..
 python3 -m playwright install chromium
 python3 -m scripts.mvp_smoke --browser
 
-# Standard CI-equivalent non-browser invocation (currently blocked):
+# Standard CI-equivalent non-browser invocation:
 python3 -m pytest tests/ -q --tb=short -m "not browser" \
   --ignore=tests/test_ui_browser.py
+python3 -m pytest tests/test_ui_browser.py tests/test_e2e_admin.py \
+  tests/test_ui_walkthrough.py -q -m browser
 ```
 
 The resource script fixes its corpus, 10,000-turn count, one-active/eight-prefetch
@@ -211,20 +219,21 @@ restore, stopped-service ownership, configuration capture and compatible rollbac
   cross-room/user output or duplicate external effects.
 - Test real HA/media integrations, provider outage/reconnect, persistent-disk
   crash recovery, NAS backup/restore and explicit recovery confirmation.
-- Review baseline failures and limitations, then obtain operator sign-off before
+- Review qualification evidence and limitations, then obtain operator sign-off before
   a household MVP tag/deployment. Prepare a scoped PR; branch protection remains
-  in force. Do not mix Nexus Academy or unrelated workspace experiments into it.
+  in force. The authorized integration includes research/design files; distinguish
+  those from qualified household functionality when selecting the PR scope.
 
 ## Scoped PR handoff
 
 Suggested title: **Household MVP durable turns, offline recovery and software
 qualification**. Include the prerequisite P00-P11 and repair commits already on
-the branch, plus `4c6e04590` and `ad7d036f3`; check the actual diff against the
-chosen base before creating the PR. This is not authorization to merge the entire
-experimental branch.
+the branch, plus `4c6e04590`, `ad7d036f3` and integrated candidate `954ca43ac`;
+check the actual diff against the chosen base before creating the PR. The user
+authorized committing all pending work locally, not merging the entire branch.
 
-The PR description should include the evidence table, the non-green CI blockers,
+The PR description should include the passing local evidence table,
 the deferred physical/platform checklist and the recovery procedure. No push,
 PR creation, tag or deployment was performed for this handoff. A household MVP
-release requires those blockers to be resolved and operator gates to be signed
+release requires the remaining platform and operator gates to be signed
 off, not simply a change of the phase labels to "complete".
