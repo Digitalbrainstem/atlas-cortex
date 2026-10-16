@@ -35,6 +35,8 @@ def validate_database(path: Path) -> None:
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         if conn.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
             raise ValueError("Backup database failed SQLite integrity validation")
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone():
+            raise ValueError("Backup database contains no tables")
 
 
 def copy_database(source: Path, target: Path) -> None:
@@ -72,6 +74,14 @@ def write_manifest(directory: Path) -> None:
     }, indent=2), encoding="utf-8")
 
 
+def _sync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def copy_file(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as output:
@@ -82,6 +92,7 @@ def copy_file(source: Path, target: Path) -> None:
             output.flush()
             os.fsync(output.fileno())
             os.replace(temporary, target)
+            _sync_directory(target.parent)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -101,6 +112,7 @@ def write_archive(staging: Path, destination: Path) -> None:
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, destination)
+        _sync_directory(destination.parent)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -116,7 +128,8 @@ def unpack_archive(archive: Path, parent: Path) -> Iterator[Path]:
             seen: set[str] = set()
             for member in members:
                 destination = staging / member.name
-                if (not destination.resolve().is_relative_to(staging.resolve())
+                if (Path(member.name).is_absolute() or ".." in Path(member.name).parts
+                        or not destination.resolve().is_relative_to(staging.resolve())
                         or member.name in seen or not (member.isfile() or member.isdir())):
                     raise ValueError(f"Unsupported or unsafe backup member: {member.name}")
                 seen.add(member.name)

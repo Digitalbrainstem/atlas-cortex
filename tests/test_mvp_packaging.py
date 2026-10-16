@@ -4,6 +4,8 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
+import subprocess
+import sys
 import tarfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -102,7 +104,7 @@ def test_restore_refuses_active_deployment_without_mutation(deployment):
     assert not list((data / "backups").glob("cortex_pre_restore_*.tar.gz"))
 
 
-@pytest.mark.parametrize("kind", ["traversal", "link", "corrupt", "future_format"])
+@pytest.mark.parametrize("kind", ["traversal", "link", "corrupt", "empty", "future_format"])
 def test_invalid_restore_does_not_touch_destination(deployment, tmp_path, kind):
     data, _, conn = deployment
     archive = tmp_path / "bad.tar.gz"
@@ -112,6 +114,8 @@ def test_invalid_restore_does_not_touch_destination(deployment, tmp_path, kind):
         if kind == "link":
             member.type = tarfile.SYMTYPE
             member.linkname = str(data / "cortex.db")
+        elif kind == "empty":
+            payload = b""
         elif kind == "future_format":
             from cortex.backup.storage import copy_database
             copy_database(data / "cortex.db", tmp_path / "snapshot.db")
@@ -186,3 +190,14 @@ async def test_admin_restore_is_explicitly_offline_only():
     with pytest.raises(HTTPException) as error:
         await restore_snapshot(request, {"path": "snapshot.tar.gz"}, {})
     assert error.value.status_code == 409
+
+
+def test_core_imports_do_not_load_untracked_extensions():
+    result = subprocess.run([sys.executable, "-c", """
+import sys
+from cortex.memory import MemorySystem
+from cortex.tools import ToolRegistry
+assert not {'cortex.memory.sessions', 'cortex.memory.compaction',
+            'cortex.tools.doc_lookup'} & sys.modules.keys()
+"""], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

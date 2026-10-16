@@ -217,6 +217,55 @@ async def test_explicit_cancel_cleans_up_inference_without_publishing(env):
     assert coordinator.queue._states == {}
 
 
+async def test_a01_a02_fast_paths_p95_under_saturated_inference(env, monkeypatch):
+    from cortex.pipeline import run_pipeline
+    from cortex.plugins import PluginRegistry
+    from cortex.plugins.base import CommandMatch, CommandResult, CortexPlugin
+
+    coordinator, _, provider, _ = env
+    class Action(CortexPlugin):
+        plugin_id = "qualification-action"
+        calls = 0
+        async def setup(self, config):
+            return True
+        async def health(self):
+            return True
+        async def match(self, text, context):
+            return CommandMatch(text.startswith("fixture action"), "action")
+        async def handle(self, text, match, context):
+            self.calls += 1
+            return CommandResult(True, "Action completed.")
+
+    plugin, registry = Action(), PluginRegistry()
+    registry.register(plugin)
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: registry)
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins._try_learned_patterns", lambda _: (None, 0))
+    provider.block.add("qualification blocker")
+    pending = asyncio.create_task(answer(coordinator, prepared("qualification blocker")))
+    try:
+        await asyncio.wait_for(provider.entered.get(), 3)
+        timings = {"instant": [], "action": []}
+        for index in range(100):
+            for kind, text, expected in (("instant", "2 + 2", "4"),
+                                         ("action", f"fixture action {index}", "Action completed.")):
+                started = time.perf_counter()
+                result = "".join([token async for token in run_pipeline(
+                    text, provider, user_id="anonymous",
+                    metadata={"turn_id": f"{kind}-{index}", "conversation_id": "fast-qualification"},
+                )])
+                timings[kind].append(time.perf_counter() - started)
+                assert result == expected
+                assert coordinator.queue.active_count == 1
+        assert len(provider.calls) == 1
+        assert plugin.calls == 100
+        p95 = {kind: sorted(values)[94] for kind, values in timings.items()}
+        print(f"A01/A02 seconds p95 (100 each; 1 saturated slot): {p95}")
+        assert all(value <= 0.5 for value in p95.values())
+    finally:
+        provider.release.set()
+        await pending
+
+
 async def test_same_idempotency_key_reuses_result_but_not_different_work(env):
     coordinator, store, provider, _ = env
     first = prepared("same question", turn_id="first")

@@ -483,6 +483,64 @@ async def test_two_rooms_accept_independent_work_while_other_room_playback_waits
     assert env.store.get(first["turn_id"], "anonymous").delivery_state == "delivering"
 
 
+async def test_a13_one_hundred_interleaved_room_turns_and_duplicate_captures(voice_env, monkeypatch):
+    from cortex.pipeline import prepare_turn
+    from cortex.plugins import PluginRegistry
+    from cortex.plugins.timers import SchedulingPlugin
+    from cortex.scheduling.timers import TimerEngine
+    env = voice_env
+    second_frames = []
+    async def send(message):
+        second_frames.append(message)
+    second = SatelliteConnection(SimpleNamespace(send_json=send), "pi-two")
+    second.room, second.capabilities = "bedroom", ["playback_ack"]
+    async def identify(audio, conn):
+        return ("alice", "speaker-a") if audio[0] == 1 else ("bob", "speaker-b")
+    async def transcribe(audio, **kwargs):
+        return f"set a timer for {audio[2]} minutes"
+    monkeypatch.setattr("cortex.speech.recognition.identify_audio", identify)
+    monkeypatch.setattr("cortex.orchestrator.voice.transcribe", transcribe)
+    monkeypatch.setattr("cortex.orchestrator.voice_turns.prepare_turn", prepare_turn)
+    monkeypatch.setattr("cortex.scheduling.timers.get_db", lambda: env.store.conn)
+    plugin = SchedulingPlugin()
+    plugin.timer_engine = TimerEngine()
+    registry = PluginRegistry()
+    registry.register(plugin)
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: registry)
+    try:
+        for index in range(1, 51):
+            for number, device in enumerate((env.device, second), 1):
+                capture = Capture(bytes([number, 0, index, 0]), str(index), True, "vad_silence")
+                await env.service.session(device).submit(capture)
+            await until(lambda: all(
+                sum(frame["type"] == "TTS_END" for frame in frames) == index
+                for frames in (env.frames, second_frames)
+            ))
+            for number, (device, frames, user) in enumerate(
+                ((env.device, env.frames, "alice"), (second, second_frames, "bob")), 1,
+            ):
+                receipt = [frame for frame in frames if frame["type"] == "TTS_END"][-1]
+                turn = env.store.get(receipt["turn_id"], user)
+                assert turn.identity.device_id == device.satellite_id
+                assert turn.identity.room == device.room
+                device.voice_session.acknowledge(receipt)
+                await until(lambda: env.store.get(receipt["turn_id"], user).delivery_state == "delivered")
+                await device.voice_session.submit(
+                    Capture(bytes([number, 0, index, 0]), str(index), True, "vad_silence"),
+                )
+            await until(lambda: env.service.audio_bytes == 0)
+        rows = env.store.conn.execute(
+            "SELECT user_id, COUNT(*) FROM timers GROUP BY user_id ORDER BY user_id",
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [("alice", 50), ("bob", 50)]
+        assert env.store.status()["counts"] == {"completed": 100}
+        assert sum(frame["type"] == "TTS_END" for frame in env.frames) == 50
+        assert sum(frame["type"] == "TTS_END" for frame in second_frames) == 50
+    finally:
+        for timer in list(plugin.timer_engine._tasks):
+            await plugin.timer_engine.cancel_timer(timer)
+
+
 @pytest.mark.parametrize("capture_id", ["", "x" * 129, 42, None, " trailing ", "\n"])
 async def test_invalid_capture_identity_is_rejected(voice_env, capture_id):
     env = voice_env
@@ -549,17 +607,20 @@ async def test_local_stop_precedes_slow_server_and_stale_frames_are_ignored():
 
     agent.ws = SimpleNamespace(connected=True, send_barge_in=AsyncMock(side_effect=slow_server),
                                send_wake=AsyncMock(), send_audio_start=AsyncMock(), send_status=AsyncMock())
-    metadata = {"turn_id": "old", "revision": 1, "playback_id": "old-play"}
-    agent._tts_metadata = metadata
-    agent.state = State.SPEAKING
-    agent._playback_task = asyncio.create_task(asyncio.Event().wait())
-    barge = asyncio.create_task(agent._handle_barge_in())
-    await until(lambda: agent.audio_out.stop.called)
-    await until(lambda: agent._playback_task.done())
-    assert not barge.done()
-    gate.set()
-    await asyncio.wait_for(barge, 2)
-    await agent._on_tts_start({**metadata, "sample_rate": 16000})
-    await agent._on_tts_chunk({**metadata, "audio": base64.b64encode(b"\x01\x00").decode()})
-    assert agent._tts_buffer == b""
-    assert agent.state == State.LISTENING
+    for cycle in range(100):
+        gate.clear()
+        agent.audio_out.stop.reset_mock()
+        metadata = {"turn_id": f"old-{cycle}", "revision": 1, "playback_id": f"old-play-{cycle}"}
+        agent._tts_metadata = metadata
+        agent.state = State.SPEAKING
+        agent._playback_task = asyncio.create_task(asyncio.Event().wait())
+        barge = asyncio.create_task(agent._handle_barge_in())
+        await until(lambda: agent.audio_out.stop.called)
+        await until(lambda: agent._playback_task.done())
+        assert not barge.done()
+        gate.set()
+        await asyncio.wait_for(barge, 2)
+        await agent._on_tts_start({**metadata, "sample_rate": 16000})
+        await agent._on_tts_chunk({**metadata, "audio": base64.b64encode(b"\x01\x00").decode()})
+        assert agent._tts_buffer == b""
+        assert agent.state == State.LISTENING
