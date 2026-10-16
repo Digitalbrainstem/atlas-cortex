@@ -107,6 +107,7 @@ class ReSpeakerLED(LEDController):
         self._lock = threading.Lock()
         self._pulse_thread = None
         self._pulsing = False
+        self._power_request = None
         self.patterns: dict[str, tuple[int, int, int, float]] = dict(self.DEFAULT_PATTERNS)
         if patterns:
             self.update_patterns(patterns)
@@ -133,6 +134,25 @@ class ReSpeakerLED(LEDController):
                         num_leds, len(self._activity_leds), len(self._primary_leds))
         except (ImportError, OSError) as e:
             logger.warning("SPI not available for LEDs: %s", e)
+        if num_leds >= 12:
+            self._enable_4mic_led_power()
+
+    def _enable_4mic_led_power(self) -> None:
+        """Enable the ReSpeaker 4-Mic array LED rail on BCM GPIO 5."""
+        try:
+            import gpiod
+            from gpiod.line import Direction, Value
+
+            self._power_request = gpiod.request_lines(
+                "/dev/gpiochip0",
+                consumer="atlas-respeaker-led-power",
+                config={5: gpiod.LineSettings(
+                    direction=Direction.OUTPUT,
+                    output_value=Value.ACTIVE,
+                )},
+            )
+        except (ImportError, OSError, AttributeError) as exc:
+            logger.warning("Could not enable ReSpeaker 4-Mic LED power: %s", exc)
 
     def set_color(self, r: int, g: int, b: int, brightness: float = 1.0) -> None:
         self._stop_pulse()
@@ -279,6 +299,9 @@ class ReSpeakerLED(LEDController):
         if self._spi:
             self._spi.close()
             self._spi = None
+        if self._power_request:
+            self._power_request.release()
+            self._power_request = None
 
 
 class GPIOLED(LEDController):

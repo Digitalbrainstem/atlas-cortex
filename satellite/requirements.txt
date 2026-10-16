@@ -16,6 +16,9 @@ zeroconf>=0.131.0
 # SPI for ReSpeaker LEDs (optional — only needed for ReSpeaker HAT)
 spidev>=3.6
 
+# GPIO button and 4-Mic LED power gate
+gpiod>=2.1
+
 # ── Optional: Wake word detection ─────────────────────────────
 # Uncomment for local wake word support (adds ~100MB RAM usage).
 # Not recommended for Pi Zero 2 W; works well on Pi 3/4/5.

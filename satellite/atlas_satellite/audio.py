@@ -36,32 +36,40 @@ class AudioCapture:
         device: str = "default",
         sample_rate: int = 16000,
         channels: int = 1,
+        capture_channels: int | None = None,
+        capture_format: str = "S16_LE",
         period_size: int = 480,
         mic_gain: float = 0.8,
     ):
         self.device = device
         self.sample_rate = sample_rate
         self.channels = channels
+        self.capture_channels = capture_channels or channels
+        self.capture_format = capture_format
         self.period_size = period_size
         self.mic_gain = mic_gain
         self._pcm: Optional[alsaaudio.PCM] = None
         self._running = False
-        self._hw_channels = channels  # actual channels opened on hardware
+        self._hw_channels = self.capture_channels
+        self._sample_width = 2 if capture_format == "S16_LE" else 4
 
     def start(self) -> None:
         if alsaaudio is None:
             raise RuntimeError("pyalsaaudio not installed")
-        self._hw_channels = self.channels
+        self._hw_channels = self.capture_channels
         try:
             self._open_pcm(self._hw_channels)
             # Verify actual channel count by reading a test frame
             length, data = self._pcm.read()
-            expected_mono = self.period_size * 2
+            expected_mono = self.period_size * self._sample_width
             if len(data) > expected_mono and self.channels == 1:
-                logger.info("Hardware returns stereo despite mono request, enabling downmix")
-                self._hw_channels = 2
+                detected = len(data) // expected_mono
+                logger.info(
+                    "Hardware returned %d channels, enabling mono downmix", detected,
+                )
+                self._hw_channels = detected
         except alsaaudio.ALSAAudioError:
-            if self.channels == 1:
+            if self.capture_channels == 1:
                 logger.info("Mono capture failed, trying stereo with downmix")
                 self._hw_channels = 2
                 self._open_pcm(self._hw_channels)
@@ -84,7 +92,13 @@ class AudioCapture:
         )
         self._pcm.setchannels(channels)
         self._pcm.setrate(self.sample_rate)
-        self._pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
+        format_value = {
+            "S16_LE": alsaaudio.PCM_FORMAT_S16_LE,
+            "S32_LE": alsaaudio.PCM_FORMAT_S32_LE,
+        }.get(self.capture_format)
+        if format_value is None:
+            raise ValueError(f"Unsupported capture format: {self.capture_format}")
+        self._pcm.setformat(format_value)
         self._pcm.setperiodsize(self.period_size)
 
     def stop(self) -> None:
@@ -106,11 +120,13 @@ class AudioCapture:
             length, data = self._pcm.read()
             if length > 0:
                 # Detect actual stereo even if we requested mono
-                expected_mono = self.period_size * 2  # 16-bit mono
+                expected_mono = self.period_size * self._sample_width
                 if len(data) > expected_mono and self.channels == 1:
-                    data = self._stereo_to_mono(data)
-                elif self._hw_channels == 2 and self.channels == 1:
-                    data = self._stereo_to_mono(data)
+                    data = self._to_mono_s16(data, self._hw_channels, self.capture_format)
+                elif self._hw_channels > 1 and self.channels == 1:
+                    data = self._to_mono_s16(data, self._hw_channels, self.capture_format)
+                elif self.capture_format == "S32_LE":
+                    data = self._to_mono_s16(data, 1, self.capture_format)
                 if self.mic_gain != 1.0:
                     data = self._apply_gain(data, self.mic_gain)
                 return data
@@ -121,11 +137,30 @@ class AudioCapture:
     @staticmethod
     def _stereo_to_mono(data: bytes) -> bytes:
         """Downmix interleaved stereo S16_LE to mono by averaging channels."""
-        samples = struct.unpack(f"<{len(data) // 2}h", data)
-        mono = [
-            (samples[i] + samples[i + 1]) // 2
-            for i in range(0, len(samples), 2)
-        ]
+        return AudioCapture._to_mono_s16(data, 2, "S16_LE")
+
+    @staticmethod
+    def _to_mono_s16(data: bytes, channels: int, capture_format: str) -> bytes:
+        """Downmix interleaved capture audio to transport-ready mono S16_LE."""
+        if channels < 1:
+            raise ValueError("channels must be positive")
+        if capture_format == "S16_LE":
+            width, code, shift = 2, "h", 0
+        elif capture_format == "S32_LE":
+            width, code, shift = 4, "i", 16
+        else:
+            raise ValueError(f"Unsupported capture format: {capture_format}")
+        frame_width = width * channels
+        usable = len(data) - (len(data) % frame_width)
+        if usable == 0:
+            return b""
+        samples = struct.unpack(f"<{usable // width}{code}", data[:usable])
+        mono: list[int] = []
+        for offset in range(0, len(samples), channels):
+            value = sum(samples[offset:offset + channels]) // channels
+            if shift:
+                value >>= shift
+            mono.append(max(-32768, min(32767, value)))
         return struct.pack(f"<{len(mono)}h", *mono)
 
     @staticmethod

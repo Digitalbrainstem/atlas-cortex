@@ -537,7 +537,7 @@ python -m pytest tests/test_voice.py -v
 
 | Phase | Module | Status | Description |
 |-------|--------|--------|-------------|
-| S2.5 | Satellite System | ⏸️ Wake word deferred | Distributed speakers/mics, Pi + ESP32, provisioning |
+| S2.5 | Satellite System | 🧪 Pi software ready; hardware qualification pending | Direct 2-Mic/4-Mic HAT install, distributed audio, Pi + ESP32 provisioning |
 | P2.7 | Fast-Path Plugins | ✅ Complete | 21 built-in plugins (weather, dictionary, wikipedia, conversions, movie, cooking, news, translation, stocks, sports, sound library, scheduling, routines, daily briefing, STEM games, stories, intercom, media + core 3) |
 
 ### Parts 3–12: Extended Features
@@ -594,6 +594,7 @@ Comprehensive design documentation lives in the [`docs/`](docs/) directory:
 | [Plugin Guide](docs/plugins-guide.md) | Plugin system for admins and developers |
 | [Persistent Storage](docs/persistent-storage.md) | Docker volumes and data paths |
 | [Satellite System](docs/satellite-system.md) | Satellite speaker/mic architecture |
+| [Raspberry Pi Satellite Installer](satellite/README.md) | Direct ReSpeaker 2-Mic/4-Mic install, diagnostics, update and rollback |
 | [Alarms & Timers](docs/alarms-timers-reminders.md) | NL time parsing, recurrence, notification routing |
 | [Routines](docs/routines-automations.md) | Triggers, templates, conversational builder |
 | [Proactive Intelligence](docs/proactive-intelligence.md) | Rule engine, providers, daily briefing |

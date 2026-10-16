@@ -1,0 +1,27 @@
+[Unit]
+Description=Atlas Cortex Raspberry Pi Satellite
+Documentation=https://github.com/Digitalbrainstem/atlas-cortex
+After=network-online.target sound.target avahi-daemon.service
+Wants=network-online.target
+ConditionPathExists=/etc/atlas-satellite/config.json
+ConditionPathExists=/opt/atlas-satellite/current/venv/bin/atlas-satellite
+
+[Service]
+Type=simple
+User=atlas-satellite
+Group=atlas-satellite
+WorkingDirectory=/var/lib/atlas-satellite
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/atlas-satellite/current/venv/bin/atlas-satellite --config /etc/atlas-satellite/config.json --setup-port 0
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/atlas-satellite /var/lib/atlas-satellite
+
+[Install]
+WantedBy=multi-user.target
