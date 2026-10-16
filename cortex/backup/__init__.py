@@ -19,10 +19,15 @@ import logging
 import os
 import shutil
 import sqlite3
-import tarfile
+import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from cortex.backup.storage import (
+    config_path, copy_database, copy_file, data_lock, unpack_archive,
+    write_archive, write_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,49 +42,41 @@ def _backup_dir() -> Path:
     return d
 
 
-def create_backup(backup_type: str = "manual") -> Path:
+def create_backup(backup_type: str = "manual", *, data_dir: Path | None = None) -> Path:
     """Create a compressed backup snapshot.
 
     Returns the path to the created archive.
     """
-    data = _data_dir()
+    if backup_type not in {"manual", "daily", "weekly", "monthly", "pre_restore"}:
+        raise ValueError(f"Unsupported backup type: {backup_type}")
+    data = data_dir if data_dir is not None else _data_dir()
+    backup_dir = data / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive_name = f"cortex_{backup_type}_{ts}.tar.gz"
-    archive_path = _backup_dir() / archive_name
+    archive_name = f"cortex_{backup_type}_{ts}_{uuid.uuid4().hex[:8]}.tar.gz"
+    archive_path = backup_dir / archive_name
 
     start = time.monotonic()
     db_path = data / "cortex.db"
-    chroma_path = data / "cortex_chroma"
-
-    with tarfile.open(archive_path, "w:gz") as tar:
-        # SQLite online backup to a temp file
-        if db_path.exists():
-            tmp_db = data / f"cortex_backup_{ts}.db"
-            try:
-                src = sqlite3.connect(str(db_path))
-                dst = sqlite3.connect(str(tmp_db))
-                src.backup(dst)
-                dst.close()
-                src.close()
-                tar.add(tmp_db, arcname="cortex.db")
-            finally:
-                if tmp_db.exists():
-                    tmp_db.unlink()
-
-        # ChromaDB directory
-        if chroma_path.exists():
-            tar.add(chroma_path, arcname="cortex_chroma")
-
-        # Config
-        env_path = data.parent / "cortex.env"
-        if env_path.exists():
-            tar.add(env_path, arcname="cortex.env")
+    with tempfile.TemporaryDirectory(prefix=".backup-", dir=backup_dir) as name:
+        staging = Path(name)
+        copy_database(db_path, staging / "cortex.db")
+        for directory in ("cortex_chroma", "skins"):
+            if (data / directory).exists():
+                logger.warning("Backing up %s: stop its writers for file-level consistency", directory)
+                shutil.copytree(data / directory, staging / directory, symlinks=True)
+        env_path = config_path(data)
+        if env_path.is_file():
+            copy_file(env_path, staging / "cortex.env")
+        write_manifest(staging)
+        write_archive(staging, archive_path)
 
     duration_ms = int((time.monotonic() - start) * 1000)
     size_bytes = archive_path.stat().st_size
 
     # Log to DB
-    _log_backup(archive_path, backup_type, size_bytes, duration_ms)
+    if data == _data_dir():
+        _log_backup(archive_path, backup_type, size_bytes, duration_ms)
 
     logger.info(
         "Backup created: %s (%.1f MB, %d ms)",
@@ -90,7 +87,10 @@ def create_backup(backup_type: str = "manual") -> Path:
     return archive_path
 
 
-def restore_backup(path: Path | None = None, backup_type: str | None = None) -> None:
+def restore_backup(
+    path: Path | None = None, backup_type: str | None = None, *,
+    data_dir: Path | None = None,
+) -> None:
     """Restore from a backup archive.
 
     Args:
@@ -103,24 +103,30 @@ def restore_backup(path: Path | None = None, backup_type: str | None = None) -> 
     if path is None or not path.exists():
         raise FileNotFoundError(f"No backup found (type={backup_type}, path={path})")
 
-    # Safety snapshot first
-    logger.info("Creating safety snapshot before restore...")
-    create_backup("pre_restore")
-
-    data = _data_dir()
+    data = data_dir if data_dir is not None else _data_dir()
     logger.info("Restoring from %s ...", path.name)
 
-    with tarfile.open(path, "r:gz") as tar:
-        # Use data filter (Python 3.12+) to prevent path traversal attacks
-        try:
-            tar.extractall(data, filter="data")  # type: ignore[call-arg]
-        except TypeError:
-            # Fallback for Python < 3.12: validate member paths manually
-            for member in tar.getmembers():
-                member_path = (data / member.name).resolve()
-                if not str(member_path).startswith(str(data.resolve())):
-                    raise ValueError(f"Unsafe path in archive: {member.name}")
-            tar.extractall(data)  # noqa: S202
+    with data_lock(data), unpack_archive(path, data) as staging:
+        if (data / "cortex.db").exists():
+            logger.info("Creating safety snapshot before restore...")
+            create_backup("pre_restore", data_dir=data)
+        copy_database(staging / "cortex.db", data / "cortex.db")
+        # An explicit target must never overwrite the current deployment's config.
+        env_target = data / "cortex.env" if data_dir is not None else config_path(data)
+        for source, target in (
+            (staging / "cortex.env", env_target),
+            (staging / "manifest.json", data / "restored-manifest.json"),
+        ):
+            if source.exists():
+                copy_file(source, target)
+        for directory in ("cortex_chroma", "skins"):
+            source = staging / directory
+            if source.exists():
+                target = data / directory
+                if target.exists():
+                    # Preserve the complete old directory, not a merged stale index.
+                    target.rename(data / f"{directory}.pre_restore-{uuid.uuid4().hex[:8]}")
+                source.rename(target)
 
     logger.info("Restore complete.")
 
@@ -137,8 +143,9 @@ def list_backups() -> list[dict]:
             "SELECT * FROM backup_log ORDER BY created_at DESC LIMIT 50"
         ).fetchall()
         return [dict(row) for row in rows]
-    except Exception:
-        return []
+    except sqlite3.Error:
+        logger.exception("Cannot read backup history")
+        raise
     finally:
         conn.close()
 
@@ -197,6 +204,7 @@ def main() -> None:
     restore_p = sub.add_parser("restore", help="Restore from a backup")
     restore_p.add_argument("path", nargs="?", help="Path to backup archive")
     restore_p.add_argument("--latest", metavar="TYPE", help="Restore latest of type (daily/weekly/monthly)")
+    restore_p.add_argument("--target", type=Path, help="Restore into an isolated data directory")
 
     args = parser.parse_args()
 
@@ -212,5 +220,5 @@ def main() -> None:
             print(f"  [{b['backup_type']:8s}] {b['created_at']}  {size_mb:.1f} MB  {b['archive_path']}")
     elif args.command == "restore":
         p = Path(args.path) if args.path else None
-        restore_backup(path=p, backup_type=args.latest)
+        restore_backup(path=p, backup_type=args.latest, data_dir=args.target)
         print("Restore complete.")

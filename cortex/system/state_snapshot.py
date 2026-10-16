@@ -1,6 +1,6 @@
 """Periodic state snapshots for Atlas recovery.
 
-Atomically backs up cortex.db (via VACUUM INTO), config, and running
+Atomically publishes SQLite online backups, config, and running
 state into timestamped compressed archives.  Optionally syncs to NAS.
 """
 
@@ -12,13 +12,16 @@ import json
 import logging
 import os
 import shutil
-import sqlite3
-import tarfile
 import time
+import tempfile
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from cortex.backup.storage import (
+    copy_database, copy_file, data_lock, unpack_archive, write_archive, write_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +112,11 @@ class StateSnapshot:
         snap_dir.mkdir(parents=True, exist_ok=True)
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        archive_path = snap_dir / f"snapshot_{ts}.tar.gz"
-        staging_dir = snap_dir / f".staging_{ts}"
-        staging_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = snap_dir / f"snapshot_{ts}_{uuid.uuid4().hex[:8]}.tar.gz"
+        staging_dir = Path(tempfile.mkdtemp(prefix=".staging-", dir=snap_dir))
 
         try:
-            # 1. Atomic DB backup via VACUUM INTO
+            # 1. Consistent SQLite snapshot, including committed WAL pages
             await self._backup_db(staging_dir / "cortex.db")
 
             # 2. Config file
@@ -127,10 +129,8 @@ class StateSnapshot:
                 json.dumps(state, indent=2, default=str), encoding="utf-8",
             )
 
-            # 4. Create compressed archive
-            with tarfile.open(archive_path, "w:gz") as tar:
-                for item in staging_dir.iterdir():
-                    tar.add(item, arcname=item.name)
+            write_manifest(staging_dir)
+            write_archive(staging_dir, archive_path)
 
             size = archive_path.stat().st_size
             logger.info("Snapshot created: %s (%d bytes)", archive_path.name, size)
@@ -144,8 +144,8 @@ class StateSnapshot:
         if not snap_dir.exists():
             return []
         results: list[SnapshotInfo] = []
-        for p in sorted(snap_dir.glob("snapshot_*.tar.gz"), reverse=True):
-            ts = p.name.replace("snapshot_", "").replace(".tar.gz", "")
+        for p in sorted(snap_dir.glob("snapshot_*.tar.gz"), key=lambda p: p.stat().st_mtime_ns, reverse=True):
+            ts = p.name.removeprefix("snapshot_")[:15]
             results.append(SnapshotInfo(timestamp=ts, path=str(p), size_bytes=p.stat().st_size))
         return results
 
@@ -155,37 +155,29 @@ class StateSnapshot:
         if not archive.exists():
             raise FileNotFoundError(f"Snapshot not found: {path}")
 
+        if self._running:
+            raise RuntimeError("Stop Cortex before restoring a snapshot")
         restored: list[str] = []
-        extract_dir = archive.parent / ".restore_tmp"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            with tarfile.open(archive, "r:gz") as tar:
-                tar.extractall(extract_dir)
-
-            db_backup = extract_dir / "cortex.db"
-            if db_backup.exists():
-                target = self._db_path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(db_backup, target)
-                restored.append("cortex.db")
+        with data_lock(self._db_path.parent), unpack_archive(archive, self._db_path.parent) as extract_dir:
+            state_file = extract_dir / "system_state.json"
+            state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
+            if self._db_path.exists():
+                await self.take_snapshot()
+            copy_database(extract_dir / "cortex.db", self._db_path)
+            restored.append("cortex.db")
 
             config_backup = extract_dir / "cortex.env"
             if config_backup.exists():
                 target = self._config_path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(config_backup, target)
+                copy_file(config_backup, target)
                 restored.append("cortex.env")
-
-            state_file = extract_dir / "system_state.json"
-            state = {}
-            if state_file.exists():
-                state = json.loads(state_file.read_text(encoding="utf-8"))
+            manifest = extract_dir / "manifest.json"
+            if manifest.exists():
+                copy_file(manifest, self._db_path.parent / "restored-manifest.json")
 
             logger.info("Restored from snapshot %s: %s", archive.name, restored)
             return {"restored": restored, "state": state}
-        finally:
-            shutil.rmtree(extract_dir, ignore_errors=True)
 
     def cleanup_old(self) -> int:
         """Remove snapshots beyond keep count. Returns number removed."""
@@ -228,15 +220,10 @@ class StateSnapshot:
     # -- internals ----------------------------------------------------------
 
     async def _backup_db(self, dest: Path) -> None:
-        """Atomic DB backup using VACUUM INTO (WAL-safe)."""
+        """Consistent SQLite backup, including committed WAL pages."""
         if not self._db_path.exists():
-            logger.debug("DB file not found at %s — skipping backup", self._db_path)
-            return
-        conn = sqlite3.connect(str(self._db_path))
-        try:
-            conn.execute(f"VACUUM INTO '{dest}'")
-        finally:
-            conn.close()
+            raise FileNotFoundError(f"Cannot snapshot missing database: {self._db_path}")
+        copy_database(self._db_path, dest)
 
     async def _collect_state(self) -> dict[str, Any]:
         """Gather current system state for the snapshot."""

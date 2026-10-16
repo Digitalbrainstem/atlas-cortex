@@ -339,8 +339,9 @@ async def restore_snapshot(request: Request, body: dict, _: dict = Depends(requi
     path = body.get("path", "")
     if not path:
         raise HTTPException(400, "path is required")
-    result = await snapshotter.restore_from_snapshot(path)
-    return result
+    raise HTTPException(
+        409, "Live restore is disabled. Stop Cortex and use python -m cortex.backup restore PATH.",
+    )
 
 
 @router.get("/system/recovery")

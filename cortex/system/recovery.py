@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from cortex.backup.storage import copy_database, copy_file, unpack_archive
 
 logger = logging.getLogger(__name__)
 
@@ -91,27 +92,14 @@ class SelfRecovery:
                 result.steps.append(f"restored_db_from:{snap_path.name}")
             except Exception as exc:
                 logger.error("Snapshot restore failed: %s", exc)
-                self._init_fresh_db(result)
+                raise
         else:
             self._init_fresh_db(result)
 
     def _restore_db_from_snapshot(self, snap_path: Path) -> None:
         """Extract cortex.db from a snapshot archive into the DB path."""
-        import shutil
-        import tarfile
-
-        extract_dir = self._snapshot_dir / ".db_restore"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            with tarfile.open(snap_path, "r:gz") as tar:
-                tar.extractall(extract_dir)
-            restored_db = extract_dir / "cortex.db"
-            if not restored_db.exists():
-                raise FileNotFoundError("cortex.db not found in snapshot")
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(restored_db, self._db_path)
-        finally:
-            shutil.rmtree(extract_dir, ignore_errors=True)
+        with unpack_archive(snap_path, self._db_path.parent) as staging:
+            copy_database(staging / "cortex.db", self._db_path)
 
     def _init_fresh_db(self, result: RecoveryResult) -> None:
         logger.info("No database or snapshots found. Starting fresh.")
@@ -156,8 +144,8 @@ class SelfRecovery:
                 result.steps.append(f"integrity_restore:{snap_path.name}")
                 result.steps.append(f"salvaged_tables:{','.join(salvaged)}")
             except Exception as exc:
-                logger.error("Restore+merge failed: %s — rebuilding from corrupt DB", exc)
-                self._try_rebuild_from_corrupt(result)
+                logger.error("Restore+merge failed; operator recovery required: %s", exc)
+                raise
         else:
             self._try_rebuild_from_corrupt(result)
 
@@ -188,24 +176,16 @@ class SelfRecovery:
     def _restore_and_merge(self, snap_path: Path, good_tables: list[str]) -> list[str]:
         """Restore DB from snapshot, then merge data from good tables."""
         import shutil
-        import tarfile
-
-        corrupt_path = self._db_path.with_suffix(".db.corrupt")
-        shutil.move(str(self._db_path), str(corrupt_path))
-
-        extract_dir = self._snapshot_dir / ".restore_merge"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            with tarfile.open(snap_path, "r:gz") as tar:
-                tar.extractall(extract_dir)
-
-            restored_db = extract_dir / "cortex.db"
-            if restored_db.exists():
-                shutil.copy2(restored_db, self._db_path)
-            else:
-                # Snapshot had no DB — put corrupt back and rebuild
-                shutil.move(str(corrupt_path), str(self._db_path))
-                return []
+        with unpack_archive(snap_path, self._db_path.parent) as extract_dir:
+            corrupt_path = self._db_path.with_suffix(".db.corrupt")
+            if corrupt_path.exists():
+                raise FileExistsError(f"Previous corrupt database still needs review: {corrupt_path}")
+            shutil.move(str(self._db_path), str(corrupt_path))
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(self._db_path) + suffix)
+                if sidecar.exists():
+                    sidecar.rename(Path(str(corrupt_path) + suffix))
+            copy_database(extract_dir / "cortex.db", self._db_path)
 
             # Merge salvageable data from corrupt DB
             salvaged = self._merge_salvaged(corrupt_path, good_tables)
@@ -213,8 +193,6 @@ class SelfRecovery:
             # Keep corrupt DB for manual inspection
             logger.info("Corrupt DB preserved at %s", corrupt_path)
             return salvaged
-        finally:
-            shutil.rmtree(extract_dir, ignore_errors=True)
 
     def _merge_salvaged(self, corrupt_path: Path, good_tables: list[str]) -> list[str]:
         """Attempt to merge newer rows from the corrupt DB into the restored one."""
@@ -348,22 +326,13 @@ class SelfRecovery:
         logger.info("No config file found — defaults will be used")
 
     def _restore_config_from_snapshot(self, snap_path: Path) -> None:
-        import shutil
-        import tarfile
-
-        extract_dir = self._snapshot_dir / ".config_restore"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            with tarfile.open(snap_path, "r:gz") as tar:
-                tar.extractall(extract_dir)
+        with unpack_archive(snap_path, self._config_path.parent) as extract_dir:
             cfg = extract_dir / "cortex.env"
             if cfg.exists():
                 self._config_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(cfg, self._config_path)
+                copy_file(cfg, self._config_path)
             else:
                 raise FileNotFoundError("cortex.env not in snapshot")
-        finally:
-            shutil.rmtree(extract_dir, ignore_errors=True)
 
     # -- step 5: backup health ----------------------------------------------
 
@@ -377,7 +346,7 @@ class SelfRecovery:
         latest = snapshots[0]
         try:
             from datetime import datetime, timezone
-            ts = latest.name.replace("snapshot_", "").replace(".tar.gz", "")
+            ts = latest.name.removeprefix("snapshot_")[:15]
             dt = datetime.strptime(ts, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
             age_seconds = (datetime.now(timezone.utc) - dt).total_seconds()
             if age_seconds > 3600:
@@ -393,4 +362,5 @@ class SelfRecovery:
         """Return snapshot files newest first."""
         if not self._snapshot_dir.exists():
             return []
-        return sorted(self._snapshot_dir.glob("snapshot_*.tar.gz"), reverse=True)
+        return sorted(self._snapshot_dir.glob("snapshot_*.tar.gz"),
+                      key=lambda path: path.stat().st_mtime_ns, reverse=True)

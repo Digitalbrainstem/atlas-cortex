@@ -138,11 +138,12 @@ class TestSnapshotCreation:
         assert rows[0][1] == "hello"
 
     @pytest.mark.asyncio
-    async def test_snapshot_no_db_still_works(self, snap_env):
+    async def test_snapshot_missing_db_fails_explicitly(self, snap_env):
         os.unlink(snap_env["db_path"])
         ss = _make_snapshot(snap_env)
-        info = await ss.take_snapshot()
-        assert os.path.exists(info.path)
+        with pytest.raises(FileNotFoundError, match="missing database"):
+            await ss.take_snapshot()
+        assert not list(snap_env["snap_dir"].glob("*.tar.gz"))
 
     @pytest.mark.asyncio
     async def test_snapshot_no_config_still_works(self, snap_env):

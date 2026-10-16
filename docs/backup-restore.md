@@ -1,5 +1,12 @@
 # Atlas Cortex — Backup & Restore
 
+> **Historical design, not the current command reference.** The code examples,
+> automatic rollback, tiered retention, `--dry-run`, and `--latest any` described
+> below are not supported release guarantees. Use [MVP recovery](mvp-recovery.md)
+> for implemented backup/restore commands, offline ownership, WAL handling and
+> compatible rollback. Do not copy the historical file-replacement examples into
+> a running deployment.
+
 ## Overview
 
 Atlas Cortex's entire state lives in two places: a **SQLite database** and a **ChromaDB directory**. Backups are simple, fast, and restorable with a single command. The system performs automated nightly backups and supports on-demand snapshots before risky operations.

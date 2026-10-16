@@ -20,6 +20,7 @@ import io
 import json
 import logging
 import os
+import sqlite3
 import time
 import uuid
 import wave
@@ -74,16 +75,27 @@ _server_announcer = ServerAnnouncer(port=5100)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from cortex.backup.storage import data_lock
+    with data_lock(Path(os.environ.get("CORTEX_DATA_DIR", "./data"))):
+        async with _services_lifespan(app):
+            app.state.ready = True
+            try:
+                yield
+            finally:
+                app.state.ready = False
+
+
+@asynccontextmanager
+async def _services_lifespan(app: FastAPI):
     """Start/stop server-level services."""
     from cortex.scheduler import register_startup_task, register_service, start_all, stop_all
-
-    init_db()
-    get_user_auth().load_from_db(_get_db())
 
     # ── Self-recovery startup checks ────────────────────────────────
     from cortex.system.recovery import SelfRecovery
     _recovery = SelfRecovery()
     _recovery_result = _recovery.run_startup_checks()
+    init_db()
+    get_user_auth().load_from_db(_get_db())
     if _recovery_result.recovered:
         logger.warning(
             "Recovered from %s: %s (steps: %s)",
@@ -629,6 +641,34 @@ async def health():
     provider = _get_provider()
     healthy = await provider.health()
     return {"status": "ok" if healthy else "degraded", "provider_healthy": healthy}
+
+
+@app.get("/live")
+async def liveness():
+    """Process liveness must not depend on optional or failed providers."""
+    return {"status": "alive"}
+
+
+@app.get("/ready")
+async def readiness():
+    import httpx
+    checks = {"startup": bool(getattr(app.state, "ready", False)), "storage": False, "llm": False}
+    store = getattr(app.state, "turn_store", None)
+    if store is not None:
+        try:
+            checks["storage"] = store.conn.execute("SELECT 1 FROM pending_turns LIMIT 1") is not None
+        except sqlite3.Error:
+            logger.exception("Readiness storage check failed")
+    try:
+        checks["llm"] = await asyncio.wait_for(_get_provider().health(), timeout=3)
+    except (TimeoutError, httpx.HTTPError, ClientError, OSError, ValueError):
+        logger.warning("Readiness provider check failed", exc_info=True)
+    ready = all(checks.values())
+    return JSONResponse(status_code=200 if ready else 503, content={
+        "status": "ready" if ready else "degraded",
+        "checks": checks,
+        "optional": {"tts": "not_checked", "stt": "not_checked", "satellites": "not_checked"},
+    })
 
 
 @app.get("/v1/models")

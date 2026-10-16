@@ -1,5 +1,11 @@
 # Atlas Cortex — Installation & Backend Abstraction
 
+For the household MVP candidate, use the minimal deployment and qualification
+matrix in [MVP release handoff](mvp-release.md). The larger architecture/provider
+catalogue below is not evidence that every backend has been release-qualified.
+`docker/docker-compose.mvp.yml` runs Cortex alone against explicitly configured
+external inference/voice services; it does not launch every GPU TTS provider.
+
 ## Design Principles
 
 1. **No hardcoded backends** — llama.cpp (via OpenAI-compatible API) is the default, with Transformers and others as alternatives
