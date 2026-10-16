@@ -126,8 +126,15 @@ def test_installer_contains_direct_service_update_and_rollback_contracts():
     installer = (ROOT / "satellite" / "install.sh").read_text()
     assert "Digitalbrainstem/atlas-cortex" in installer
     assert "respeaker-2mic" in installer and "respeaker-4mic" in installer
+    assert "CONFIG_PROFILE=respeaker_2mic" in installer
+    assert "CONFIG_PROFILE=respeaker_4mic" in installer
+    assert '"hardware_profile": os.environ["CONFIG_PROFILE"]' in installer
     assert "atlas-satellite.service" in installer
     assert "--rollback" in installer and "--uninstall" in installer
+    assert "Automatic HAT detection found no configured ReSpeaker ALSA card." in installer
+    assert '-f "$candidate/manifest.json"' in installer
+    assert '-x "$candidate/venv/bin/atlas-satellite"' in installer
+    assert 'STAGING_RELEASE="$release_dir"' in installer
     assert 'mv -Tf "$INSTALL_ROOT/.current.new" "$INSTALL_ROOT/current"' in installer
 
 

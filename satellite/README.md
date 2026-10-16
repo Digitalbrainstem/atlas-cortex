@@ -120,6 +120,10 @@ curl -fsSL \
 sudo bash -s -- --hat auto
 ```
 
+`--hat auto` is intended for updates after the ALSA card is already configured.
+On a fresh OS, the installer fails rather than silently selecting a generic
+profile; pass the explicit 2-Mic or 4-Mic profile shown above.
+
 Roll back to the previous installed release:
 
 ```bash

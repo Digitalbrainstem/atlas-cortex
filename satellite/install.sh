@@ -88,6 +88,7 @@ fi
 
 cleanup() {
     [[ -z "${WORK_DIR:-}" ]] || rm -rf -- "$WORK_DIR"
+    [[ -z "${STAGING_RELEASE:-}" ]] || rm -rf -- "$STAGING_RELEASE"
 }
 trap cleanup EXIT
 
@@ -109,8 +110,17 @@ rollback_release() {
     [[ -L "$link" ]] || { echo "No current release to roll back." >&2; exit 1; }
     current=$(readlink -f "$link")
     previous=$(
-        find "$INSTALL_ROOT/releases" -mindepth 1 -maxdepth 1 -type d -print |
-        sort -r | grep -Fvx "$current" | head -n 1 || true
+        while IFS= read -r candidate; do
+            if [[ "$candidate" != "$current" &&
+                  -f "$candidate/manifest.json" &&
+                  -x "$candidate/venv/bin/atlas-satellite" ]]; then
+                printf '%s\n' "$candidate"
+                break
+            fi
+        done < <(
+            find "$INSTALL_ROOT/releases" -mindepth 1 -maxdepth 1 -type d -print |
+            sort -r
+        )
     )
     [[ -n "$previous" ]] || { echo "No previous release is available." >&2; exit 1; }
     ln -s "$previous" "$INSTALL_ROOT/.current.new"
@@ -154,10 +164,18 @@ if [[ "$HAT_PROFILE" == auto ]]; then
     elif grep -Eqi 'seeed2micvoicec|seeed-2mic|wm8960' <<<"$cards"; then
         HAT_PROFILE=respeaker-2mic
     else
-        HAT_PROFILE=generic
+        echo "Automatic HAT detection found no configured ReSpeaker ALSA card." >&2
+        echo "For a fresh install, pass --hat respeaker-2mic or --hat respeaker-4mic." >&2
+        echo "For a non-HAT device, pass --hat none." >&2
+        exit 2
     fi
 fi
 [[ "$HAT_PROFILE" != none ]] || HAT_PROFILE=generic
+case "$HAT_PROFILE" in
+    respeaker-2mic) CONFIG_PROFILE=respeaker_2mic ;;
+    respeaker-4mic) CONFIG_PROFILE=respeaker_4mic ;;
+    *) CONFIG_PROFILE=generic ;;
+esac
 
 if [[ "$INSTALL_DRIVER" == true && "$HAT_PROFILE" == respeaker-* ]]; then
     "$SATELLITE_SOURCE/setup-respeaker.sh" \
@@ -179,17 +197,19 @@ install -d -o root -g "$SERVICE_USER" -m 0770 "$CONFIG_ROOT"
 
 release_id="$(date -u +%Y%m%dT%H%M%SZ)-$(tr -cs 'A-Za-z0-9._-' _ <<<"$REF" | sed 's/_$//')"
 release_dir="$INSTALL_ROOT/releases/$release_id"
-install -d -o root -g root -m 0755 "$release_dir"
-cp -a "$SATELLITE_SOURCE" "$release_dir/source"
-chown -R root:root "$release_dir"
-python3 -m venv --system-site-packages "$release_dir/venv"
-"$release_dir/venv/bin/pip" install --disable-pip-version-check -q --upgrade pip wheel
+STAGING_RELEASE="$release_dir"
+rm -rf -- "$STAGING_RELEASE"
+install -d -o root -g root -m 0755 "$STAGING_RELEASE"
+cp -a "$SATELLITE_SOURCE" "$STAGING_RELEASE/source"
+chown -R root:root "$STAGING_RELEASE"
+python3 -m venv --system-site-packages "$STAGING_RELEASE/venv"
+"$STAGING_RELEASE/venv/bin/pip" install --disable-pip-version-check -q --upgrade pip wheel
 extras=hat
 [[ "$WAKEWORD" == true ]] && extras=hat,wakeword
-"$release_dir/venv/bin/pip" install --disable-pip-version-check -q \
-    "$release_dir/source[$extras]"
+"$STAGING_RELEASE/venv/bin/pip" install --disable-pip-version-check -q \
+    "$STAGING_RELEASE/source[$extras]"
 
-cat > "$release_dir/manifest.json" <<EOF
+cat > "$STAGING_RELEASE/manifest.json" <<EOF
 {
   "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "repository": "$REPOSITORY",
@@ -197,6 +217,7 @@ cat > "$release_dir/manifest.json" <<EOF
   "hardware_profile": "$HAT_PROFILE"
 }
 EOF
+STAGING_RELEASE=""
 
 case "$HAT_PROFILE" in
     respeaker-2mic)
@@ -229,7 +250,7 @@ esac
 config_file="$CONFIG_ROOT/config.json"
 if [[ ! -f "$config_file" ]]; then
     SATELLITE_ID="sat-$(hostname)"
-    export SATELLITE_ID SERVER_URL ROOM MODE DATA_ROOT HAT_PROFILE CAPTURE_DEVICE
+    export SATELLITE_ID SERVER_URL ROOM MODE DATA_ROOT CONFIG_PROFILE CAPTURE_DEVICE
     export CAPTURE_FORMAT CAPTURE_CHANNELS OUTPUT_DEVICE LED_TYPE LED_COUNT BUTTON_ENABLED
     python3 - "$config_file" <<'PY'
 import json
@@ -243,7 +264,7 @@ config = {
     "room": os.environ["ROOM"],
     "mode": os.environ["MODE"],
     "data_dir": os.environ["DATA_ROOT"],
-    "hardware_profile": os.environ["HAT_PROFILE"],
+    "hardware_profile": os.environ["CONFIG_PROFILE"],
     "sample_rate": 16000,
     "channels": 1,
     "capture_format": os.environ["CAPTURE_FORMAT"],
