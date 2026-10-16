@@ -330,6 +330,8 @@ Atlas finds available services on your network and configures integrations autom
 | `CORTEX_HOST` | `0.0.0.0` | Server bind address |
 | `CORTEX_PORT` | `5100` | Server port |
 | `CORTEX_DATA_DIR` | `./data` | Database and state directory |
+| `ATLAS_DATA_DIR_HOST` | `${ATLAS_DATA_BASE}/data` | Host path mounted into `/data` in Docker |
+| `ATLAS_MODELS_DIR_HOST` | `${ATLAS_DATA_BASE}/models` | Host path for Docker model/cache mounts |
 | `LLM_PROVIDER` | `openai_compatible` | LLM backend (`openai_compatible`, `transformers`, `ollama`) |
 | `CAG_MODEL` | `Qwen/Qwen3.5-4B` | Model identifier for tokenizer / Transformers inference |
 | `CAG_DEVICE` | `auto` | Device for model inference (`auto`, `cuda`, `cpu`) |
@@ -345,6 +347,14 @@ Atlas finds available services on your network and configures integrations autom
 | `HA_TOKEN` | — | Home Assistant long-lived access token |
 | `CORTEX_JWT_SECRET` | `atlas-cortex-change-me` | Secret key for admin JWT tokens (change in production!) |
 | `CORTEX_JWT_EXPIRY` | `86400` | Admin session duration in seconds (default: 24 hours) |
+
+For Docker deployments, you can keep state on slower/safer storage and models on faster storage. Example:
+
+```bash
+export ATLAS_DATA_DIR_HOST=/mnt/user/backups/atlas-cortex/data
+export ATLAS_MODELS_DIR_HOST=/mnt/fastpool/atlas/models
+docker compose -f docker/docker-compose.yml up -d
+```
 
 ## 📡 API Reference
 

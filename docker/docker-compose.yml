@@ -12,9 +12,9 @@ services:
     restart: unless-stopped
     network_mode: host
     volumes:
-      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/data:/data
-      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/loras:/loras:ro
-      - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/huggingface:/root/.cache/huggingface
+      - ${ATLAS_DATA_DIR_HOST:-${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/data}:/data
+      - ${ATLAS_MODELS_DIR_HOST:-${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models}/loras:/loras:ro
+      - ${ATLAS_MODELS_DIR_HOST:-${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models}/huggingface:/root/.cache/huggingface
     environment:
       # LLM — HuggingFace Transformers on local GPU (default), or Ollama fallback
       - LLM_PROVIDER=${LLM_PROVIDER:-transformers}
@@ -174,7 +174,7 @@ services:
   #   ports:
   #     - "11434:11434"
   #   volumes:
-  #     - ${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models/ollama:/root/.ollama
+  #     - ${ATLAS_MODELS_DIR_HOST:-${ATLAS_DATA_BASE:-/mnt/fastpool/atlas}/models}/ollama:/root/.ollama
   #   environment:
   #     - OLLAMA_HOST=0.0.0.0
   #     - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-0}

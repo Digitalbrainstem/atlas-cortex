@@ -126,4 +126,4 @@ jobs:
 
       - name: Run browser UI tests
         run: |
-          python -m pytest tests/test_ui_browser.py -v -m browser --tb=short
+          python -m pytest tests/test_ui_browser.py tests/test_e2e_admin.py tests/test_ui_walkthrough.py -v -m browser --tb=short

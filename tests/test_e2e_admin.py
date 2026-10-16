@@ -1,16 +1,13 @@
 """Comprehensive end-to-end Playwright tests for the Atlas Cortex admin panel.
 
-Starts a cortex.server subprocess with an in-memory DB, logs in, and walks
+Starts an isolated cortex.server subprocess, logs in, and walks
 through every page: sidebar navigation, CRUD flows, forms, tabs, modals,
 cross-page data flows, and logout.
 """
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
-import time
 from pathlib import Path
 
 import httpx
@@ -19,11 +16,6 @@ from playwright.sync_api import Browser, Page, expect, sync_playwright
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = 15100
-BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
-ADMIN_URL = f"{BASE_URL}/admin/"
-SCREENSHOTS_DIR = Path(__file__).parent / "screenshots" / "e2e"
 ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
 
 # Default admin credentials (seeded by cortex.server on startup)
@@ -35,24 +27,10 @@ pytestmark = pytest.mark.browser
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _wait_for_server(base_url: str, *, retries: int = 40, delay: float = 0.5) -> bool:
-    """Poll /health until the server is ready."""
-    for _ in range(retries):
-        try:
-            resp = httpx.get(f"{base_url}/health", timeout=2)
-            if resp.status_code == 200:
-                return True
-        except Exception:
-            pass
-        time.sleep(delay)
-    return False
-
-
-def _screenshot_on_failure(page: Page, name: str) -> None:
+def _screenshot_on_failure(page: Page, name: str, directory: Path) -> None:
     """Capture a screenshot to the e2e directory."""
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     safe = name.replace("/", "_").replace(":", "_").replace(" ", "_")
-    page.screenshot(path=str(SCREENSHOTS_DIR / f"{safe}.png"))
+    page.screenshot(path=str(directory / f"{safe}.png"))
 
 
 # Skip the entire module if admin/dist is not built
@@ -66,48 +44,8 @@ if not (ADMIN_DIST / "index.html").is_file():
 
 
 @pytest.fixture(scope="module")
-def server(tmp_path_factory):
-    """Start cortex.server in a subprocess with a fresh temp DB.
-
-    Uses a clean ``CORTEX_DATA_DIR`` so the integrity-checksum table is
-    empty on first boot — the server stores current file hashes as the
-    baseline and passes.
-    """
-    data_dir = tmp_path_factory.mktemp("cortex_e2e_data")
-    env = os.environ.copy()
-    env["CORTEX_DATA_DIR"] = str(data_dir)
-    env["CORTEX_HOST"] = SERVER_HOST
-    env["CORTEX_PORT"] = str(SERVER_PORT)
-    env["LLM_PROVIDER"] = "ollama"
-    env["OLLAMA_BASE_URL"] = "http://127.0.0.1:1"  # unreachable on purpose
-    env["TTS_PROVIDER"] = "none"
-
-    proc = subprocess.Popen(
-        ["python3", "-m", "cortex.server"],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    if not _wait_for_server(BASE_URL):
-        out = proc.stdout.read(4096) if proc.stdout else b""
-        err = proc.stderr.read(4096) if proc.stderr else b""
-        proc.terminate()
-        proc.wait(timeout=5)
-        pytest.skip(
-            f"Cortex server failed to start — skipping E2E tests.\n"
-            f"stdout: {out.decode(errors='replace')[:500]}\n"
-            f"stderr: {err.decode(errors='replace')[:500]}"
-        )
-
-    yield BASE_URL
-
-    proc.terminate()
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=3)
+def server(browser_server):
+    return browser_server
 
 
 @pytest.fixture(scope="module")
@@ -129,7 +67,13 @@ def auth_token(server: str) -> str:
         timeout=5,
     )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
-    return resp.json()["token"]
+    token = resp.json()["token"]
+    for user in ("browser-parental-child", "browser-parental-parent"):
+        created = httpx.post(f"{server}/admin/users",
+                             headers={"Authorization": f"Bearer {token}"},
+                             json={"user_id": user, "display_name": user})
+        assert created.status_code in (200, 201), created.text
+    return token
 
 
 @pytest.fixture(scope="module")
@@ -181,7 +125,7 @@ class TestE2EAdminWalkthrough:
     # ── per-test fixtures ────────────────────────────────────────────────
 
     @pytest.fixture(autouse=True)
-    def setup(self, shared_context, server: str, auth_token: str, request):
+    def setup(self, shared_context, server: str, auth_token: str, request, tmp_path):
         """Create a fresh page per test from the shared context."""
         self._server = server
         self._token = auth_token
@@ -203,7 +147,7 @@ class TestE2EAdminWalkthrough:
 
         # Screenshot on failure
         if hasattr(request.node, "rep_call") and request.node.rep_call.failed:
-            _screenshot_on_failure(self._page, request.node.name)
+            _screenshot_on_failure(self._page, request.node.name, tmp_path)
 
         self._page.close()
 
@@ -340,12 +284,12 @@ class TestE2EAdminWalkthrough:
 
     def test_10_dashboard_heading(self):
         """Dashboard page loads with correct heading."""
-        self._navigate_admin("/")
+        self._navigate_admin("/dashboard")
         self._assert_heading("Dashboard")
 
     def test_11_dashboard_stats_cards(self):
         """Dashboard has 6 StatsCard components."""
-        self._navigate_admin("/")
+        self._navigate_admin("/dashboard")
         self.page.wait_for_timeout(2000)
 
         expected_titles = [
@@ -362,7 +306,7 @@ class TestE2EAdminWalkthrough:
 
     def test_12_dashboard_layer_distribution(self):
         """Dashboard has layer distribution bars."""
-        self._navigate_admin("/")
+        self._navigate_admin("/dashboard")
         self.page.wait_for_timeout(2000)
 
         # Section heading
@@ -377,7 +321,7 @@ class TestE2EAdminWalkthrough:
 
     def test_13_dashboard_tables(self):
         """Dashboard has safety events and interactions tables."""
-        self._navigate_admin("/")
+        self._navigate_admin("/dashboard")
         self.page.wait_for_timeout(2000)
 
         expect(
@@ -588,37 +532,15 @@ class TestE2EAdminWalkthrough:
         self._navigate_admin("/parental")
         self.page.wait_for_timeout(2000)
 
-        # Click the first clickable row in the user list panel
-        rows = self.page.locator(".user-list-panel tr.clickable")
-        if rows.count() == 0:
-            pytest.skip("No users in parental list")
-
-        rows.first.click()
-        self.page.wait_for_timeout(2000)
-
-        # Either the controls form appears, or "Controls for User" heading,
-        # or at least the loading message — any of these means the click worked.
-        form_or_heading = self.page.locator(
-            ".controls-panel:has-text('Controls for User'), "
-            ".controls-panel .form-grid, "
-            ".controls-panel .loading-text"
+        assert self._select_parental_user()
+        expect(self.page.locator(".controls-panel h3")).to_have_text(
+            "Controls for User browser-parental-child",
         )
-        if form_or_heading.count() > 0:
-            expect(form_or_heading.first).to_be_visible(timeout=5000)
-        # If the user row's id field doesn't map, the placeholder stays —
-        # that's a known UI data-key mismatch, not a test failure.
-        else:
-            placeholder = self.page.locator(
-                "text=Select a user to view/edit parental controls"
-            )
-            if placeholder.is_visible():
-                pytest.skip("User row id field mismatch — controls panel not loaded")
 
     def _select_parental_user(self) -> bool:
         """Select first user in parental controls. Returns True if form loaded."""
-        rows = self.page.locator(".user-list-panel tr.clickable")
-        if rows.count() == 0:
-            return False
+        rows = self.page.locator(".user-list-panel tr.clickable:has-text('browser-parental-child')")
+        expect(rows).to_be_visible()
         rows.first.click()
         self.page.wait_for_timeout(2000)
         # Check if controls form appeared
@@ -630,8 +552,7 @@ class TestE2EAdminWalkthrough:
         self._navigate_admin("/parental")
         self.page.wait_for_timeout(2000)
 
-        if not self._select_parental_user():
-            pytest.skip("Parental controls form not loaded")
+        assert self._select_parental_user(), "Parental controls form not loaded"
 
         select = self.page.locator(
             ".form-group:has(.form-label:text-is('Content Filter Level')) .form-input"
@@ -648,8 +569,7 @@ class TestE2EAdminWalkthrough:
         self._navigate_admin("/parental")
         self.page.wait_for_timeout(2000)
 
-        if not self._select_parental_user():
-            pytest.skip("Parental controls form not loaded")
+        assert self._select_parental_user(), "Parental controls form not loaded"
 
         start = self.page.locator(
             ".form-group:has(.form-label:text-is('Allowed Hours Start')) .form-input"
@@ -665,8 +585,7 @@ class TestE2EAdminWalkthrough:
         self._navigate_admin("/parental")
         self.page.wait_for_timeout(2000)
 
-        if not self._select_parental_user():
-            pytest.skip("Parental controls form not loaded")
+        assert self._select_parental_user(), "Parental controls form not loaded"
 
         # Type action name
         action_input = self.page.locator(".action-add .form-input")
@@ -685,11 +604,44 @@ class TestE2EAdminWalkthrough:
         self._navigate_admin("/parental")
         self.page.wait_for_timeout(2000)
 
-        if not self._select_parental_user():
-            pytest.skip("Parental controls form not loaded")
+        assert self._select_parental_user(), "Parental controls form not loaded"
 
         save_btn = self.page.locator("button:has-text('Save Controls')")
         expect(save_btn).to_be_visible(timeout=3000)
+
+    def test_47_parental_controls_persist_for_selected_user(self):
+        self._navigate_admin("/parental")
+        assert self._select_parental_user()
+        self.page.locator(".form-group:has(.form-label:text-is('Parent User ID')) input").fill(
+            "browser-parental-parent",
+        )
+        self.page.locator(".form-group:has(.form-label:text-is('Content Filter Level')) select").select_option("strict")
+        self.page.locator(".form-group:has(.form-label:text-is('Allowed Hours Start')) input").fill("08:30")
+        self.page.locator(".form-group:has(.form-label:text-is('Allowed Hours End')) input").fill("20:45")
+        self.page.get_by_role("button", name="Save Controls", exact=True).click()
+        expect(self.page.locator(".success-banner")).to_have_text("Parental controls saved")
+        response = httpx.get(
+            f"{self._server}/admin/users/browser-parental-child/parental", headers=self._api_headers(),
+        )
+        assert response.status_code == 200
+        controls = response.json()["controls"]
+        assert controls["content_filter_level"] == "strict"
+        assert controls["parent_user_id"] == "browser-parental-parent"
+        assert controls["allowed_hours_start"] == "08:30"
+        assert controls["allowed_hours_end"] == "20:45"
+        self.page.reload()
+        assert self._select_parental_user()
+        expect(self.page.locator(".form-group:has(.form-label:text-is('Content Filter Level')) select")).to_have_value("strict")
+        expect(self.page.locator(".form-group:has(.form-label:text-is('Allowed Hours Start')) input")).to_have_value("08:30")
+        expect(self.page.locator(".form-group:has(.form-label:text-is('Allowed Hours End')) input")).to_have_value("20:45")
+
+    def test_48_parental_load_failure_is_not_an_editable_default(self):
+        self.page.route("**/admin/users/browser-parental-child/parental",
+                        lambda route: route.fulfill(status=503, json={"detail": "Synthetic storage outage"}))
+        self._navigate_admin("/parental")
+        self.page.locator(".user-list-panel tr.clickable:has-text('browser-parental-child')").click()
+        expect(self.page.locator(".error-banner")).to_have_text("Synthetic storage outage")
+        expect(self.page.locator(".controls-panel .form-grid")).not_to_be_visible()
 
     # ══════════════════════════════════════════════════════════════════════
     # 7. SAFETY PAGE
@@ -1052,6 +1004,7 @@ class TestE2EAdminWalkthrough:
     def test_101_evolution_emotional_profiles(self):
         """Emotional Profiles section with correct columns."""
         self._navigate_admin("/evolution")
+        self.page.get_by_role("button", name="Profiles", exact=True).click()
         self.page.wait_for_timeout(2000)
 
         expect(
@@ -1065,6 +1018,7 @@ class TestE2EAdminWalkthrough:
     def test_102_evolution_logs_section(self):
         """Evolution Logs section exists."""
         self._navigate_admin("/evolution")
+        self.page.get_by_role("button", name="Logs", exact=True).click()
         self.page.wait_for_timeout(2000)
 
         expect(
@@ -1074,6 +1028,7 @@ class TestE2EAdminWalkthrough:
     def test_103_evolution_mistakes_section(self):
         """Mistakes section with correct columns."""
         self._navigate_admin("/evolution")
+        self.page.get_by_role("button", name="Mistakes", exact=True).click()
         self.page.wait_for_timeout(2000)
 
         expect(
@@ -1250,7 +1205,7 @@ class TestE2EAdminWalkthrough:
 
     def test_131_cross_page_dashboard_stats(self):
         """Dashboard total_users reflects the user we created."""
-        self._navigate_admin("/")
+        self._navigate_admin("/dashboard")
         self.page.wait_for_timeout(2500)
 
         # Find the Total Users card value

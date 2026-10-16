@@ -848,18 +848,15 @@ def inject_expressions(svg_path: Path) -> int:
     base_mouth = derive_mouth_geometry(root)
     base_eyes = derive_eye_geometry(root)
 
-    # Ensure eyebrows-base exists (for neutral expression)
-    # Remove and regenerate eyebrows-base (ensure color matches mouth)
+    # Retain the animation anchor without adding brows to brow-free libraries.
     existing_brows = root.find(f".//*[@id='eyebrows-base']")
     if existing_brows is not None:
         eb_parent = {c: p for p in root.iter() for c in p}.get(existing_brows)
         if eb_parent is not None:
             eb_parent.remove(existing_brows)
-    # Always create fresh eyebrows-base
-    if True:
-        # Create default eyebrows above the eyes
-        brow_g = ET.SubElement(root, f"{{{ns}}}g")
-        brow_g.set("id", "eyebrows-base")
+    brow_g = ET.SubElement(root, f"{{{ns}}}g")
+    brow_g.set("id", "eyebrows-base")
+    if any(expr.get("eyebrows") for expr in lib["expressions"].values()):
         brow_color = base_mouth.get("stroke", "")
         if not brow_color or brow_color.lower() in ("white", "#fff", "#ffffff", "none"):
             brow_color = base_eyes.get("left", {}).get("pupil_fill", "#333")
