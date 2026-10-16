@@ -239,6 +239,8 @@ async def test_real_pipeline_recalls_and_writes_scoped_memory_once(runtime, monk
     monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: PluginRegistry())
     monkeypatch.setattr("cortex.pipeline.layer2_plugins._try_learned_patterns", lambda _: (None, 0))
     memory = MemorySystem(store.conn)
+    store.conn.execute("INSERT INTO user_profiles(user_id,display_name) VALUES('alice','Alice'),('bob','Bob')")
+    store.conn.commit()
     monkeypatch.setattr("cortex.memory.controller._memory_system", memory)
     await memory.start()
     try:
@@ -268,5 +270,11 @@ async def test_real_pipeline_recalls_and_writes_scoped_memory_once(runtime, monk
         assert remember.await_args.kwargs["user_id"] == "alice"
         await asyncio.wait_for(memory._writer._queue.join(), 3)
         assert store.conn.execute("SELECT COUNT(*) FROM memory_fts WHERE user_id='alice'").fetchone()[0] == 2
+        store.conn.execute("DELETE FROM user_profiles WHERE user_id='alice'")
+        store.conn.commit()
+        from cortex.memory.conversation import recall_context, remember_response
+        assert await recall_context("telescope", "alice") == ""
+        await remember_response("Synthetic later request", "Synthetic answer", "alice")
+        remember.assert_awaited_once()
     finally:
         await memory.stop()

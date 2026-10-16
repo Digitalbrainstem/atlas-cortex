@@ -58,7 +58,10 @@ Admin user deletion removes local auth/session eligibility, durable work, HA
 conversation context, interaction/location history, learning progress and memory
 FTS entries, and deletes that user's vectors from an active vector backend.
 Queued and in-flight cold writes are invalidated so deletion cannot resurrect
-old vectors. Active game sessions are finalized before progress is removed.
+old vectors. Conversation memory hooks also require a current household profile
+or auth record, so a later anonymous request using a deleted label cannot restore
+its memory. Voice enrollment embeddings are removed with their user.
+Active game sessions are finalized before progress is removed.
 Reassign child profiles before deleting a parent. Deletion errors are explicit;
 they are not reported as completed erasure.
 
