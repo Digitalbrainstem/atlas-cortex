@@ -68,6 +68,8 @@ OPTIONS = GenerationOptions("fast", "thinking")
 
 def prepared(text, *, turn_id=None, conversation="chat", user="alice", metadata=None):
     identity = TurnIdentity(turn_id or text, conversation, user, source="http", room="office")
+    if metadata and "turn_id" in metadata:
+        identity = TurnIdentity.from_metadata(user, metadata)
     context = {
         "turn_identity": identity, "user_id": user, "speaker_id": None, "room": "office",
         "conversation_history": [], "metadata": metadata or {},
@@ -552,7 +554,7 @@ def test_pipe_worker_is_shared_across_calls_and_stops_cleanly(tmp_path, monkeypa
     monkeypatch.setattr("cortex.pipeline.layer3_llm.select_filler", lambda **kwargs: "")
 
     async def prepare(message, **kwargs):
-        turn = prepared(message, metadata=kwargs["metadata"])
+        turn = prepared(message, user=kwargs["user_id"], metadata=kwargs["metadata"])
         turn.identity = replace(turn.identity, source="pipe")
         turn.context["turn_identity"] = turn.identity
         return turn
@@ -576,6 +578,8 @@ def test_pipe_worker_is_shared_across_calls_and_stops_cleanly(tmp_path, monkeypa
 
 
 async def test_http_and_sse_use_registered_coordinator(env, monkeypatch):
+    from cortex.auth_user import UserAuthManager
+    monkeypatch.setattr("cortex.auth_user._manager", UserAuthManager())
     from httpx import ASGITransport, AsyncClient
     import cortex.server as server
 
@@ -606,6 +610,8 @@ async def test_http_and_sse_use_registered_coordinator(env, monkeypatch):
 
 
 def test_browser_admits_correction_while_previous_reply_waits(tmp_path, monkeypatch):
+    from cortex.auth_user import UserAuthManager
+    monkeypatch.setattr("cortex.auth_user._manager", UserAuthManager())
     from contextlib import asynccontextmanager
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

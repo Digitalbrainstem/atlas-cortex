@@ -163,6 +163,9 @@ class Pipe:
         metadata["source"] = "pipe"
         if body.get("chat_id"):
             metadata.setdefault("conversation_id", body["chat_id"])
+        from cortex.pipeline.turns import TurnIdentity
+        identity = TurnIdentity.from_metadata(user_id, metadata)
+        metadata.update(turn_id=identity.turn_id, conversation_id=identity.conversation_id)
 
         if not messages:
             yield "No message provided."
@@ -223,3 +226,10 @@ class Pipe:
 
         for token in tokens:
             yield token
+        if _db_conn is not None:
+            async def delivered():
+                from cortex.pipeline.turns import get_conversation_coordinator
+                coordinator = get_conversation_coordinator()
+                if coordinator is not None:
+                    coordinator.acknowledge_text(identity)
+            asyncio.run_coroutine_threadsafe(delivered(), _get_worker_loop()).result(timeout=10)

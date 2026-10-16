@@ -22,13 +22,17 @@ from cortex.pipeline.turns import ActionOutcome, DispatchResult, RouteStatus, Tu
 
 
 @pytest.fixture
-def store(tmp_path):
+def store(tmp_path, monkeypatch):
     conn = sqlite3.connect(tmp_path / "turns.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA journal_mode=WAL")
     _create_schema(conn)
     conn.commit()
+    from cortex.auth_user import UserAuthManager
+    manager = UserAuthManager()
+    manager.load_from_db(conn)
+    monkeypatch.setattr("cortex.auth_user._manager", manager)
     yield TurnStore(conn, TurnStorePolicy())
     conn.close()
 

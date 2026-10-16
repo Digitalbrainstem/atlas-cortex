@@ -25,7 +25,7 @@ import uuid
 import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Literal, Callable, Awaitable
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -364,8 +364,12 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 async for chunk in pipeline:
                     parts.append(chunk)
                     await websocket.send_json({"type": "token", "text": chunk, "turn_id": turn_id})
+                from cortex.pipeline.turns import get_conversation_coordinator, TurnIdentity
+                coordinator = get_conversation_coordinator()
+                turn = coordinator.store.find_existing(TurnIdentity.from_metadata(user_id, metadata)) if coordinator else None
                 await websocket.send_json({
                     "type": "end", "full_text": "".join(parts), "turn_id": turn_id,
+                    "durable": turn is not None,
                 })
         except (PipelineGenerationError, ValueError) as exc:
             logger.warning("Chat turn failed: %s", exc)
@@ -395,10 +399,41 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                 continue
             msg_type = data.get("type", "chat")
 
+            if msg_type in ("turn_result", "turn_ack"):
+                from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
+                store = getattr(app.state, "turn_store", None)
+                try:
+                    if store is None:
+                        raise ValueError("Durable chat is unavailable")
+                    turn = store.get(data.get("turn_id", ""), data.get("user_id", "web_user"))
+                    if (turn.identity.source != "browser"
+                            or turn.identity.conversation_id != data.get("conversation_id")):
+                        raise ValueError("Turn is not in this conversation")
+                    async with send_lock:
+                        if msg_type == "turn_ack":
+                            store.acknowledge_text(turn.identity.turn_id, turn.identity.user_id,
+                                                   data.get("revision"))
+                            await websocket.send_json({"type": "turn_ack", "turn_id": turn.identity.turn_id})
+                        else:
+                            if (not turn.output_validated or turn.result is None
+                                    or turn.state not in ("completed", "failed", "uncertain")):
+                                raise ValueError("Turn has no current validated answer")
+                            coordinator = app.state.conversation_coordinator
+                            text = coordinator._validated_output(turn.result, turn, "")
+                            await websocket.send_json({
+                                "type": "turn_result", "turn_id": turn.identity.turn_id,
+                                "revision": turn.identity.revision, "text": text,
+                            })
+                except (TurnStoreError, ValueError) as exc:
+                    logger.warning("Browser result/receipt rejected: %s", exc)
+                    await websocket.send_json({"type": "error", "turn_id": data.get("turn_id"), "text": str(exc)})
+                continue
+
             if msg_type == "turn_status":
                 from cortex.orchestrator.turn_store import TurnConflictError, TurnStoreError
                 state = "not_available"
                 delivery = None
+                has_result = False
                 store = getattr(app.state, "turn_store", None)
                 if store is not None:
                     try:
@@ -406,6 +441,7 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                         if (turn.identity.source == "browser"
                                 and turn.identity.conversation_id == data.get("conversation_id")):
                             state, delivery = turn.state, turn.delivery_state
+                            has_result = turn.output_validated and turn.result is not None
                     except TurnConflictError:
                         logger.info("Browser requested unavailable scoped turn status")
                     except TurnStoreError:
@@ -413,7 +449,7 @@ async def chat_ws_handler(websocket: WebSocket) -> None:
                         state = "storage_unavailable"
                 async with send_lock:
                     await websocket.send_json({"type": "turn_status", "turn_id": data.get("turn_id"),
-                                               "state": state, "delivery_state": delivery})
+                                               "state": state, "delivery_state": delivery, "has_result": has_result})
                 continue
 
             # ── Voice input: STT ─────────────────────────────────
@@ -647,6 +683,14 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     if raw.headers.get("Idempotency-Key"):
         metadata["idempotency_key"] = raw.headers["Idempotency-Key"]
+    from cortex.pipeline.turns import TurnIdentity, get_conversation_coordinator
+    identity = TurnIdentity.from_metadata(user_id, metadata)
+    metadata.update(turn_id=identity.turn_id, conversation_id=identity.conversation_id)
+
+    async def delivered():
+        coordinator = get_conversation_coordinator()
+        if coordinator is not None:
+            coordinator.acknowledge_text(identity)
 
     # ── Input guardrails (Principle II, IV — safety before pipeline) ──
     from cortex.safety import Severity
@@ -688,7 +732,7 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
 
     if request.stream:
         return StreamingResponse(
-            _sse_stream(pipeline, request.model),
+            _sse_stream(pipeline, request.model, delivered),
             media_type="text/event-stream",
         )
     else:
@@ -712,12 +756,16 @@ async def chat_completions(request: ChatCompletionRequest, raw: Request):
                     "I'm not able to provide that kind of content. "
                     "Is there something else I can help you with?"
                 )
-        return _json_response(full, request.model)
+        from starlette.background import BackgroundTask
+        response = _json_response(full, request.model)
+        response.background = BackgroundTask(delivered)
+        return response
 
 
 async def _sse_stream(
     gen: AsyncGenerator[str, None],
     model: str,
+    on_delivered: Callable[[], Awaitable[None]] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Wrap token stream as Server-Sent Events (OpenAI SSE format)."""
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -757,6 +805,8 @@ async def _sse_stream(
     }
     yield f"data: {json.dumps(final)}\n\n"
     yield "data: [DONE]\n\n"
+    if on_delivered is not None:
+        await on_delivered()
 
 
 def _json_response(content: str, model: str) -> JSONResponse:

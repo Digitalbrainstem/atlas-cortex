@@ -20,6 +20,42 @@ const turnState = ref('')
 const pending = ref(null)
 let reconnectTimer
 let statusTimer
+let disposed = false
+
+function pendingKey() {
+  return `atlas-pending:${currentUser.value?.user_id || 'guest'}`
+}
+
+function clearPending() {
+  sessionStorage.removeItem(pendingKey())
+  pending.value = null
+}
+
+function requestResult() {
+  if (pending.value && ws.value?.readyState === WebSocket.OPEN) {
+    ws.value.send(JSON.stringify({
+      type: 'turn_result', ...pending.value, user_id: currentUser.value?.user_id,
+      chat_token: sessionToken.value,
+    }))
+  }
+}
+
+function setAnswer(turnId, text) {
+  const answer = messages.value.find(m => m.role === 'assistant' && m.turn_id === turnId)
+  if (answer) answer.content = text
+  else messages.value.push({ role: 'assistant', content: text, turn_id: turnId })
+}
+
+onUnmounted(() => {
+  disposed = true
+  clearTimeout(reconnectTimer)
+  clearInterval(statusTimer)
+  if (ws.value) {
+    ws.value.onclose = null
+    ws.value.close()
+    ws.value = null
+  }
+})
 
 function checkTurn() {
   if (pending.value && ws.value?.readyState === WebSocket.OPEN) {
@@ -138,11 +174,25 @@ async function authenticate(extra = {}) {
 }
 
 function connectWebSocket() {
+  if (disposed) return
+  if (!pending.value) {
+    try {
+      pending.value = JSON.parse(sessionStorage.getItem(pendingKey()) || 'null')
+    } catch {
+      turnState.value = 'Saved turn identity could not be restored.'
+      sessionStorage.removeItem(pendingKey())
+    }
+  }
   clearTimeout(reconnectTimer)
+  if (ws.value) {
+    ws.value.onclose = null
+    ws.value.close()
+  }
   connectionState.value = 'Connecting'
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
   const socket = new WebSocket(`${proto}//${location.host}/ws/chat`)
   socket.onopen = () => {
+    if (disposed || ws.value !== socket) return
     connectionState.value = 'Connected'
     checkTurn()
     clearInterval(statusTimer)
@@ -151,25 +201,38 @@ function connectWebSocket() {
   socket.onerror = () => { connectionState.value = 'Connection error' }
 
   socket.onmessage = (event) => {
+    if (disposed || ws.value !== socket) return
     try {
       const msg = JSON.parse(event.data)
       if (msg.type === 'token') {
-        const last = messages.value[messages.value.length - 1]
-        if (last && last.role === 'assistant') {
-          last.content += msg.text
-        } else {
-          messages.value.push({ role: 'assistant', content: msg.text })
-        }
+        const answer = messages.value.find(m => m.role === 'assistant' && m.turn_id === msg.turn_id)
+        setAnswer(msg.turn_id, (answer?.content || '') + msg.text)
       } else if (msg.type === 'start') {
-        messages.value.push({ role: 'assistant', content: '' })
+        setAnswer(msg.turn_id, '')
         streaming.value = true
       } else if (msg.type === 'end') {
         streaming.value = false
-        pending.value = null
         turnState.value = 'Completed'
+        if (pending.value?.turn_id === msg.turn_id) {
+          if (msg.durable) requestResult()
+          else clearPending()
+        }
+      } else if (msg.type === 'turn_result') {
+        if (pending.value?.turn_id !== msg.turn_id) return
+        setAnswer(msg.turn_id, msg.text)
+        streaming.value = false
+        turnState.value = 'Completed'
+        socket.send(JSON.stringify({
+          type: 'turn_ack', ...pending.value, revision: msg.revision,
+          user_id: currentUser.value?.user_id, chat_token: sessionToken.value,
+        }))
+      } else if (msg.type === 'turn_ack') {
+        if (pending.value?.turn_id === msg.turn_id) clearPending()
       } else if (msg.type === 'turn_status') {
         if (pending.value?.turn_id === msg.turn_id) {
           turnState.value = `${msg.state}${msg.delivery_state ? ' / ' + msg.delivery_state : ''}`
+          if (msg.has_result && ['completed', 'failed', 'uncertain'].includes(msg.state)) requestResult()
+          else if (['cancelled', 'superseded', 'failed'].includes(msg.state)) clearPending()
         }
       } else if (msg.type === 'error') {
         if (msg.code === 'authentication') {
@@ -184,12 +247,13 @@ function connectWebSocket() {
   }
 
   socket.onclose = () => {
+    if (disposed || ws.value !== socket) return
     clearInterval(statusTimer)
     streaming.value = false
     connectionState.value = 'Disconnected. Accepted work continues; actions are not automatically retried.'
     // Reconnect after a short delay
     reconnectTimer = setTimeout(() => {
-      if (state.value === 'chat') connectWebSocket()
+      if (!disposed && state.value === 'chat') connectWebSocket()
     }, 3000)
   }
 
@@ -197,12 +261,13 @@ function connectWebSocket() {
 }
 
 function sendMessage() {
-  if (streaming.value || !inputText.value.trim() || !ws.value || ws.value.readyState !== WebSocket.OPEN) return
+  if (pending.value || streaming.value || !inputText.value.trim() || !ws.value || ws.value.readyState !== WebSocket.OPEN) return
   const text = inputText.value.trim()
   const key = `atlas-conversation:${currentUser.value?.user_id || 'guest'}`
   const conversation = sessionStorage.getItem(key) || crypto.randomUUID()
   sessionStorage.setItem(key, conversation)
   pending.value = { conversation_id: conversation, turn_id: crypto.randomUUID() }
+  sessionStorage.setItem(pendingKey(), JSON.stringify(pending.value))
   turnState.value = 'Submitted; waiting for admission or a fast-path response'
   streaming.value = true
   messages.value.push({ role: 'user', content: text })
@@ -221,6 +286,7 @@ function logout() {
   clearTimeout(reconnectTimer)
   clearInterval(statusTimer)
   localStorage.removeItem('atlas_chat_token')
+  clearPending()
   state.value = 'picker'
   currentUser.value = null
   sessionToken.value = ''
@@ -233,14 +299,6 @@ function logout() {
     ws.value.close()
     ws.value = null
   }
-  onUnmounted(() => {
-    clearTimeout(reconnectTimer)
-    clearInterval(statusTimer)
-    if (ws.value) {
-      ws.value.onclose = null
-      ws.value.close()
-    }
-  })
 }
 </script>
 

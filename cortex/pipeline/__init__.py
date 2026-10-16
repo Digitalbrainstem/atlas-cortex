@@ -149,10 +149,26 @@ async def _pipeline_event_generator(
     memory_context: str,
     db_conn: Any,
 ) -> AsyncGenerator[PipelineEvent, None]:
-    prepared = await prepare_turn(
-        message, user_id=user_id, speaker_id=speaker_id, satellite_id=satellite_id,
-        conversation_history=conversation_history, metadata=metadata, db_conn=db_conn,
-    )
+    from cortex.pipeline.turns import GenerationOptions, get_conversation_coordinator
+    metadata = sanitize_metadata(metadata)
+    identity = TurnIdentity.from_metadata(user_id, metadata, satellite_id)
+    metadata.update(turn_id=identity.turn_id, conversation_id=identity.conversation_id)
+
+    async def prepare() -> PreparedTurn:
+        return await prepare_turn(
+            message, user_id=user_id, speaker_id=speaker_id, satellite_id=satellite_id,
+            conversation_history=conversation_history, metadata=metadata, db_conn=db_conn,
+        )
+
+    coordinator = get_conversation_coordinator()
+    if coordinator is None:
+        prepared = await prepare()
+    else:
+        prepared = await coordinator.prepare(
+            identity, message, {"metadata": metadata, "speaker_id": speaker_id,
+                                "conversation_history": conversation_history or []},
+            GenerationOptions(model_fast, model_thinking, system_prompt, memory_context), prepare,
+        )
     async for event in run_prepared_pipeline_events(
         prepared, provider, model_fast=model_fast, model_thinking=model_thinking,
         system_prompt=system_prompt, memory_context=memory_context, db_conn=db_conn,

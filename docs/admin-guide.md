@@ -17,6 +17,20 @@ only after the satellite confirms playback. Scoped notifications never fall back
 to another room when their target is unavailable. Proactive TTS reports failure
 if no satellite accepts it; database logging alone is not an audio-delivery success.
 
+### Durable text and reconnects
+
+Fast-path effects are claimed in the same durable ledger before execution.
+Retries with the same user/conversation/idempotency key return the retained result
+instead of repeating an action; conflicting payloads are rejected. Interrupted
+external actions require manual verification, not automatic retry.
+
+HTTP delivery is recorded after the response transport completes; Pipe delivery
+is recorded after its consumer exhausts the result iterator. Browser delivery
+requires a revision-checked client receipt. These receipts make terminal text
+eligible for configured retention; generation alone never counts as delivery.
+Public chat preserves the pending identity in tab session storage and retrieves
+the policy-rechecked answer after reconnect/reload without resubmitting the action.
+
 ### 1. Build the Admin Panel
 
 ```bash

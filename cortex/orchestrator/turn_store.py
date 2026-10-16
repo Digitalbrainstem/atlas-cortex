@@ -230,7 +230,8 @@ class TurnStore:
                 row = existing[0]
                 promoting = (
                     promote_accepted and len(existing) == 1 and row["state"] == "accepted"
-                    and self._stored(row).context.get("voice_ingress") is True
+                    and (self._stored(row).context.get("voice_ingress") is True
+                         or self._stored(row).context.get("pipeline_ingress") is True)
                     and (row["turn_id"], row["user_id"], row["conversation_id"], row["transcript"],
                          row["source"], row["device_id"], row["room"], row["revision"]) ==
                         (identity.turn_id, identity.user_id, identity.conversation_id, transcript,
@@ -309,8 +310,9 @@ class TurnStore:
         """Only a returned typed dispatch resolves the pessimistic preparation claim."""
         with self._transaction():
             row = self._owned(identity.turn_id, identity.user_id, owner, identity.revision)
-            if not self._stored(row).context.get("voice_ingress"):
-                _fail("Not a voice preparation claim", TurnConflictError)
+            context = self._stored(row).context
+            if not (context.get("voice_ingress") or context.get("pipeline_ingress")):
+                _fail("Not an ingress preparation claim", TurnConflictError)
             self.conn.execute(
                 "UPDATE pending_turns SET state='accepted',action_outcome='none',lease_owner=NULL,"
                 "lease_until=NULL,updated_at=? WHERE turn_id=?", (time.time(), identity.turn_id),
@@ -374,7 +376,7 @@ class TurnStore:
                     """SELECT * FROM pending_turns WHERE device_id=? AND user_id=? AND turn_id!=? AND room IS ?
                        AND source='satellite' AND state NOT IN ('cancelled','superseded','uncertain','failed')
                        AND COALESCE(json_extract(context_json,'$.voice_control'),0)!=1
-                       AND (state!='completed' OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation'))
+                       AND (state!='completed' OR delivery_state IN ('ready','delivering','paused','awaiting_confirmation','interrupted'))
                        ORDER BY created_at,sequence LIMIT 2""", (device_id, user_id, exclude, room),
                 ).fetchall()
                 return [self._stored(row) for row in rows]
@@ -765,6 +767,19 @@ class TurnStore:
                 (time.time() - self.policy.retention_seconds, self.policy.prefetch),
             )
             return cursor.rowcount
+
+    def acknowledge_text(self, turn_id: str, user_id: str, revision: int) -> None:
+        """Record transport/client consumption, never infer it from generation."""
+        with self._transaction():
+            row = self._at_revision(turn_id, user_id, revision)
+            if row["source"] == "satellite" or not row["output_validated"]:
+                _fail("Only validated text can receive a text receipt", TurnConflictError)
+            if row["state"] not in ("completed", "failed", "uncertain"):
+                _fail("Obsolete text receipt", TurnConflictError)
+            self.conn.execute(
+                "UPDATE pending_turns SET delivery_state='delivered',updated_at=? WHERE turn_id=?",
+                (time.time(), turn_id),
+            )
 
     def delete_user(self, user_id: str) -> int:
         if not isinstance(user_id, str) or not user_id.strip():

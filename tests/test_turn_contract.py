@@ -167,6 +167,8 @@ async def test_sse_failure_is_not_a_successful_completion():
 
 
 async def test_http_generation_failure_is_502(monkeypatch):
+    from cortex.auth_user import UserAuthManager
+    monkeypatch.setattr("cortex.auth_user._manager", UserAuthManager())
     from httpx import ASGITransport, AsyncClient
     from cortex.server import app
     from cortex.pipeline.turns import PipelineGenerationError

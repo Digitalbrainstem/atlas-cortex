@@ -1,6 +1,8 @@
 """Regression coverage for gaps found during MVP acceptance review."""
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
@@ -123,3 +125,104 @@ async def test_proactive_actions_use_real_notification_contracts(db, monkeypatch
     register_satellite_channel().set_tts_callback(deliver)
     assert (await RuleEngine._action_tts(rule, {}, {"message": "Reminder", "satellite_id": "pi"})).startswith("tts_queued:")
     deliver.assert_awaited_once_with("pi", "Reminder")
+
+
+@pytest.fixture
+async def runtime(db, monkeypatch):
+    from cortex.orchestrator.turn_store import TurnStore, TurnStorePolicy
+    from cortex.orchestrator.conversation import ConversationCoordinator
+    from cortex.safety.middleware import PipelineSafetyMiddleware
+    async def chat(**kwargs):
+        async def tokens():
+            yield "Synthetic answer."
+        return tokens()
+    provider = SimpleNamespace(chat=chat)
+    store = TurnStore(db, TurnStorePolicy(min_free_disk_bytes=1))
+    coordinator = ConversationCoordinator(store, provider, PipelineSafetyMiddleware(db))
+    monkeypatch.setattr("cortex.server._get_provider", lambda: provider)
+    monkeypatch.setattr("cortex.pipeline.layer3_llm.select_filler", lambda **kwargs: "")
+    await coordinator.start()
+    try:
+        yield store, coordinator, provider
+    finally:
+        await coordinator.stop()
+
+
+async def test_concurrent_fast_action_retry_executes_once(runtime, monkeypatch):
+    from cortex.pipeline import run_pipeline
+    from cortex.plugins import PluginRegistry
+    from cortex.plugins.timers import SchedulingPlugin
+    from cortex.scheduling.timers import TimerEngine
+    store, coordinator, provider = runtime
+    plugin = SchedulingPlugin()
+    plugin.timer_engine = TimerEngine()
+    registry = PluginRegistry()
+    registry.register(plugin)
+    monkeypatch.setattr("cortex.pipeline.layer2_plugins.get_registry", lambda: registry)
+    metadata = {"turn_id": "same", "conversation_id": "review", "idempotency_key": "same"}
+    async def request():
+        return "".join([part async for part in run_pipeline(
+            "set a timer for 5 minutes", provider, user_id="alice", metadata=metadata,
+            db_conn=store.conn,
+        )])
+    try:
+        results = await asyncio.gather(request(), request())
+        assert results[0] == results[1]
+        assert "Timer set" in results[0]
+        assert store.conn.execute("SELECT COUNT(*) FROM timers").fetchone()[0] == 1
+    finally:
+        for timer_id in list(plugin.timer_engine._tasks):
+            await plugin.timer_engine.cancel_timer(timer_id)
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_http_consumption_marks_text_retention_eligible(runtime, streaming):
+    from cortex.server import app
+    from httpx import AsyncClient, ASGITransport
+    store, _, _ = runtime
+    async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
+        response = await client.post("/v1/chat/completions", json={
+            "user": "alice", "stream": streaming,
+            "metadata": {"turn_id": "text", "conversation_id": "review"},
+            "messages": [{"role": "user", "content": "Explain a synthetic household concept."}],
+        })
+        assert response.status_code == 200
+    assert store.get("text", "alice").delivery_state == "delivered"
+    store.conn.execute("UPDATE pending_turns SET updated_at=0")
+    store.conn.commit()
+    assert store.cleanup() == 1
+
+
+def test_browser_result_recovery_and_revision_receipt(db, monkeypatch):
+    from cortex.server import app
+    from cortex.orchestrator.turn_store import TurnStore, TurnStorePolicy
+    from cortex.orchestrator.conversation import ConversationCoordinator
+    from cortex.pipeline.turns import TurnIdentity, DispatchResult, RouteStatus
+    from cortex.safety.middleware import PipelineSafetyMiddleware
+    store = TurnStore(db, TurnStorePolicy(min_free_disk_bytes=1))
+    identity = TurnIdentity("reply", "chat", "alice", source="browser")
+    store.accept(identity, "Synthetic question", input_validated=True)
+    store.claim("reply", "alice", "owner")
+    store.complete("reply", "alice", "owner", 1,
+                   DispatchResult(RouteStatus.HANDLED, "Synthetic answer."), output_validated=True)
+    store.recover(startup=True)
+    monkeypatch.setattr(app.state, "turn_store", store, raising=False)
+    monkeypatch.setattr(app.state, "conversation_coordinator",
+                        ConversationCoordinator(store, None, PipelineSafetyMiddleware(db)), raising=False)
+    client = TestClient(app)
+    request = {"turn_id": "reply", "conversation_id": "chat", "user_id": "alice"}
+    with client.websocket_connect("/ws/chat") as socket:
+        socket.send_json({"type": "turn_result", **request, "user_id": "bob"})
+        assert socket.receive_json()["type"] == "error"
+        socket.send_json({"type": "turn_result", **request})
+        assert socket.receive_json()["text"] == "Synthetic answer."
+    assert store.get("reply", "alice").delivery_state == "awaiting_confirmation"
+    with client.websocket_connect("/ws/chat") as socket:
+        socket.send_json({"type": "turn_result", **request})
+        result = socket.receive_json()
+        assert result["text"] == "Synthetic answer."
+        socket.send_json({"type": "turn_ack", **request, "revision": result["revision"] + 1})
+        assert socket.receive_json()["type"] == "error"
+        socket.send_json({"type": "turn_ack", **request, "revision": result["revision"]})
+        assert socket.receive_json()["type"] == "turn_ack"
+    assert store.get("reply", "alice").delivery_state == "delivered"

@@ -9,7 +9,7 @@ import uuid
 import weakref
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any, AsyncGenerator, Protocol
+from typing import Any, AsyncGenerator, Protocol, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 DEFAULT_MAX_OUTPUT_BYTES = 262144
@@ -72,6 +72,13 @@ class GenerationOptions:
 
 
 class ConversationRuntime(Protocol):
+    async def prepare(
+        self, identity: TurnIdentity, message: str, context: dict[str, Any],
+        options: GenerationOptions, factory: Callable[[], Awaitable[PreparedTurn]],
+    ) -> PreparedTurn: ...
+
+    def acknowledge_text(self, identity: TurnIdentity) -> None: ...
+
     def stream(
         self, prepared: PreparedTurn, options: GenerationOptions,
     ) -> AsyncGenerator[str, None]: ...
@@ -159,7 +166,7 @@ class TurnIdentity:
         turn_id = data.get("turn_id") or uuid.uuid4().hex
         return cls(
             turn_id=turn_id,
-            conversation_id=data.get("conversation_id") or turn_id,
+            conversation_id=data.get("conversation_id") or data.get("idempotency_key") or turn_id,
             user_id=user_id,
             source=data.get("source", "satellite" if satellite_id else "pipeline"),
             device_id=satellite_id,

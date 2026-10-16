@@ -7,8 +7,8 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import asdict
-from typing import Any, AsyncGenerator, Protocol
+from dataclasses import asdict, replace
+from typing import Any, AsyncGenerator, Protocol, Awaitable, Callable
 
 from cortex.orchestrator.turn_store import (
     StoredTurn, TurnConflictError, TurnStore, TurnStoreError,
@@ -16,7 +16,7 @@ from cortex.orchestrator.turn_store import (
 from cortex.pipeline.request_queue import InferenceRequest, Priority, RequestQueue
 from cortex.pipeline.turns import (
     ConversationConflictError, ConversationStorageError, DispatchResult, GenerationOptions,
-    PipelineGenerationError, PreparedTurn, RouteStatus, TurnSupersededError,
+    PipelineGenerationError, PreparedTurn, RouteStatus, TurnSupersededError, TurnIdentity, ActionOutcome,
     get_conversation_coordinator, register_conversation_coordinator, unregister_conversation_coordinator,
 )
 from cortex.plugins.intent import command_scope, correction_fragment
@@ -140,6 +140,99 @@ class ConversationCoordinator:
         if self._fatal_error is not None:
             raise ConversationStorageError("Conversation storage failed; recovery is required") from self._fatal_error
 
+    async def prepare(
+        self, identity: TurnIdentity, message: str, context: dict[str, Any],
+        options: GenerationOptions, factory: Callable[[], Awaitable[PreparedTurn]],
+    ) -> PreparedTurn:
+        """Claim before fast effects; duplicates only wait for or read the result."""
+        self._check_available()
+        if self.safety.check_input(message, identity.user_id, context.get("metadata", {})).severity >= Severity.SOFT_BLOCK:
+            return await factory()
+        identity_data = asdict(identity)
+        if identity.idempotency_key:
+            identity_data.pop("turn_id")
+        metadata = dict(context.get("metadata", {}))
+        metadata.pop("turn_id", None)
+        fingerprint = hashlib.sha256(json.dumps(
+            [identity_data, message, {**context, "metadata": metadata}, asdict(options)],
+            sort_keys=True, allow_nan=False,
+        ).encode()).hexdigest()
+        try:
+            existing = self.store.find_existing(identity)
+            if existing is not None:
+                if existing.context.get("ingress_fingerprint") != fingerprint:
+                    raise TurnConflictError("Turn identity was reused for different work")
+                while True:
+                    current = self.store.get(existing.identity.turn_id, identity.user_id)
+                    if current.state in ("cancelled", "superseded"):
+                        raise TurnSupersededError("This turn was cancelled or replaced")
+                    if current.result is not None and current.output_validated:
+                        return PreparedTurn(
+                            current.identity, message,
+                            {**current.context, "turn_identity": current.identity, "durable_replay": True},
+                            DispatchResult(
+                                RouteStatus(current.route_status), current.result,
+                                action_outcome=ActionOutcome(current.action_outcome),
+                            ), 0, {"L0": 0, "L1": 0, "L2": 0},
+                        )
+                    if current.state in ("uncertain", "recovery_pending", "failed"):
+                        raise PipelineGenerationError("This turn requires recovery; its action was not retried")
+                    self._check_available()
+                    await asyncio.sleep(0.05)
+            ingress = {**context, "pipeline_ingress": True, "ingress_fingerprint": fingerprint}
+            turn = self.store.accept(identity, message, input_validated=True, context=ingress)
+            owner = f"prepare:{identity.turn_id}"
+            self.store.claim(identity.turn_id, identity.user_id, owner)
+            self.store.begin_action(identity.turn_id, identity.user_id, owner, identity.revision)
+
+            async def renew() -> None:
+                while True:
+                    await asyncio.sleep(self.store.policy.lease_seconds / 3)
+                    self.store.heartbeat(identity.turn_id, identity.user_id, owner, identity.revision)
+
+            lease = asyncio.create_task(renew())
+            try:
+                prepared = await factory()
+                if prepared.identity != identity:
+                    raise ValueError("Preparation changed the admitted turn identity")
+                if lease.done():
+                    lease.result()
+                prepared.context.update(pipeline_ingress=True, ingress_fingerprint=fingerprint)
+                self.store.finish_voice_preparation(identity, owner)
+                if prepared.dispatch.status == RouteStatus.NOT_MATCHED:
+                    self._admit(prepared, options)
+                else:
+                    turn = self.store.accept(
+                        identity, message, input_validated=True, context=prepared.context_snapshot(),
+                        promote_accepted=True,
+                    )
+                    self.store.claim(identity.turn_id, identity.user_id, owner)
+                    result = replace(prepared.dispatch, response=self._validated_output(
+                        prepared.dispatch.response or "", turn, options.system_prompt,
+                    ))
+                    self.store.complete(identity.turn_id, identity.user_id, owner, identity.revision,
+                                        result, output_validated=True)
+                    prepared.dispatch = result
+                return prepared
+            except BaseException:
+                current = self.store.get(identity.turn_id, identity.user_id)
+                if current.lease_owner == owner:
+                    self.store.fail(identity.turn_id, identity.user_id, owner, identity.revision,
+                                    "preparation_interrupted")
+                raise
+            finally:
+                lease.cancel()
+                await asyncio.gather(lease, return_exceptions=True)
+        except TurnConflictError as exc:
+            raise ConversationConflictError(str(exc)) from exc
+        except TurnStoreError as exc:
+            raise ConversationStorageError(str(exc)) from exc
+
+    def acknowledge_text(self, identity: TurnIdentity) -> None:
+        turn = self.store.find_existing(identity)
+        if turn is not None:
+            self.store.acknowledge_text(turn.identity.turn_id, identity.user_id, turn.identity.revision)
+
     def _admit(self, prepared: PreparedTurn, options: GenerationOptions) -> StoredTurn:
         identity = prepared.identity
         context = prepared.context_snapshot()
@@ -157,7 +250,8 @@ class ConversationCoordinator:
         existing = self.store.find_existing(identity)
         if existing is not None:
             ingress = (
-                existing.context.get("voice_ingress") is True and existing.state == "accepted"
+                (existing.context.get("voice_ingress") is True or existing.context.get("pipeline_ingress") is True)
+                and existing.state == "accepted"
                 and existing.transcript == prepared.message and existing.identity == identity
                 and "request_fingerprint" not in existing.context
             )
