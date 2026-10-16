@@ -1,6 +1,10 @@
 # 🚀 Atlas Cortex — Quick Start Guide
 
-Get Atlas Cortex running in under 5 minutes. Choose the path that fits your setup.
+For the current household MVP candidate, start with the
+[minimal install and qualification handoff](mvp-release.md). Published image and
+package examples below are historical options, not proof that this candidate was
+built, published or physically qualified. The candidate can run Cortex against
+explicit external providers without starting every GPU TTS service.
 
 ---
 

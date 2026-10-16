@@ -8,7 +8,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-3660%2B%20passing-brightgreen.svg)](#testing)
+[![MVP qualification](https://img.shields.io/badge/MVP-qualification%20pending-yellow.svg)](docs/mvp-release.md)
 [![Open WebUI](https://img.shields.io/badge/Open%20WebUI-compatible-orange.svg)](https://github.com/open-webui/open-webui)
 
 *Hardware-agnostic · Privacy-first · Family-safe · Self-learning*
@@ -18,6 +18,11 @@
 ---
 
 Atlas Cortex transforms a local LLM into an intelligent home assistant that understands who's speaking, adapts to each family member, controls your smart home, and gets smarter every day — all running on **your hardware**, with **zero cloud dependencies**.
+
+> **Household MVP candidate, not a qualified release.** Available P00-P14 software
+> work and targeted checks are recorded in the [phase/status handoff](docs/mvp-release.md).
+> Hardware, Docker/Python-matrix and recorded CI blockers remain open.
+> Use the [current recovery guide](docs/mvp-recovery.md), not historical live-restore examples.
 
 ## ✨ Key Features
 

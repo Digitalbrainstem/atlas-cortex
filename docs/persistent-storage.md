@@ -2,6 +2,14 @@
 
 All persistent data paths for Docker and bare-metal deployments.
 
+For the current household candidate, also persist the durable SQLite turn tables
+inside `cortex.db`, the private deployment env file and the matching code/image
+revision. `backups/` and `snapshots/` contain private archives; `.cortex.lock` is
+the server/restore ownership file, not data to copy or delete to bypass a running
+server. The minimal Compose file mounts the env file read-only at
+`/config/cortex.env`. Use [isolated offline restore](mvp-recovery.md) and compare
+`restored-manifest.json` resource settings before switching a deployment.
+
 ---
 
 ## Directory Layout

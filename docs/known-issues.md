@@ -1,5 +1,29 @@
 # Atlas Cortex — Known Issues
 
+## Household candidate release gates
+
+At software candidate `ad7d036f3`, 240 final targeted checks and the focused
+production browser/lifecycle harness pass. The broader clean-source run is
+**not green**: 4,719 pass, four baseline assertions fail and one module cannot
+collect. See [MVP handoff](mvp-release.md) for reproduction and evidence scope.
+
+| Gate | Current issue |
+|---|---|
+| Clean-source CI collection | Tracked coding pipeline imports untracked `cortex/tools/codex_pipeline.py`; keep experimental subsystem ownership separate |
+| Module ownership test | Missing header in unrelated `cortex/system/__init__.py` |
+| Avatar regressions | Expressions JSON plus default/nick SVG eyebrow assertions |
+| Platform validation | Docker execution and Python 3.11 not available locally; legacy browser suite not requalified |
+| Household acceptance | Two-Pi/ReSpeaker wake/acoustic metrics, real services/NAS, paired-image rollback and operator approval pending |
+
+No failures were hidden with xfails and no hardware success was inferred from
+mock transport. Restore is now offline-only; see [implemented recovery commands](mvp-recovery.md).
+
+## Historical adversarial inventory
+
+The older findings below are retained as historical triage, **not a freshly
+verified current audit**. Reproduce them against the candidate before treating
+their descriptions or suggested fixes as current.
+
 Generated from adversarial test suite (1486+ tests). Each issue includes:
 - Severity, module, description
 - How to reproduce (test name or steps)

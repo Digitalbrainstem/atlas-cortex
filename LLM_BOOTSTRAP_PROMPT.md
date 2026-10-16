@@ -11,6 +11,8 @@
 Read these files in order before making any changes:
 
 1. **`.github/copilot-instructions.md`** — Build, test, architecture, conventions
+   Then read **`docs/mvp-release.md`** for the authoritative P00-P14 household
+   status, verified source revision, reproducible commands and outstanding gates.
 2. **`docs/roadmap.md`** — What's done, what's next
 3. **`docs/architecture.md`** — 4-layer pipeline, processing flow
 4. **`docs/voice-engine.md`** — TTS providers, voice pipeline, timing data
@@ -29,7 +31,7 @@ pip install -r requirements.txt
 
 # Start mock servers (LLM + STT + TTS)
 python -m mocks.run
-# This prints env vars — the server reads them automatically
+# Export the printed variables in the terminal used to launch the server.
 
 # In another terminal, start Atlas Cortex:
 LLM_URL=http://localhost:11434 \
@@ -42,8 +44,8 @@ python -m cortex.server
 ## Step 3: Run Tests
 
 ```bash
-# All tests (3,660+ pass)
-python -m pytest tests/ -q
+# CI-equivalent non-browser tests (known blockers below; not currently green)
+python -m pytest tests/ -q -m "not browser" --ignore=tests/test_ui_browser.py
 
 # Specific module
 python -m pytest tests/test_pipeline.py -v
@@ -52,15 +54,27 @@ python -m pytest tests/test_pipeline.py -v
 python -m pytest tests/test_pipeline.py -k "test_instant_answer" -v
 ```
 
-Known pre-existing failures (not regressions):
-- `tests/test_wyoming.py` — 4-9 failures (Wyoming protocol attribute issues)
-- `tests/test_voice.py::TestOrpheusTTSProvider::test_init_defaults` — port mismatch
-- `tests/test_voice.py::TestSpeechEndpoint::test_list_voices` — needs live Kokoro
-- `tests/test_satellite.py::TestProvisioning::test_provision_config` — SSID mismatch
+Current evidence at software candidate `ad7d036f3`:
+- 240 final targeted checks passed; production Vite build and focused Chromium
+  reload/enrollment/lifecycle checks passed.
+- 10,000 durable turns: 1 MiB incremental RSS, one active inference, prefetch eight.
+- Broad clean-source evidence: 4,719 passed, four baseline failures, two skipped,
+  27 deselected and one collection error. That run continued after collection
+  errors for diagnosis; the standard CI command remains blocked.
+- The collection error is tracked coding code importing untracked
+  `cortex/tools/codex_pipeline.py`. Preserve the unrelated experimental work;
+  do not silently include it in household release commits.
+- Baseline failures: missing ownership header in `cortex/system/__init__.py`,
+  expression JSON eyebrows, and default/nick SVG eyebrows.
+- Docker execution, Python 3.11, legacy browser-suite requalification and physical
+  Pi/ReSpeaker/provider/NAS gates remain pending. Do not label the MVP complete.
+
+See `docs/mvp-release.md` for exact commands, scope and acceptance thresholds;
+`docs/mvp-recovery.md` documents offline-only restore and compatible rollback.
 
 ## Step 4: Understand Current State
 
-### Completed Parts (16 of 18 phases)
+### Historical Component Inventory (not household release qualification)
 - **Part 1**: Core Engine — 4-layer pipeline, providers, memory (HOT/COLD), safety, avatar, profiles, context, backup
 - **Part 2**: Integration — HA, discovery, voice pipeline, self-learning, knowledge (WebDAV/CalDAV), lists, offsite backup
 - **Part 2.5**: Satellite system (wake word deferred)
